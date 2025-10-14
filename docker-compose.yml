@@ -1,0 +1,15 @@
+services:
+  azure-proxy:
+    container_name: azure-proxy
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    image: azure-proxy:latest
+    restart: unless-stopped
+    ports:
+      - "${PROXY_PORT:-8000}:8000"
+    environment:
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+    volumes:
+      - ${CONFIG_PATH:-/DATA/Azure-Proxy/config/config.json}:/etc/azure-proxy/config.json:ro
+      - ${LOG_PATH:-/DATA/Azure-Proxy/logs}:/var/log/azure-proxy

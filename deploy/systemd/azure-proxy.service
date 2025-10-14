@@ -1,0 +1,19 @@
+[Unit]
+Description=Azure OpenAI Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=azureproxy
+Group=azureproxy
+WorkingDirectory=/opt/azure-proxy
+ExecStart=/opt/azure-proxy/bin/azure-proxy -config /etc/azure-proxy/config.json
+Restart=on-failure
+RestartSec=5s
+Environment=LOG_LEVEL=info
+
+# Ensure log directory exists and is writable by the service account.
+RuntimeDirectory=azure-proxy
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,97 @@
+# Azure OpenAI 代理
+
+本项目提供一个轻量级的 HTTP 代理，用于统一转发多个 Azure OpenAI 终端。代理负责集中管理凭据、请求路由、日志，以及基本的故障切换能力，使内部客户端在同一入口下即可访问全部 Azure 资源。
+
+## 功能特性
+- 基于 JSON 的配置文件，并支持管理接口触发热加载。
+- 按客户端令牌划分访问权限，可限定允许访问的 Azure 目标。
+- 使用结构化日志，支持文件轮转，兼顾控制台输出。
+- 具备智能目标选择机制，遇到网络错误会重试并触发静默窗口。
+- 管理接口提供健康检查、指标统计与配置重载。
+- 自带单元测试与集成测试脚本，便于本地验证。
+
+## 目录结构
+```
+cmd/proxy/           # 应用入口
+config/              # 配置样例与模板
+internal/            # 核心模块（auth、config、proxy、middleware、logging、admin）
+logs/                # 默认日志目录（已预留轮转能力）
+scripts/             # 辅助脚本
+test/integration/    # 集成测试（使用 -tags integration 运行）
+```
+
+## 环境要求
+- Go 1.22 及以上版本。
+- 可用的 Azure OpenAI 终端与 API Key。
+- 能够为内部客户端生成并分发访问令牌。
+
+## 快速上手
+1. 调整配置：
+   打开 `config/config.json` 并根据实际环境修改终端、API Key 及客户端信息。
+2. 构建二进制：
+   ```sh
+   make build
+   ```
+   可执行文件将生成在 `bin/azure-proxy`。
+3. 启动服务：
+   ```sh
+   ./bin/azure-proxy -config config/config.json
+   ```
+4. 使用客户端令牌发起请求：
+   ```sh
+   curl -H "Authorization: Bearer <client-token>" \
+        http://localhost:8080/v1/chat/completions
+   ```
+
+## 配置说明
+`config/config.json` 中的关键字段：
+
+- `server`：监听地址、对外基址、超时时间、请求体大小限制。
+- `azure_targets`：Azure 终端列表及对应 API Key，顺序决定主备优先级。
+- `clients`：客户端访问令牌与可访问目标；`allowed_targets` 为空时表示放通所有目标。
+- `logging`：日志等级及文件路径，轮转策略由 `internal/logging` 统一处理。
+
+管理端支持热加载：
+```sh
+curl -X POST -H "Authorization: Bearer <admin-token>" \
+     http://localhost:8080/admin/config/reload
+```
+
+## 日志
+默认输出位置为 `logs/access.log` 与 `logs/error.log`。可在配置文件中调整路径或轮转策略，确保满足部署环境的磁盘与合规要求。
+
+## 管理接口
+所有管理接口均需携带合法的客户端令牌（建议单独配置运维令牌）：
+
+| 接口路径              | 方法 | 说明                         |
+|-----------------------|------|------------------------------|
+| `/admin/healthz`      | GET  | 返回目标状态、静默窗口、统计 |
+| `/admin/metrics`      | GET  | 聚合请求计数与当前运行指标   |
+| `/admin/config/reload`| POST | 从磁盘重新加载配置           |
+
+## 测试
+- 运行单元测试：
+  ```sh
+  make test
+  ```
+- 带静默切换场景的集成测试：
+  ```sh
+  ./scripts/run-integration-tests.sh
+  # 或 PowerShell
+  ./scripts/run-integration-tests.ps1
+  ```
+
+## 部署提示
+- 参考 `deploy/systemd/azure-proxy.service` 的 systemd 模板进行进程托管。
+- 确认运行账号具备读取配置、写入日志的权限。
+- 上线前按照 `docs/operations.md` 的检查清单核对环境。
+- 若在容器环境部署，请参考 `docs/docker-deploy.md`。
+
+## 常见问题与排查
+- 配置或上游错误可在 `logs/error.log` 中查看详情。
+- `/admin/healthz` 可用来确认目标是否被静默、故障切换是否生效。
+- 若收到 403，检查客户端令牌与 `allowed_targets` 是否匹配。
+
+## 补充文档
+- `docs/api-contract.md`：接口契约与错误码说明。
+- `docs/internal-training.md`：团队内部培训大纲。
