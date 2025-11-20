@@ -22,7 +22,6 @@ type Config struct {
 type ServerConfig struct {
 	Bind                  string `json:"bind"`
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
-	MaxRequestBodyBytes   int64  `json:"max_request_body_bytes"`
 }
 
 // AzureTarget represents one Azure OpenAI endpoint.
@@ -150,10 +149,6 @@ func (c *Config) Validate() error {
 
 	if c.Server.RequestTimeoutSeconds <= 0 {
 		problems = append(problems, "server.request_timeout_seconds must be greater than zero")
-	}
-
-	if c.Server.MaxRequestBodyBytes <= 0 {
-		problems = append(problems, "server.max_request_body_bytes must be greater than zero")
 	}
 
 	if len(c.AzureTargets) == 0 {

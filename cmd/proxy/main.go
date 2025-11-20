@@ -68,7 +68,6 @@ func main() {
 	router.Use(appmiddleware.RequestID())
 	router.Use(appmiddleware.Recoverer(appLogger))
 	router.Use(appmiddleware.AccessLogger(logManager.Access()))
-	router.Use(appmiddleware.MaxBodyBytes(cfg.Server.MaxRequestBodyBytes))
 
 	router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

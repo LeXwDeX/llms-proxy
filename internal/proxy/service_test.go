@@ -47,7 +47,6 @@ func TestServiceFailoverOnTransportError(t *testing.T) {
 		Server: config.ServerConfig{
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
-			MaxRequestBodyBytes:   1 << 20,
 		},
 		AzureTargets: []config.AzureTarget{
 			{
@@ -140,7 +139,6 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 		Server: config.ServerConfig{
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
-			MaxRequestBodyBytes:   1024,
 		},
 		AzureTargets: []config.AzureTarget{
 			{

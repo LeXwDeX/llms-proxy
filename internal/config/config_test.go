@@ -11,7 +11,6 @@ func TestConfigValidateSuccess(t *testing.T) {
 		Server: ServerConfig{
 			Bind:                  "127.0.0.1:8080",
 			RequestTimeoutSeconds: 30,
-			MaxRequestBodyBytes:   1024,
 		},
 		AzureTargets: []AzureTarget{{
 			Name:               "primary",
@@ -52,7 +51,6 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 		Server: ServerConfig{
 			Bind:                  "0.0.0.0:8080",
 			RequestTimeoutSeconds: 15,
-			MaxRequestBodyBytes:   2048,
 		},
 		AzureTargets: []AzureTarget{{
 			Name:               "primary",
@@ -98,8 +96,7 @@ func TestLoadReadsFile(t *testing.T) {
 	content := `{
 		"server":{
 			"bind":"0.0.0.0:8080",
-			"request_timeout_seconds":10,
-			"max_request_body_bytes":1024
+			"request_timeout_seconds":10
 		},
 		"azure_targets":[{
 			"name":"primary",

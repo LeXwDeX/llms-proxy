@@ -78,22 +78,6 @@ func AccessLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// MaxBodyBytes caps the maximum request body size using http.MaxBytesReader.
-func MaxBodyBytes(limit int64) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		if limit <= 0 {
-			return next
-		}
-
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Body != nil {
-				r.Body = http.MaxBytesReader(w, r.Body, limit)
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // RequestIDFromContext retrieves the request ID if available.
 func RequestIDFromContext(ctx context.Context) string {
 	if ctx == nil {

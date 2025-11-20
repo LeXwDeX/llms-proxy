@@ -11,5 +11,6 @@ services:
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
     volumes:
-      - ${CONFIG_PATH:-/DATA/Azure-Proxy/config/config.json}:/etc/azure-proxy/config.json:ro
-      - ${LOG_PATH:-/DATA/Azure-Proxy/logs}:/var/log/azure-proxy
+      - ${CONFIG_PATH:-/DATA/AppData/azure_proxy/config/config.json}:/etc/azure-proxy/config.json:ro
+      - ${LOG_PATH:-/DATA/AppData/azure_proxy/logs}:/var/log/azure-proxy
+      
