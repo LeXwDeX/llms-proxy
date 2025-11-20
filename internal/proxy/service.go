@@ -504,7 +504,9 @@ func (s *Service) writeResponse(
 	}
 
 	writer := newStreamingWriter(w)
-	if _, err := io.Copy(writer, resp.Body); err != nil && !errors.Is(err, context.Canceled) {
+	if _, err := io.Copy(writer, resp.Body); err != nil &&
+		!errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
 		s.logger.Warn("stream copy failed",
 			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
 			"target", targetName(target),
