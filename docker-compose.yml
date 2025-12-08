@@ -7,10 +7,11 @@ services:
     image: azure-proxy:latest
     restart: unless-stopped
     ports:
-      - "${PROXY_PORT:-8000}:8000"
+      - "${PROXY_PORT:-8000}:${PROXY_PORT:-8000}"
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+      SERVER_BIND: "0.0.0.0:${PROXY_PORT:-8000}"
     volumes:
-      - ${CONFIG_PATH:-/DATA/AppData/azure_proxy/config/config.json}:/etc/azure-proxy/config.json:ro
+      - ${CONFIG_DIR:-/DATA/AppData/azure_proxy/config}:/etc/azure-proxy:ro
       - ${LOG_PATH:-/DATA/AppData/azure_proxy/logs}:/var/log/azure-proxy
       

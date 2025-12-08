@@ -49,7 +49,7 @@ The repository includes a ready-to-use compose file at `docker-compose.yml` and 
 1. Prepare environment variables (optional):
    ```sh
    cp .env.example .env
-   # Edit .env to point CONFIG_PATH / LOG_PATH to your host directories.
+   # Edit .env to point CONFIG_DIR / LOG_PATH to your host directories and set PROXY_PORT if needed.
    ```
 2. Build the image with compose:
    ```sh
@@ -70,8 +70,10 @@ The repository includes a ready-to-use compose file at `docker-compose.yml` and 
    docker compose down
    ```
 
+Ensure the directory referenced by `CONFIG_DIR` contains the `config.json` file so `/etc/azure-proxy/config.json` resolves inside the container. `PROXY_PORT` updates both the published port and the container's `SERVER_BIND`, so startup logs reflect the client-facing port.
+
 ## 5. Operational Notes
-- The container runs as a non-root user (`azureproxy`) and exposes port `8000`.
+- The container runs as a non-root user (`azureproxy`) and exposes the `PROXY_PORT` value (default `8000`).
 - Configure log rotation on the host if `/var/log/azure-proxy` grows quickly, or change the log paths in the mounted `config.json`.
 - Use the admin API (`/admin/healthz`, `/admin/metrics`, `/admin/config/reload`) the same way as the bare-metal deployment. Tokens are identical.
 - To upgrade: `docker pull ycgame/azure-proxy:<tag>` and redeploy; no state is stored inside the container.

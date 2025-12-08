@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -44,10 +45,20 @@ func main() {
 		}
 	}()
 
+	configBind := strings.TrimSpace(cfg.Server.Bind)
+	if configBind == "" {
+		configBind = "0.0.0.0:8000"
+	}
+	bindAddr := configBind
+	if envBind := strings.TrimSpace(os.Getenv("SERVER_BIND")); envBind != "" {
+		bindAddr = envBind
+	}
+
 	appLogger := logManager.App()
 	appLogger.Info("configuration loaded",
 		"config_path", *configPath,
-		"bind", cfg.Server.Bind,
+		"config_bind", configBind,
+		"effective_bind", bindAddr,
 		"azure_targets", len(cfg.AzureTargets),
 		"clients", len(cfg.Clients),
 	)
@@ -91,7 +102,7 @@ func main() {
 	router.Mount("/", protected)
 
 	server := &http.Server{
-		Addr:              cfg.Server.Bind,
+		Addr:              bindAddr,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second,
@@ -99,7 +110,7 @@ func main() {
 		IdleTimeout:       90 * time.Second,
 	}
 
-	appLogger.Info("http server starting", "addr", cfg.Server.Bind)
+	appLogger.Info("http server starting", "addr", bindAddr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		appLogger.Error("http server stopped unexpectedly", "error", err)
 		os.Exit(1)
