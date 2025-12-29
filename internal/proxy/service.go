@@ -71,6 +71,7 @@ type Service struct {
 
 	metrics   requestMetrics
 	startTime time.Time
+	rrCounter atomic.Uint64
 }
 
 // Target represents an Azure endpoint with runtime metadata.
@@ -300,10 +301,17 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	attempted := make(map[string]struct{})
 	attempt := 0
+	model := strings.ToLower(extractModel(r, bodyBytes))
+	if model == "" && s.anyTargetRequiresModel() {
+		http.Error(w, "model required when allowed_models are configured", http.StatusBadRequest)
+		s.metrics.totalFailures.Add(1)
+		requestOutcomeRecorded = true
+		return
+	}
 
 	for {
 		attempt++
-		state, err := s.selectTarget(principal, requestedLower, allowed, attempted, time.Now())
+		state, err := s.selectTarget(principal, requestedLower, allowed, attempted, model, time.Now())
 		if err != nil {
 			var selErr *selectionError
 			if errors.As(err, &selErr) {
@@ -588,6 +596,7 @@ func (s *Service) selectTarget(
 	requestedLower string,
 	allowed map[string]struct{},
 	attempted map[string]struct{},
+	model string,
 	now time.Time,
 ) (*targetState, error) {
 	if requestedLower != "" {
@@ -598,6 +607,9 @@ func (s *Service) selectTarget(
 		if !ok {
 			return nil, newSelectionError(http.StatusBadRequest, "unknown target")
 		}
+		if !modelAllowed(state.Target(), model) {
+			return nil, newSelectionError(http.StatusBadRequest, fmt.Sprintf("model %q not allowed for target %q", model, state.Target().Name))
+		}
 		if _, tried := attempted[strings.ToLower(state.Target().Name)]; tried {
 			return nil, newSelectionError(http.StatusServiceUnavailable, "requested target already attempted")
 		}
@@ -607,7 +619,7 @@ func (s *Service) selectTarget(
 		return state, nil
 	}
 
-	candidate, mutedCandidate := s.findAvailableTarget(allowed, attempted, now)
+	candidate, mutedCandidate := s.findAvailableTargetWithModel(allowed, attempted, model, now)
 	if candidate != nil {
 		return candidate, nil
 	}
@@ -618,6 +630,10 @@ func (s *Service) selectTarget(
 
 	if len(attempted) > 0 {
 		return nil, newSelectionError(http.StatusBadGateway, "no alternative target available")
+	}
+
+	if model != "" {
+		return nil, newSelectionError(http.StatusBadRequest, "model not supported by any target")
 	}
 
 	return nil, newSelectionError(http.StatusBadGateway, "no target available")
@@ -767,6 +783,37 @@ func mergePaths(prefix, path string) string {
 	return strings.TrimRight(prefix, "/") + "/" + strings.TrimLeft(path, "/")
 }
 
+func modelAllowed(t *Target, model string) bool {
+	if t == nil {
+		return false
+	}
+	if len(t.AllowedModels) == 0 {
+		return true
+	}
+	if model == "" {
+		return false
+	}
+	for _, m := range t.AllowedModels {
+		if strings.EqualFold(m, model) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) anyTargetRequiresModel() bool {
+	snapshot := s.targetSnapshot()
+	for _, state := range snapshot {
+		if state == nil || state.Target() == nil {
+			continue
+		}
+		if len(state.Target().AllowedModels) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) ensureModelAllowed(target *Target, r *http.Request, body []byte) error {
 	if target == nil || len(target.AllowedModels) == 0 {
 		return nil
@@ -776,10 +823,8 @@ func (s *Service) ensureModelAllowed(target *Target, r *http.Request, body []byt
 	if model == "" {
 		return errors.New("model required when allowed_models is configured")
 	}
-	for _, allowed := range target.AllowedModels {
-		if model == allowed {
-			return nil
-		}
+	if modelAllowed(target, model) {
+		return nil
 	}
 	return fmt.Errorf("model %q not allowed for target %q", model, target.Name)
 }
@@ -844,9 +889,21 @@ func normalizeAllowed(list []string) map[string]struct{} {
 }
 
 func (s *Service) findAvailableTarget(allowed map[string]struct{}, attempted map[string]struct{}, now time.Time) (*targetState, *targetState) {
+	return s.findAvailableTargetWithModel(allowed, attempted, "", now)
+}
+
+func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, attempted map[string]struct{}, model string, now time.Time) (*targetState, *targetState) {
 	var mutedCandidate *targetState
 	snapshot := s.targetSnapshot()
-	for _, state := range snapshot {
+	if len(snapshot) == 0 {
+		return nil, nil
+	}
+	start := int(s.rrCounter.Add(1)-1) % len(snapshot)
+	for i := 0; i < len(snapshot); i++ {
+		state := snapshot[(start+i)%len(snapshot)]
+		if state == nil || state.Target() == nil {
+			continue
+		}
 		name := strings.ToLower(state.Target().Name)
 		if attempted != nil {
 			if _, seen := attempted[name]; seen {
@@ -857,6 +914,9 @@ func (s *Service) findAvailableTarget(allowed map[string]struct{}, attempted map
 			if _, ok := allowed[name]; !ok {
 				continue
 			}
+		}
+		if !modelAllowed(state.Target(), model) {
+			continue
 		}
 
 		if !state.IsMuted(now) {

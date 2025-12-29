@@ -465,6 +465,210 @@ func TestServiceOverridesAPIVersion(t *testing.T) {
 	}
 }
 
+func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
+	target1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Target", "t1")
+	}))
+	defer target1.Close()
+	target2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Target", "t2")
+	}))
+	defer target2.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "t1",
+				Endpoint:           target1.URL,
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key1",
+				DefaultAPIVersion:  "2025-04-01-preview",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+			{
+				Name:               "t2",
+				Endpoint:           target2.URL,
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key2",
+				DefaultAPIVersion:  "2025-04-01-preview",
+				AllowedModels:      []string{"gpt-5.1"},
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-5.1","input":"hi"}`)
+	req := httptest.NewRequest(http.MethodPost, "/openai/deployments/gpt-5.1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("X-Azure-Target"); got != "t2" {
+		t.Fatalf("expected target t2, got %q", got)
+	}
+}
+
+func TestServiceReturnsErrorWhenModelMissingAndAllowlistsConfigured(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "t1",
+				Endpoint:           "http://example.com",
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key1",
+				DefaultAPIVersion:  "2025-04-01-preview",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/openai/v1/chat/completions", bytes.NewBufferString(`{}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
+	counts := map[string]int{}
+	makeServer := func(name string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			counts[name]++
+			w.WriteHeader(http.StatusOK)
+		}))
+	}
+	s1 := makeServer("t1")
+	defer s1.Close()
+	s2 := makeServer("t2")
+	defer s2.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "t1",
+				Endpoint:           s1.URL,
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key1",
+				DefaultAPIVersion:  "2025-04-01-preview",
+				AllowedModels:      []string{"gpt-5.1"},
+			},
+			{
+				Name:               "t2",
+				Endpoint:           s2.URL,
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key2",
+				DefaultAPIVersion:  "2025-04-01-preview",
+				AllowedModels:      []string{"gpt-5.1"},
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	for i := 0; i < 6; i++ {
+		body := bytes.NewBufferString(`{"model":"gpt-5.1","input":"hi"}`)
+		req := httptest.NewRequest(http.MethodPost, "/openai/deployments/gpt-5.1/chat/completions", body)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+	}
+
+	if counts["t1"] == 0 || counts["t2"] == 0 {
+		t.Fatalf("expected both targets to receive traffic, got %+v", counts)
+	}
+	if diff := counts["t1"] - counts["t2"]; diff < -2 || diff > 2 {
+		t.Fatalf("expected roughly balanced distribution, got %+v", counts)
+	}
+}
+
 func newTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))
 }

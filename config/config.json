@@ -5,22 +5,52 @@
   },
   "azure_targets": [
     {
-      "name": "primary-eastus",
-      "endpoint": "https://<primary-resource>.openai.azure.com",
+      "name": "Canada East",
+      "endpoint": "https://yc-east-ca-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "<PRIMARY_AZURE_API_KEY>",
+      "azure_api_key": "REDACTED_KEY_5",
       "allowed_models": [
-        "gpt-4o"
+        "gpt-5"
       ],
       "default_api_version": "2025-04-01-preview"
     },
     {
-      "name": "secondary-westus",
-      "endpoint": "https://<secondary-resource>.openai.azure.com",
+      "name": "East US 2",
+      "endpoint": "https://yc-east2-us-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "<SECONDARY_AZURE_API_KEY>",
+      "azure_api_key": "REDACTED_KEY_6",
       "allowed_models": [
-        "gpt-4o"
+        "gpt-5",
+        "gpt-5-chat",
+        "gpt-5-codex",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-5.1",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-mini",
+        "text-embedding-3-large"
+      ],
+      "default_api_version": "2025-04-01-preview"
+    },
+    {
+      "name": "North Central US",
+      "endpoint": "https://yc-north-us-gpt.openai.azure.com/",
+      "resource_path_prefix": "/openai",
+      "azure_api_key": "REDACTED_KEY_2",
+      "allowed_models": [
+        "tts",
+        "tts-hd",
+        "whisper"
+      ],
+      "default_api_version": "2025-04-01-preview"
+    },
+    {
+      "name": "West US 3",
+      "endpoint": "https://yc-primary-eastus-gpt.openai.azure.com/",
+      "resource_path_prefix": "/openai",
+      "azure_api_key": "REDACTED_KEY_7",
+      "allowed_models": [
+        "gpt-image-1"
       ],
       "default_api_version": "2025-04-01-preview"
     }
@@ -28,15 +58,13 @@
   "clients": [
     {
       "name": "operations",
-      "access_key": "<MANAGEMENT_TOKEN>",
+      "access_key": "token1",
       "allowed_targets": []
     },
     {
       "name": "team-alpha",
-      "access_key": "<TEAM_ALPHA_TOKEN>",
-      "allowed_targets": [
-        "primary-eastus"
-      ]
+      "access_key": "token2",
+      "allowed_targets": []
     }
   ],
   "logging": {

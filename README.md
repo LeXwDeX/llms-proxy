@@ -48,7 +48,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 
 - `server`：监听地址、对外基址、超时时间、请求体大小限制。
 - `azure_targets`：Azure 终端列表及对应 API Key，顺序决定主备优先级。
-- `clients`：客户端访问令牌与可访问目标；`allowed_targets` 为空时表示放通所有目标。
+- `clients`：客户端访问令牌与可访问目标；`allowed_targets` 为空时表示放通所有目标。客户端请求必须在 Header 中携带 `Authorization: Bearer <access_key>` 才能通过代理鉴权。
 - `logging`：日志等级及文件路径，轮转策略由 `internal/logging` 统一处理。
 
 管理端支持热加载：
