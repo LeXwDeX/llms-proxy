@@ -1,20 +1,28 @@
 {
   "server": {
     "bind": "0.0.0.0:8000",
-    "request_timeout_seconds": 60
+    "request_timeout_seconds": 300
   },
   "azure_targets": [
     {
       "name": "primary-eastus",
       "endpoint": "https://<primary-resource>.openai.azure.com",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "<PRIMARY_AZURE_API_KEY>"
+      "azure_api_key": "<PRIMARY_AZURE_API_KEY>",
+      "allowed_models": [
+        "gpt-4o"
+      ],
+      "default_api_version": "2025-04-01-preview"
     },
     {
       "name": "secondary-westus",
       "endpoint": "https://<secondary-resource>.openai.azure.com",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "<SECONDARY_AZURE_API_KEY>"
+      "azure_api_key": "<SECONDARY_AZURE_API_KEY>",
+      "allowed_models": [
+        "gpt-4o"
+      ],
+      "default_api_version": "2025-04-01-preview"
     }
   ],
   "clients": [
@@ -26,7 +34,9 @@
     {
       "name": "team-alpha",
       "access_key": "<TEAM_ALPHA_TOKEN>",
-      "allowed_targets": ["primary-eastus"]
+      "allowed_targets": [
+        "primary-eastus"
+      ]
     }
   ],
   "logging": {

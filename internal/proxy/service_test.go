@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,7 +22,7 @@ type failingTransport struct {
 
 func (t *failingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Host == "primary.local" {
-		return nil, context.DeadlineExceeded
+		return nil, fmt.Errorf("dial error")
 	}
 	if strings.Contains(req.URL.Host, t.successHost) {
 		return http.DefaultTransport.RoundTrip(req)
@@ -54,12 +53,14 @@ func TestServiceFailoverOnTransportError(t *testing.T) {
 				Endpoint:           "http://primary.local",
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "primary-key",
+				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 			{
 				Name:               "secondary",
 				Endpoint:           success.URL,
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "secondary-key",
+				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 		},
 		Clients: []config.Client{{
@@ -146,12 +147,14 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 				Endpoint:           "http://primary.local",
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "key",
+				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 			{
 				Name:               "secondary",
 				Endpoint:           "http://secondary.local",
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "key2",
+				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 		},
 		Clients: []config.Client{{
@@ -189,6 +192,276 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 status, got %d", rr.Code)
+	}
+}
+
+func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer slow.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 1,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "slow",
+				Endpoint:           slow.URL,
+				ResourcePathPrefix: "/",
+				AzureAPIKey:        "key",
+				DefaultAPIVersion:  "2025-04-01-preview",
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	service.requestTimeout = 50 * time.Millisecond
+	service.quietPeriod = 10 * time.Millisecond
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 due to timeout, got %d", rr.Code)
+	}
+
+	metrics := service.MetricsSnapshot()
+	if metrics.TotalRetries != 0 {
+		t.Fatalf("expected no retries on timeout, got %d", metrics.TotalRetries)
+	}
+
+	statuses := service.TargetStatuses(time.Now())
+	for _, st := range statuses {
+		if st.Name == "slow" && st.Muted {
+			t.Fatalf("expected target not to be muted on timeout")
+		}
+	}
+}
+
+func TestServiceAllowsBearerPassthrough(t *testing.T) {
+	const bearerHeader = "Bearer azure-token"
+	var seenAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		if seenAuth == "" {
+			http.Error(w, "missing auth", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "bearer",
+				Endpoint:           upstream.URL,
+				ResourcePathPrefix: "/",
+				AllowBearer:        true,
+				DefaultAPIVersion:  "2025-04-01-preview",
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{}`))
+	req.Header.Set(headerAzureAuthorization, bearerHeader)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		body, _ := io.ReadAll(rr.Body)
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, string(body))
+	}
+	if seenAuth != bearerHeader {
+		t.Fatalf("expected upstream auth %q, got %q", bearerHeader, seenAuth)
+	}
+}
+
+func TestServiceRejectsDisallowedModel(t *testing.T) {
+	upstreamCalled := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "restricted",
+				Endpoint:           upstream.URL,
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key",
+				DefaultAPIVersion:  "2025-04-01-preview",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-3.5","input":"hi"}`)
+	req := httptest.NewRequest(http.MethodPost, "/openai/v1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	if upstreamCalled {
+		t.Fatalf("expected request not to reach upstream")
+	}
+}
+
+func TestServiceOverridesAPIVersion(t *testing.T) {
+	var seenVersion string
+	var seenOther string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		seenVersion = q.Get("api-version")
+		seenOther = q.Get("other")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "primary",
+				Endpoint:           upstream.URL,
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key",
+				DefaultAPIVersion:  "2025-04-01-preview",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/openai/deployments/gpt-4o/chat/completions?api-version=foo&other=yes", bytes.NewBufferString(`{}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if seenVersion != "2025-04-01-preview" {
+		t.Fatalf("expected api-version override, got %q", seenVersion)
+	}
+	if seenOther != "yes" {
+		t.Fatalf("expected other query param preserved, got %q", seenOther)
 	}
 }
 

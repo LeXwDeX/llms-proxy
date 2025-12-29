@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,7 +22,8 @@ import (
 )
 
 const (
-	headerProxyTarget = "X-Proxy-Target"
+	headerProxyTarget        = "X-Proxy-Target"
+	headerAzureAuthorization = "X-Azure-Authorization"
 )
 
 var hopHeaders = map[string]struct{}{
@@ -77,6 +79,9 @@ type Target struct {
 	Endpoint           *url.URL
 	ResourcePathPrefix string
 	APIKey             string
+	AllowBearer        bool
+	AllowedModels      []string
+	DefaultAPIVersion  string
 }
 
 type requestMetrics struct {
@@ -136,7 +141,7 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 	}
 
 	if service.requestTimeout <= 0 {
-		service.requestTimeout = 60 * time.Second
+		service.requestTimeout = 300 * time.Second
 	}
 
 	if err := service.ApplyConfig(cfg); err != nil {
@@ -174,7 +179,7 @@ func (s *Service) ApplyConfig(cfg *config.Config) error {
 
 	timeout := time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second
 	if timeout <= 0 {
-		timeout = 60 * time.Second
+		timeout = 300 * time.Second
 	}
 
 	s.mu.Lock()
@@ -189,6 +194,18 @@ func (s *Service) ApplyConfig(cfg *config.Config) error {
 func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, []*targetState, error) {
 	if len(targets) == 0 {
 		return nil, nil, errors.New("proxy: no azure targets configured")
+	}
+
+	normalizeModels := func(list []string) []string {
+		normalized := make([]string, 0, len(list))
+		for _, m := range list {
+			m = strings.ToLower(strings.TrimSpace(m))
+			if m == "" {
+				continue
+			}
+			normalized = append(normalized, m)
+		}
+		return normalized
 	}
 
 	parsed := make(map[string]*targetState, len(targets))
@@ -207,12 +224,18 @@ func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, [
 			Endpoint:           endpoint,
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
 			APIKey:             strings.TrimSpace(t.AzureAPIKey),
+			AllowBearer:        t.AllowBearer,
+			AllowedModels:      normalizeModels(t.AllowedModels),
+			DefaultAPIVersion:  strings.TrimSpace(t.DefaultAPIVersion),
 		}
 		if info.Name == "" {
 			return nil, nil, fmt.Errorf("proxy: target name at index %d must not be empty", idx)
 		}
-		if info.APIKey == "" {
-			return nil, nil, fmt.Errorf("proxy: target %q missing azure_api_key", info.Name)
+		if info.APIKey == "" && !info.AllowBearer {
+			return nil, nil, fmt.Errorf("proxy: target %q missing azure_api_key and bearer passthrough not enabled", info.Name)
+		}
+		if info.DefaultAPIVersion == "" {
+			return nil, nil, fmt.Errorf("proxy: target %q missing default_api_version", info.Name)
 		}
 
 		nameKey := strings.ToLower(info.Name)
@@ -302,6 +325,13 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		target := state.Target()
 		if target == nil {
 			http.Error(w, "target unavailable", http.StatusBadGateway)
+			s.metrics.totalFailures.Add(1)
+			requestOutcomeRecorded = true
+			return
+		}
+
+		if err := s.ensureModelAllowed(target, r, bodyBytes); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			s.metrics.totalFailures.Add(1)
 			requestOutcomeRecorded = true
 			return
@@ -398,6 +428,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	}
 
+	azureAuth := strings.TrimSpace(r.Header.Get(headerAzureAuthorization))
 	forwardURL, err := s.buildURL(target, r.URL)
 	if err != nil {
 		return nil, nil, &forwardAttemptError{
@@ -436,15 +467,32 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	copyHeaders(req.Header, r.Header)
 	req.Header.Del("Authorization")
 	req.Header.Del(headerProxyTarget)
-	req.Header.Set("api-key", target.APIKey)
+	req.Header.Del(headerAzureAuthorization)
+	req.Header.Del("api-key")
+
+	useBearer := target.AllowBearer && azureAuth != ""
+	if useBearer {
+		req.Header.Set("Authorization", azureAuth)
+	} else {
+		if target.APIKey == "" {
+			cancel()
+			return nil, nil, &forwardAttemptError{
+				status:    http.StatusBadRequest,
+				retryable: false,
+				err:       errors.New("proxy: missing azure credential; provide api key or X-Azure-Authorization"),
+			}
+		}
+		req.Header.Set("api-key", target.APIKey)
+	}
 	req.Host = target.Endpoint.Host
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		cancel()
+		retryable := !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)
 		return nil, nil, &forwardAttemptError{
 			status:    classifyTransportError(err),
-			retryable: true,
+			retryable: retryable,
 			err:       err,
 		}
 	}
@@ -655,7 +703,11 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	if err != nil {
 		return nil, err
 	}
-	forward.RawQuery = original.RawQuery
+	query := original.Query()
+	if target.DefaultAPIVersion != "" {
+		query.Set("api-version", target.DefaultAPIVersion)
+	}
+	forward.RawQuery = query.Encode()
 	return forward, nil
 }
 
@@ -713,6 +765,49 @@ func mergePaths(prefix, path string) string {
 		return path
 	}
 	return strings.TrimRight(prefix, "/") + "/" + strings.TrimLeft(path, "/")
+}
+
+func (s *Service) ensureModelAllowed(target *Target, r *http.Request, body []byte) error {
+	if target == nil || len(target.AllowedModels) == 0 {
+		return nil
+	}
+
+	model := strings.ToLower(extractModel(r, body))
+	if model == "" {
+		return errors.New("model required when allowed_models is configured")
+	}
+	for _, allowed := range target.AllowedModels {
+		if model == allowed {
+			return nil
+		}
+	}
+	return fmt.Errorf("model %q not allowed for target %q", model, target.Name)
+}
+
+func extractModel(r *http.Request, body []byte) string {
+	if r == nil {
+		return ""
+	}
+
+	path := strings.ToLower(r.URL.Path)
+	const deploymentsSegment = "/deployments/"
+	if idx := strings.Index(path, deploymentsSegment); idx >= 0 {
+		after := path[idx+len(deploymentsSegment):]
+		if slash := strings.Index(after, "/"); slash >= 0 {
+			after = after[:slash]
+		}
+		return strings.TrimSpace(after)
+	}
+
+	if len(body) > 0 {
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err == nil {
+			if m, ok := payload["model"].(string); ok {
+				return strings.TrimSpace(m)
+			}
+		}
+	}
+	return ""
 }
 
 type streamingWriter struct {

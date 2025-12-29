@@ -8,7 +8,11 @@
       "name": "local-mock",
       "endpoint": "http://127.0.0.1:28080",
       "resource_path_prefix": "/",
-      "azure_api_key": "dummy"
+      "azure_api_key": "dummy",
+      "allowed_models": [
+        "gpt-4o"
+      ],
+      "default_api_version": "2025-04-01-preview"
     }
   ],
   "clients": [

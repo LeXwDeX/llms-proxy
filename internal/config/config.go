@@ -26,10 +26,13 @@ type ServerConfig struct {
 
 // AzureTarget represents one Azure OpenAI endpoint.
 type AzureTarget struct {
-	Name               string `json:"name"`
-	Endpoint           string `json:"endpoint"`
-	ResourcePathPrefix string `json:"resource_path_prefix"`
-	AzureAPIKey        string `json:"azure_api_key"`
+	Name               string   `json:"name"`
+	Endpoint           string   `json:"endpoint"`
+	ResourcePathPrefix string   `json:"resource_path_prefix"`
+	AzureAPIKey        string   `json:"azure_api_key"`
+	AllowBearer        bool     `json:"allow_bearer_passthrough"`
+	AllowedModels      []string `json:"allowed_models"`
+	DefaultAPIVersion  string   `json:"default_api_version"`
 }
 
 // Client describes a consumer and its access rights.
@@ -166,8 +169,16 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(target.ResourcePathPrefix) == "" {
 			problems = append(problems, prefix+" resource_path_prefix must not be empty")
 		}
-		if strings.TrimSpace(target.AzureAPIKey) == "" {
-			problems = append(problems, prefix+" azure_api_key must not be empty")
+		if strings.TrimSpace(target.AzureAPIKey) == "" && !target.AllowBearer {
+			problems = append(problems, prefix+" azure_api_key must not be empty when allow_bearer_passthrough is false")
+		}
+		if strings.TrimSpace(target.DefaultAPIVersion) == "" {
+			problems = append(problems, prefix+" default_api_version must not be empty")
+		}
+		for j, m := range target.AllowedModels {
+			if strings.TrimSpace(m) == "" {
+				problems = append(problems, fmt.Sprintf("%s allowed_models[%d] must not be empty", prefix, j))
+			}
 		}
 	}
 
@@ -206,7 +217,12 @@ func (c *Config) Clone() *Config {
 	clone := *c
 	if len(c.AzureTargets) > 0 {
 		clone.AzureTargets = make([]AzureTarget, len(c.AzureTargets))
-		copy(clone.AzureTargets, c.AzureTargets)
+		for i := range c.AzureTargets {
+			clone.AzureTargets[i] = c.AzureTargets[i]
+			if len(c.AzureTargets[i].AllowedModels) > 0 {
+				clone.AzureTargets[i].AllowedModels = append([]string(nil), c.AzureTargets[i].AllowedModels...)
+			}
+		}
 	}
 
 	if len(c.Clients) > 0 {
