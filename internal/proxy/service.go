@@ -299,6 +299,13 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if handled := s.maybeHandleLocalList(w, r); handled {
+		requestOutcomeRecorded = true
+		s.metrics.totalSuccess.Add(1)
+		s.metrics.activeRequests.Add(-1)
+		return
+	}
+
 	attempted := make(map[string]struct{})
 	attempt := 0
 	model := strings.ToLower(extractModel(r, bodyBytes))
@@ -835,6 +842,11 @@ func extractModel(r *http.Request, body []byte) string {
 		return ""
 	}
 
+	pathLower := strings.ToLower(r.URL.Path)
+	if isListEndpoint(pathLower) {
+		return ""
+	}
+
 	path := strings.ToLower(r.URL.Path)
 	const deploymentsSegment = "/deployments/"
 	if idx := strings.Index(path, deploymentsSegment); idx >= 0 {
@@ -891,6 +903,72 @@ func normalizeAllowed(list []string) map[string]struct{} {
 
 func (s *Service) findAvailableTarget(allowed map[string]struct{}, attempted map[string]struct{}, now time.Time) (*targetState, *targetState) {
 	return s.findAvailableTargetWithModel(allowed, attempted, "", now)
+}
+
+func isListEndpoint(path string) bool {
+	path = strings.ToLower(path)
+	return path == "/openai/deployments" || path == "/openai/models"
+}
+
+func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) bool {
+	if r == nil || r.Method != http.MethodGet {
+		return false
+	}
+	path := strings.ToLower(r.URL.Path)
+	if !isListEndpoint(path) {
+		return false
+	}
+
+	items := s.buildLocalDeployments()
+	resp := map[string]any{
+		"object": "list",
+		"data":   items,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Warn("failed to encode local list response",
+			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+			"error", err,
+		)
+		http.Error(w, "failed to build response", http.StatusInternalServerError)
+		return true
+	}
+	return true
+}
+
+func (s *Service) buildLocalDeployments() []map[string]any {
+	seen := make(map[string]struct{})
+	result := make([]map[string]any, 0)
+	snapshot := s.targetSnapshot()
+	for _, state := range snapshot {
+		if state == nil || state.Target() == nil {
+			continue
+		}
+		target := state.Target()
+		models := target.AllowedModels
+		if len(models) == 0 {
+			continue
+		}
+		for _, m := range models {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			key := strings.ToLower(m)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			result = append(result, map[string]any{
+				"object": "deployment",
+				"id":     m,
+				"model":  m,
+				// mimic Azure fields minimally; status hard-coded as succeeded
+				"status": "succeeded",
+			})
+		}
+	}
+	return result
 }
 
 func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, attempted map[string]struct{}, model string, now time.Time) (*targetState, *targetState) {
