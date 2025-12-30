@@ -928,16 +928,17 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 		requested = strings.TrimSpace(r.URL.Query().Get("target"))
 	}
 	if requested != "" {
+		requestedLower := strings.ToLower(requested)
 		principal, ok := auth.PrincipalFromContext(r.Context())
 		if !ok || principal == nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return true
 		}
-		if !principal.CanAccess(requested) {
+		if !principal.CanAccess(requestedLower) {
 			http.Error(w, "target not allowed", http.StatusForbidden)
 			return true
 		}
-		if _, exists := s.targetByName(requested); !exists {
+		if _, exists := s.targetByName(requestedLower); !exists {
 			http.Error(w, "unknown target", http.StatusBadRequest)
 			return true
 		}
