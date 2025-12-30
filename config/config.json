@@ -28,7 +28,10 @@
         "gpt-5.1",
         "gpt-5.1-codex",
         "gpt-5.1-codex-mini",
-        "text-embedding-3-large"
+        "gpt-5.1-codex-max",
+        "text-embedding-3-large",
+        "gpt-5.2",
+        "gpt-5.2-chat"
       ],
       "default_api_version": "2025-04-01-preview"
     },
