@@ -7,7 +7,7 @@ The proxy SHALL serve configured models for list endpoints instead of forwarding
 - **THEN** the proxy SHALL return an Azure-compatible list response built from configured models and SHALL NOT require a model or forward upstream.
 
 #### Scenario: List models
-- **WHEN** a client sends `GET /openai/models` (any api-version)
+- **WHEN** a client sends `GET /openai/models`, `GET /v1/models`, or `GET /models` (any api-version)
 - **THEN** the proxy SHALL return an Azure-compatible list response built from configured models and SHALL NOT require a model or forward upstream.
 
 #### Scenario: Include configured models

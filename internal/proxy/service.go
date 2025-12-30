@@ -908,7 +908,10 @@ func (s *Service) findAvailableTarget(allowed map[string]struct{}, attempted map
 
 func isListEndpoint(path string) bool {
 	path = strings.ToLower(path)
-	return path == "/openai/deployments" || path == "/openai/models"
+	return path == "/openai/deployments" ||
+		path == "/openai/models" ||
+		path == "/models" ||
+		path == "/v1/models"
 }
 
 func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) bool {
@@ -918,6 +921,26 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 	path := strings.ToLower(r.URL.Path)
 	if !isListEndpoint(path) {
 		return false
+	}
+
+	requested := strings.TrimSpace(r.Header.Get(headerProxyTarget))
+	if requested == "" {
+		requested = strings.TrimSpace(r.URL.Query().Get("target"))
+	}
+	if requested != "" {
+		principal, ok := auth.PrincipalFromContext(r.Context())
+		if !ok || principal == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return true
+		}
+		if !principal.CanAccess(requested) {
+			http.Error(w, "target not allowed", http.StatusForbidden)
+			return true
+		}
+		if _, exists := s.targetByName(requested); !exists {
+			http.Error(w, "unknown target", http.StatusBadRequest)
+			return true
+		}
 	}
 
 	items := s.buildLocalDeployments()

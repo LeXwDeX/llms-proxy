@@ -747,6 +747,7 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 }
 
 func TestServiceListsModelsLocally(t *testing.T) {
+	paths := []string{"/openai/models?api-version=ignored", "/v1/models?api-version=ignored", "/models"}
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Bind:                  "127.0.0.1:0",
@@ -783,25 +784,27 @@ func TestServiceListsModelsLocally(t *testing.T) {
 	}
 	principal, _ := store.Authenticate("token")
 
-	req := httptest.NewRequest(http.MethodGet, "/openai/models?api-version=ignored", nil)
-	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
-	rr := httptest.NewRecorder()
-	service.ServeHTTP(rr, req)
+	for _, p := range paths {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	var resp struct {
-		Data []struct {
-			ID    string `json:"id"`
-			Model string `json:"model"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-4o" {
-		t.Fatalf("unexpected data: %+v", resp.Data)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s expected 200, got %d", p, rr.Code)
+		}
+		var resp struct {
+			Data []struct {
+				ID    string `json:"id"`
+				Model string `json:"model"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("%s decode: %v", p, err)
+		}
+		if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-4o" {
+			t.Fatalf("%s unexpected data: %+v", p, resp.Data)
+		}
 	}
 }
 
