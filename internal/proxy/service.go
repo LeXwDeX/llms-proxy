@@ -720,6 +720,7 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 		return nil, err
 	}
 	query := original.Query()
+	query.Del("api-key")
 	if target.DefaultAPIVersion != "" {
 		query.Set("api-version", target.DefaultAPIVersion)
 	}

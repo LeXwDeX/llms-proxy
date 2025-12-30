@@ -53,17 +53,7 @@ func Middleware(store *Store, logger *slog.Logger) func(http.Handler) http.Handl
 }
 
 func authenticate(store *Store, r *http.Request) (*Principal, error) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return nil, ErrMissingAuthorization
-	}
-
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return nil, ErrMissingAuthorization
-	}
-
-	token := strings.TrimSpace(parts[1])
+	token := extractAccessKey(r)
 	if token == "" {
 		return nil, ErrMissingAuthorization
 	}
@@ -73,6 +63,28 @@ func authenticate(store *Store, r *http.Request) (*Principal, error) {
 		return nil, ErrInvalidCredential
 	}
 	return principal, nil
+}
+
+func extractAccessKey(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			token := strings.TrimSpace(parts[1])
+			if token != "" {
+				return token
+			}
+		}
+	}
+	if apiKey := strings.TrimSpace(r.Header.Get("api-key")); apiKey != "" {
+		return apiKey
+	}
+	if r.URL != nil {
+		if qKey := strings.TrimSpace(r.URL.Query().Get("api-key")); qKey != "" {
+			return qKey
+		}
+	}
+	return ""
 }
 
 var (
