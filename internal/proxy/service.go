@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -923,6 +924,25 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 	resp := map[string]any{
 		"object": "list",
 		"data":   items,
+		"first_id": func() string {
+			if len(items) == 0 {
+				return ""
+			}
+			if id, ok := items[0]["id"].(string); ok {
+				return id
+			}
+			return ""
+		}(),
+		"last_id": func() string {
+			if len(items) == 0 {
+				return ""
+			}
+			if id, ok := items[len(items)-1]["id"].(string); ok {
+				return id
+			}
+			return ""
+		}(),
+		"has_more": false,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -946,9 +966,6 @@ func (s *Service) buildLocalDeployments() []map[string]any {
 		}
 		target := state.Target()
 		models := target.AllowedModels
-		if len(models) == 0 {
-			continue
-		}
 		for _, m := range models {
 			m = strings.TrimSpace(m)
 			if m == "" {
@@ -960,14 +977,19 @@ func (s *Service) buildLocalDeployments() []map[string]any {
 			}
 			seen[key] = struct{}{}
 			result = append(result, map[string]any{
-				"object": "deployment",
-				"id":     m,
-				"model":  m,
-				// mimic Azure fields minimally; status hard-coded as succeeded
-				"status": "succeeded",
+				"object":          "deployment",
+				"id":              m,
+				"model":           m,
+				"status":          "succeeded",
+				"created_at":      time.Now().Unix(),
+				"deployed_tokens": nil,
 			})
 		}
 	}
+	// deterministic order
+	sort.Slice(result, func(i, j int) bool {
+		return strings.ToLower(result[i]["id"].(string)) < strings.ToLower(result[j]["id"].(string))
+	})
 	return result
 }
 

@@ -728,12 +728,21 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 			ID    string `json:"id"`
 			Model string `json:"model"`
 		} `json:"data"`
+		FirstID string `json:"first_id"`
+		LastID  string `json:"last_id"`
+		HasMore bool   `json:"has_more"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(resp.Data) != 3 {
 		t.Fatalf("expected 3 models, got %d", len(resp.Data))
+	}
+	if resp.HasMore {
+		t.Fatalf("expected has_more=false")
+	}
+	if resp.FirstID == "" || resp.LastID == "" {
+		t.Fatalf("expected first/last ids to be set")
 	}
 }
 
