@@ -15,6 +15,7 @@ func TestMiddlewareAcceptsAzureStyleAuth(t *testing.T) {
 	if err := store.LoadFromConfig([]config.Client{
 		{Name: "bearer", AccessKey: "token", AllowedTargets: nil},
 		{Name: "apikey", AccessKey: "apikey-value", AllowedTargets: nil},
+		{Name: "apikey-plus", AccessKey: "abc+def", AllowedTargets: nil},
 	}); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -24,11 +25,13 @@ func TestMiddlewareAcceptsAzureStyleAuth(t *testing.T) {
 		headerKey  string
 		headerVal  string
 		queryValue string
+		rawQuery   string
 		wantStatus int
 	}{
 		{name: "bearer ok", headerKey: "Authorization", headerVal: "Bearer token", wantStatus: http.StatusOK},
 		{name: "api-key header ok", headerKey: "api-key", headerVal: "apikey-value", wantStatus: http.StatusOK},
 		{name: "api-key query ok", queryValue: "apikey-value", wantStatus: http.StatusOK},
+		{name: "api-key query preserves plus", rawQuery: "api-key=abc+def", wantStatus: http.StatusOK},
 		{name: "missing", wantStatus: http.StatusUnauthorized},
 		{name: "bad bearer scheme", headerKey: "Authorization", headerVal: "Basic token", wantStatus: http.StatusUnauthorized},
 	}
@@ -43,6 +46,9 @@ func TestMiddlewareAcceptsAzureStyleAuth(t *testing.T) {
 			url := "/"
 			if tt.queryValue != "" {
 				url = "/?api-key=" + tt.queryValue
+			}
+			if tt.rawQuery != "" {
+				url = "/?" + tt.rawQuery
 			}
 			req := httptest.NewRequest(http.MethodGet, url, nil)
 			if tt.headerKey != "" {

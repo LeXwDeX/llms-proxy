@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	appmiddleware "github.com/ycgame/azure-proxy/internal/middleware"
@@ -80,8 +81,36 @@ func extractAccessKey(r *http.Request) string {
 		return apiKey
 	}
 	if r.URL != nil {
-		if qKey := strings.TrimSpace(r.URL.Query().Get("api-key")); qKey != "" {
+		if qKey := extractAPIKeyFromQuery(r.URL.RawQuery); qKey != "" {
 			return qKey
+		}
+	}
+	return ""
+}
+
+func extractAPIKeyFromQuery(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	pairs := strings.Split(rawQuery, "&")
+	for _, pair := range pairs {
+		if pair == "" {
+			continue
+		}
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key, val := strings.TrimSpace(kv[0]), kv[1]
+		if !strings.EqualFold(key, "api-key") {
+			continue
+		}
+		decoded, err := url.PathUnescape(strings.TrimSpace(val))
+		if err != nil {
+			continue
+		}
+		if decoded != "" {
+			return decoded
 		}
 	}
 	return ""
