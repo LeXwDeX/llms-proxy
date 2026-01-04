@@ -21,7 +21,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 ```
 
 ## 环境要求
-- Go 1.22 及以上版本。
+- Go 1.24.2 及以上版本。
 - 可用的 Azure OpenAI 终端与 API Key。
 - 能够为内部客户端生成并分发访问令牌。
 

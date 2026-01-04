@@ -30,8 +30,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	logLevel := cfg.Logging.Level
+	if envLogLevel := strings.TrimSpace(os.Getenv("LOG_LEVEL")); envLogLevel != "" {
+		logLevel = envLogLevel
+	}
+
 	logManager, err := logging.Setup(logging.Config{
-		Level:         cfg.Logging.Level,
+		Level:         logLevel,
 		AccessLogPath: cfg.Logging.AccessLog,
 		ErrorLogPath:  cfg.Logging.ErrorLog,
 	})
@@ -59,6 +64,8 @@ func main() {
 		"config_path", *configPath,
 		"config_bind", configBind,
 		"effective_bind", bindAddr,
+		"config_log_level", cfg.Logging.Level,
+		"effective_log_level", logLevel,
 		"azure_targets", len(cfg.AzureTargets),
 		"clients", len(cfg.Clients),
 	)

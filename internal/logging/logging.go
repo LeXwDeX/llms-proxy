@@ -115,14 +115,26 @@ func parseLevel(level string) slog.Level {
 }
 
 func newRollingWriter(path string, cfg Config) (io.WriteCloser, io.Closer, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, nil, err
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, nil, err
+		}
+		if info, err := os.Stat(dir); err != nil {
+			return nil, nil, err
+		} else if !info.IsDir() {
+			return nil, nil, fmt.Errorf("log directory is not a directory: %s", dir)
+		}
 	}
 
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-			_ = file.Close()
-		}
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return nil, nil, fmt.Errorf("log path must be a file, got directory: %s", path)
+	}
+
+	if file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err != nil {
+		return nil, nil, err
+	} else if err := file.Close(); err != nil {
+		return nil, nil, err
 	}
 
 	maxSize := cfg.MaxSizeMB

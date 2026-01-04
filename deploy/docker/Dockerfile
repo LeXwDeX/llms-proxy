@@ -1,11 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-ARG GO_VERSION=1.22
+ARG GO_VERSION=1.24.2
 
 FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /workspace
-
-ENV GOTOOLCHAIN=go1.24.2
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \

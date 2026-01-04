@@ -83,6 +83,7 @@ type Target struct {
 	APIKey             string
 	AllowBearer        bool
 	AllowedModels      []string
+	allowedModelsSet   map[string]struct{}
 	DefaultAPIVersion  string
 }
 
@@ -129,8 +130,8 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				Proxy:                 http.ProxyFromEnvironment,
-				MaxIdleConns:          64,
-				MaxIdleConnsPerHost:   32,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   50,
 				IdleConnTimeout:       90 * time.Second,
 				TLSHandshakeTimeout:   10 * time.Second,
 				ExpectContinueTimeout: 1 * time.Second,
@@ -221,13 +222,23 @@ func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, [
 			return nil, nil, fmt.Errorf("proxy: invalid endpoint for target %q: missing scheme or host", t.Name)
 		}
 
+		models := normalizeModels(t.AllowedModels)
+		var modelSet map[string]struct{}
+		if len(models) > 0 {
+			modelSet = make(map[string]struct{}, len(models))
+			for _, m := range models {
+				modelSet[m] = struct{}{}
+			}
+		}
+
 		info := &Target{
 			Name:               strings.TrimSpace(t.Name),
 			Endpoint:           endpoint,
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
 			APIKey:             strings.TrimSpace(t.AzureAPIKey),
 			AllowBearer:        t.AllowBearer,
-			AllowedModels:      normalizeModels(t.AllowedModels),
+			AllowedModels:      models,
+			allowedModelsSet:   modelSet,
 			DefaultAPIVersion:  strings.TrimSpace(t.DefaultAPIVersion),
 		}
 		if info.Name == "" {
@@ -799,11 +810,16 @@ func modelAllowed(t *Target, model string) bool {
 	if len(t.AllowedModels) == 0 {
 		return true
 	}
-	if model == "" {
+	modelKey := strings.ToLower(strings.TrimSpace(model))
+	if modelKey == "" {
 		return false
 	}
+	if t.allowedModelsSet != nil {
+		_, ok := t.allowedModelsSet[modelKey]
+		return ok
+	}
 	for _, m := range t.AllowedModels {
-		if strings.EqualFold(m, model) {
+		if strings.EqualFold(m, modelKey) {
 			return true
 		}
 	}

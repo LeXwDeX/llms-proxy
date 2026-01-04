@@ -13,7 +13,7 @@ docker build \
 ```
 
 Arguments:
-- `GO_VERSION` (default `1.22`) – set when you need to build with a newer Go toolchain, for example `--build-arg GO_VERSION=1.23`.
+- `GO_VERSION` (default `1.24.2`) – override the Go toolchain version when needed, for example `--build-arg GO_VERSION=1.25`.
 
 ## 2. Prepare Configuration & Log Volumes
 The container expects:
@@ -40,8 +40,9 @@ docker run -d \
 
 Environment variables:
 - Set `HTTP_PROXY` / `HTTPS_PROXY` if the container must traverse an outbound proxy.
+- Set `LOG_LEVEL` to override `logging.level` in `config.json` (supported values: `debug`, `info`, `warn`, `error`).
 
-Logging level is governed by the `logging.level` field inside `config.json`; the binary does not currently honour a `LOG_LEVEL` environment variable.
+Logging level defaults to the `logging.level` field inside `config.json`, but can be overridden via the `LOG_LEVEL` environment variable.
 
 ## 4. docker compose Workflow
 The repository includes a ready-to-use compose file at `docker-compose.yml` and an environment template `.env.example`.
