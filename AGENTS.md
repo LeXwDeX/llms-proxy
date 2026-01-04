@@ -15,6 +15,6 @@ Use `@/openspec/AGENTS.md` to learn:
 
 Keep this managed block so 'openspec update' can refresh the instructions.
 
-always use chinese to respond to user.
+always use chinese to respond.
 
 <!-- OPENSPEC:END -->
