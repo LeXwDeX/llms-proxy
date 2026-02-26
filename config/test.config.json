@@ -11,8 +11,7 @@
       "azure_api_key": "dummy",
       "allowed_models": [
         "gpt-4o"
-      ],
-      "default_api_version": "2025-04-01-preview"
+      ]
     }
   ],
   "clients": [

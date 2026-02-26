@@ -82,6 +82,7 @@ func (s *Store) LoadFromConfig(clients []config.Client) error {
 		return errors.New("auth store is nil")
 	}
 	next := make(map[string]*Principal, len(clients))
+	owners := make(map[string]string, len(clients))
 	for _, client := range clients {
 		key := strings.TrimSpace(client.AccessKey)
 		if key == "" {
@@ -91,6 +92,10 @@ func (s *Store) LoadFromConfig(clients []config.Client) error {
 		if name == "" {
 			return errors.New("client name must not be empty")
 		}
+		if prevOwner, exists := owners[key]; exists {
+			return fmt.Errorf("duplicate access_key for clients %q and %q", prevOwner, name)
+		}
+		owners[key] = name
 
 		principal := &Principal{
 			Name:           name,

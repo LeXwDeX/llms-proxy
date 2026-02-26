@@ -4,6 +4,7 @@ This document describes the externally visible HTTP contract that the Azure Open
 
 ## Authentication
 - Client requests **must** include `Authorization: Bearer <access-key>`.
+- Also supports Azure-style client auth: `api-key: <access-key>` (header) or `?api-key=<access-key>` (query).
 - Tokens map 1:1 to entries in `config.clients`.
 - On authentication failure the proxy returns `401 Unauthorized` and a `WWW-Authenticate: Bearer` header.
 - Requests receive an `X-Request-ID` header (generated when missing) that propagates through logs.
@@ -29,10 +30,15 @@ This document describes the externally visible HTTP contract that the Azure Open
 
 ### Proxy Pass-through (`/**`)
 - Any other path mounted beneath `/` forwards to Azure OpenAI.
+- Clients should call the proxy with OpenAI-style paths (for example `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations`).
 - The upstream target is selected automatically; clients may opt-in to a specific backend by:
   - Header: `X-Proxy-Target: <target-name>`
   - Query: `?target=<target-name>`
+- Model-aware routing is enforced when `allowed_models` is configured on targets:
+  - Requests with a `model` outside all allowed target lists return `400 Bad Request`.
+  - Supported extraction sources: JSON body, `application/x-www-form-urlencoded`, and `multipart/form-data`.
 - The proxy rewrites the `Host` header to the Azure endpoint and injects `api-key: <azure-api-key>`.
+- The proxy removes internal/legacy query params before forwarding: `target`, `api-version`, `api_version`, `api-key`.
 - Successful responses set `X-Azure-Target: <target-name>` so callers can identify the chosen backend.
 - Streaming responses are relayed chunk-by-chunk (`io.Copy`), preserving status codes and headers except for hop-by-hop headers.
 

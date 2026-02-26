@@ -17,7 +17,6 @@ func TestConfigValidateSuccess(t *testing.T) {
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			AzureAPIKey:        "key",
-			DefaultAPIVersion:  "2025-04-01-preview",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
 		Clients: []Client{{
@@ -47,7 +46,6 @@ func TestConfigValidateAllowsBearerWithoutAPIKey(t *testing.T) {
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			AllowBearer:        true,
-			DefaultAPIVersion:  "2025-04-01-preview",
 		}},
 		Clients: []Client{{
 			Name:      "client",
@@ -62,6 +60,35 @@ func TestConfigValidateAllowsBearerWithoutAPIKey(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected no validation error when allow_bearer_passthrough is true, got %v", err)
+	}
+}
+
+func TestConfigValidateAllowsOmittedAPIVersionField(t *testing.T) {
+	cfg := &Config{
+		Server: ServerConfig{
+			Bind:                  "127.0.0.1:8080",
+			RequestTimeoutSeconds: 30,
+		},
+		AzureTargets: []AzureTarget{{
+			Name:               "primary",
+			Endpoint:           "https://example.com",
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "key",
+			AllowedModels:      []string{"gpt-4o"},
+		}},
+		Clients: []Client{{
+			Name:      "client",
+			AccessKey: "secret",
+		}},
+		Logging: LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/access.log",
+			ErrorLog:  "logs/error.log",
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no validation error when API version field is omitted, got %v", err)
 	}
 }
 
@@ -88,7 +115,6 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			AzureAPIKey:        "key",
-			DefaultAPIVersion:  "2025-04-01-preview",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
 		Clients: []Client{{
@@ -139,8 +165,7 @@ func TestLoadReadsFile(t *testing.T) {
 			"name":"primary",
 			"endpoint":"https://example.com",
 			"resource_path_prefix":"/openai",
-			"azure_api_key":"key",
-			"default_api_version":"2025-04-01-preview"
+			"azure_api_key":"key"
 		}],
 		"clients":[{
 			"name":"demo",

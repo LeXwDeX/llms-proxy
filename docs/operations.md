@@ -3,7 +3,7 @@
 This guide covers the preparation, deployment, and day-two operations for the Azure OpenAI proxy.
 
 ## Pre-Deployment Checklist
-- [ ] Collect production Azure OpenAI endpoints, API versions, and API keys.
+- [ ] Collect production Azure OpenAI endpoints, model allowlists (`allowed_models`), and API keys.
 - [ ] Generate client tokens for each team; scope `allowed_targets` appropriately.
 - [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions.
 - [ ] Provision directories for logs (default `logs/`) and ensure the service account has read/write access.
@@ -67,6 +67,20 @@ Automate polling of admin endpoints or export metrics to Prometheus via a lightw
 2. **Increased 5xx responses** – inspect `/admin/healthz` for muted targets; investigate upstream Azure incidents.
 3. **Proxy unreachable** – check systemd status and logs; restart with `sudo systemctl restart azure-proxy`.
 4. **Log growth** – adjust logging config to use rotated paths or compress old logs (see `internal/logging` for options).
+5. **Client sees 400 model not supported** – verify request `model` is included in at least one target's `allowed_models`.
+
+## Azure v1 Endpoint-Model Verification
+在正式切流前，建议逐个校验 endpoint+model 组合是否可用（Azure v1）：
+
+```sh
+curl -sS \
+  -H "api-key: <azure-api-key>" \
+  "https://<resource>.openai.azure.com/openai/v1/models/<model-name>"
+```
+
+- `200` 表示该模型在该 endpoint 可用。
+- `404/400` 通常表示该模型未部署或该 endpoint 不支持该模型。
+- `401/403` 通常表示密钥或权限问题。
 
 ## Training Notes
 - Share `docs/internal-training.md` with new operators.

@@ -81,3 +81,14 @@ func TestAuthenticateReturnsClone(t *testing.T) {
 		t.Fatal("expected authenticate to return deep copy")
 	}
 }
+
+func TestStoreLoadFromConfigRejectsDuplicateAccessKey(t *testing.T) {
+	store := NewStore()
+	err := store.LoadFromConfig([]config.Client{
+		{Name: "team-a", AccessKey: "same-key"},
+		{Name: "team-b", AccessKey: "same-key"},
+	})
+	if err == nil {
+		t.Fatal("expected duplicate access_key validation error")
+	}
+}

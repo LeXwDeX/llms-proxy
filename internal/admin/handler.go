@@ -127,10 +127,10 @@ func (h *Handler) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.proxyService.ApplyConfig(cfg); err != nil {
-		h.logger.Error("admin reload failed: proxy apply",
+		h.logger.Warn("admin reload rejected: invalid proxy configuration",
 			"error", err,
 		)
-		writeJSON(w, http.StatusInternalServerError, errorResponse("failed to apply proxy configuration"))
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid proxy configuration"))
 		return
 	}
 

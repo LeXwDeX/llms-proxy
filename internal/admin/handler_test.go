@@ -164,6 +164,57 @@ func TestHandlerReloadConfig(t *testing.T) {
 	}
 }
 
+func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	initial := testConfig(tempDir, 1, []string{"k1"})
+	writeConfigFile(t, configPath, initial)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
+	manager := config.NewManager(configPath)
+	manager.Replace(initial)
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(initial.Clients); err != nil {
+		t.Fatalf("failed to init auth store: %v", err)
+	}
+
+	service, err := proxy.NewService(initial, logger)
+	if err != nil {
+		t.Fatalf("failed to init proxy service: %v", err)
+	}
+
+	h := NewHandler(manager, store, service, logger)
+
+	invalid := testConfig(tempDir, 1, []string{"k2"})
+	invalid.AzureTargets[0].Endpoint = "not-a-valid-url"
+	writeConfigFile(t, configPath, invalid)
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/config/reload", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	if _, ok := store.Authenticate("k1"); !ok {
+		t.Fatal("expected original key k1 to remain after rejected reload")
+	}
+	if _, ok := store.Authenticate("k2"); ok {
+		t.Fatal("expected new key k2 to be rejected with invalid proxy config")
+	}
+
+	current, err := manager.Current()
+	if err != nil {
+		t.Fatalf("expected manager.Current to return cached config, got %v", err)
+	}
+	if len(current.AzureTargets) != 1 || current.AzureTargets[0].Endpoint != initial.AzureTargets[0].Endpoint {
+		t.Fatalf("expected manager cache to remain unchanged, got %#v", current.AzureTargets)
+	}
+}
+
 func writeConfigFile(t *testing.T, path string, cfg *config.Config) {
 	t.Helper()
 	payload, err := json.Marshal(cfg)
@@ -183,7 +234,6 @@ func testConfig(tempDir string, targetCount int, clientKeys []string) *config.Co
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			AzureAPIKey:        "key",
-			DefaultAPIVersion:  "2025-04-01-preview",
 			AllowedModels:      []string{"gpt-4o"},
 		})
 	}

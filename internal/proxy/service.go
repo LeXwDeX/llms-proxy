@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -63,7 +65,7 @@ func (e *forwardAttemptError) Unwrap() error {
 type Service struct {
 	logger         *slog.Logger
 	httpClient     *http.Client
-	requestTimeout time.Duration
+	requestTimeout atomic.Int64
 	quietPeriod    time.Duration
 
 	mu            sync.RWMutex
@@ -84,7 +86,6 @@ type Target struct {
 	AllowBearer        bool
 	AllowedModels      []string
 	allowedModelsSet   map[string]struct{}
-	DefaultAPIVersion  string
 }
 
 type requestMetrics struct {
@@ -137,15 +138,11 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 				ExpectContinueTimeout: 1 * time.Second,
 			},
 		},
-		requestTimeout: time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second,
-		quietPeriod:    60 * time.Second,
-		targetsByName:  make(map[string]*targetState),
-		startTime:      time.Now(),
+		quietPeriod:   60 * time.Second,
+		targetsByName: make(map[string]*targetState),
+		startTime:     time.Now(),
 	}
-
-	if service.requestTimeout <= 0 {
-		service.requestTimeout = 300 * time.Second
-	}
+	service.setRequestTimeout(time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second)
 
 	if err := service.ApplyConfig(cfg); err != nil {
 		return nil, err
@@ -181,16 +178,13 @@ func (s *Service) ApplyConfig(cfg *config.Config) error {
 	}
 
 	timeout := time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 300 * time.Second
-	}
 
 	s.mu.Lock()
 	s.targetsByName = parsed
 	s.targetOrder = order
 	s.mu.Unlock()
 
-	s.requestTimeout = timeout
+	s.setRequestTimeout(timeout)
 	return nil
 }
 
@@ -239,16 +233,12 @@ func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, [
 			AllowBearer:        t.AllowBearer,
 			AllowedModels:      models,
 			allowedModelsSet:   modelSet,
-			DefaultAPIVersion:  strings.TrimSpace(t.DefaultAPIVersion),
 		}
 		if info.Name == "" {
 			return nil, nil, fmt.Errorf("proxy: target name at index %d must not be empty", idx)
 		}
 		if info.APIKey == "" && !info.AllowBearer {
 			return nil, nil, fmt.Errorf("proxy: target %q missing azure_api_key and bearer passthrough not enabled", info.Name)
-		}
-		if info.DefaultAPIVersion == "" {
-			return nil, nil, fmt.Errorf("proxy: target %q missing default_api_version", info.Name)
 		}
 
 		nameKey := strings.ToLower(info.Name)
@@ -470,7 +460,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		bodyReader = bytes.NewReader(body)
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), s.requestTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 
 	req, err := http.NewRequestWithContext(ctx, r.Method, forwardURL.String(), bodyReader)
 	if err != nil {
@@ -738,13 +728,30 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	if err != nil {
 		return nil, err
 	}
-	query := original.Query()
-	query.Del("api-key")
-	if target.DefaultAPIVersion != "" {
-		query.Set("api-version", target.DefaultAPIVersion)
-	}
-	forward.RawQuery = query.Encode()
+	forward.RawQuery = normalizeForwardQuery(original)
 	return forward, nil
+}
+
+func normalizeForwardQuery(original *url.URL) string {
+	if original == nil {
+		return ""
+	}
+
+	query := original.Query()
+	deleteQueryKeyCaseInsensitive(query, "target")
+	deleteQueryKeyCaseInsensitive(query, "api-version")
+	deleteQueryKeyCaseInsensitive(query, "api_version")
+	deleteQueryKeyCaseInsensitive(query, "api-key")
+
+	return query.Encode()
+}
+
+func deleteQueryKeyCaseInsensitive(query url.Values, key string) {
+	for existing := range query {
+		if strings.EqualFold(existing, key) {
+			delete(query, existing)
+		}
+	}
 }
 
 func (s *Service) handleForwardError(r *http.Request, state *targetState, err error, status int) {
@@ -774,6 +781,26 @@ func copyHeaders(dst, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
+}
+
+func (s *Service) setRequestTimeout(timeout time.Duration) {
+	timeout = normalizeRequestTimeout(timeout)
+	s.requestTimeout.Store(timeout.Nanoseconds())
+}
+
+func (s *Service) getRequestTimeout() time.Duration {
+	nanos := s.requestTimeout.Load()
+	if nanos <= 0 {
+		return normalizeRequestTimeout(0)
+	}
+	return time.Duration(nanos)
+}
+
+func normalizeRequestTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 300 * time.Second
+	}
+	return timeout
 }
 
 func normalizePrefix(prefix string) string {
@@ -875,6 +902,25 @@ func extractModel(r *http.Request, body []byte) string {
 	}
 
 	if len(body) > 0 {
+		contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+		if strings.Contains(contentType, "application/x-www-form-urlencoded") {
+			if vals, err := url.ParseQuery(string(body)); err == nil {
+				if model := strings.TrimSpace(vals.Get("model")); model != "" {
+					return model
+				}
+			}
+		}
+
+		if strings.Contains(contentType, "multipart/form-data") {
+			if _, params, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err == nil {
+				if boundary := strings.TrimSpace(params["boundary"]); boundary != "" {
+					if model := extractMultipartModel(body, boundary); model != "" {
+						return model
+					}
+				}
+			}
+		}
+
 		var payload map[string]any
 		if err := json.Unmarshal(body, &payload); err == nil {
 			if m, ok := payload["model"].(string); ok {
@@ -883,6 +929,31 @@ func extractModel(r *http.Request, body []byte) string {
 		}
 	}
 	return ""
+}
+
+func extractMultipartModel(body []byte, boundary string) string {
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			return ""
+		}
+		if err != nil {
+			return ""
+		}
+
+		if strings.EqualFold(part.FormName(), "model") {
+			data, err := io.ReadAll(io.LimitReader(part, 1024))
+			_ = part.Close()
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(string(data))
+		}
+
+		_, _ = io.Copy(io.Discard, part)
+		_ = part.Close()
+	}
 }
 
 type streamingWriter struct {
@@ -939,17 +1010,23 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 		return false
 	}
 
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || principal == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return true
+	}
+
+	var targetFilter map[string]struct{}
+	if !principal.AllowAll() {
+		targetFilter = normalizeAllowed(principal.AllowedTargets())
+	}
+
 	requested := strings.TrimSpace(r.Header.Get(headerProxyTarget))
 	if requested == "" {
 		requested = strings.TrimSpace(r.URL.Query().Get("target"))
 	}
 	if requested != "" {
 		requestedLower := strings.ToLower(requested)
-		principal, ok := auth.PrincipalFromContext(r.Context())
-		if !ok || principal == nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return true
-		}
 		if !principal.CanAccess(requestedLower) {
 			http.Error(w, "target not allowed", http.StatusForbidden)
 			return true
@@ -958,9 +1035,10 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 			http.Error(w, "unknown target", http.StatusBadRequest)
 			return true
 		}
+		targetFilter = map[string]struct{}{requestedLower: {}}
 	}
 
-	items := s.buildLocalDeployments()
+	items := s.buildLocalDeployments(targetFilter)
 	resp := map[string]any{
 		"object": "list",
 		"data":   items,
@@ -996,7 +1074,7 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 	return true
 }
 
-func (s *Service) buildLocalDeployments() []map[string]any {
+func (s *Service) buildLocalDeployments(targetFilter map[string]struct{}) []map[string]any {
 	seen := make(map[string]struct{})
 	result := make([]map[string]any, 0)
 	snapshot := s.targetSnapshot()
@@ -1005,6 +1083,12 @@ func (s *Service) buildLocalDeployments() []map[string]any {
 			continue
 		}
 		target := state.Target()
+		if targetFilter != nil {
+			targetKey := strings.ToLower(strings.TrimSpace(target.Name))
+			if _, allowed := targetFilter[targetKey]; !allowed {
+				continue
+			}
+		}
 		models := target.AllowedModels
 		for _, m := range models {
 			m = strings.TrimSpace(m)

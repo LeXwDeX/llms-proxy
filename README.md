@@ -9,6 +9,8 @@
 - 具备智能目标选择机制，遇到网络错误会重试并触发静默窗口。
 - 管理接口提供健康检查、指标统计与配置重载。
 - 自带单元测试与集成测试脚本，便于本地验证。
+- 对外提供 OpenAI 风格 API 入口（`/v1/*`），内部自动转发到 Azure OpenAI。
+- 转发遵循 Azure v1 最新规范：不依赖 `api-version`，并自动剥离客户端传入的 `api-version` 参数。
 
 ## 目录结构
 ```
@@ -51,9 +53,25 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 `config/config.json` 中的关键字段：
 
 - `server`：监听地址、对外基址、超时时间、请求体大小限制。
-- `azure_targets`：Azure 终端列表及对应 API Key，顺序决定主备优先级。
+- `azure_targets`：Azure 终端列表及对应 API Key，顺序决定主备优先级；`allowed_models` 用于模型级路由和白名单。
 - `clients`：客户端访问令牌与可访问目标；`allowed_targets` 为空时表示放通所有目标。客户端请求携带 `api-key: <access_key>` 或 `Authorization: Bearer <access_key>` 即可通过代理鉴权（与 Azure SDK 调用方式保持一致）。
 - `logging`：日志等级及文件路径，轮转策略由 `internal/logging` 统一处理。
+
+请求转发行为（关键点）：
+- 客户端只需按 OpenAI API 调用代理（例如 `POST /v1/chat/completions`、`POST /v1/embeddings`、`POST /v1/images/generations`）。
+- 代理会从请求中提取 `model`（JSON、`application/x-www-form-urlencoded`、`multipart/form-data`）并在 `allowed_models` 范围内选择目标。
+- 代理转发前会移除内部路由参数（`target`）和 Azure 旧版查询参数（`api-version`），避免污染 Azure v1 请求。
+
+## Azure v1 兼容验证
+可以用以下方式快速验证某个 endpoint 的模型是否可用（v1 模型检索接口）：
+
+```sh
+curl -sS \
+  -H "api-key: <azure-api-key>" \
+  "https://<resource>.openai.azure.com/openai/v1/models/<model-name>"
+```
+
+若返回 `200` 且对象中包含 `id`，说明该模型在该 endpoint 可用。
 
 管理端支持热加载：
 ```sh

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -54,14 +55,12 @@ func TestServiceFailoverOnTransportError(t *testing.T) {
 				Endpoint:           "http://primary.local",
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "primary-key",
-				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 			{
 				Name:               "secondary",
 				Endpoint:           success.URL,
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "secondary-key",
-				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 		},
 		Clients: []config.Client{{
@@ -148,14 +147,12 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 				Endpoint:           "http://primary.local",
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "key",
-				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 			{
 				Name:               "secondary",
 				Endpoint:           "http://secondary.local",
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "key2",
-				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 		},
 		Clients: []config.Client{{
@@ -214,7 +211,6 @@ func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
 				Endpoint:           slow.URL,
 				ResourcePathPrefix: "/",
 				AzureAPIKey:        "key",
-				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 		},
 		Clients: []config.Client{{
@@ -232,7 +228,7 @@ func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	service.requestTimeout = 50 * time.Millisecond
+	service.setRequestTimeout(50 * time.Millisecond)
 	service.quietPeriod = 10 * time.Millisecond
 
 	store := auth.NewStore()
@@ -291,7 +287,6 @@ func TestServiceAllowsBearerPassthrough(t *testing.T) {
 				Endpoint:           upstream.URL,
 				ResourcePathPrefix: "/",
 				AllowBearer:        true,
-				DefaultAPIVersion:  "2025-04-01-preview",
 			},
 		},
 		Clients: []config.Client{{
@@ -354,7 +349,6 @@ func TestServiceRejectsDisallowedModel(t *testing.T) {
 				Endpoint:           upstream.URL,
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -398,13 +392,20 @@ func TestServiceRejectsDisallowedModel(t *testing.T) {
 	}
 }
 
-func TestServiceOverridesAPIVersion(t *testing.T) {
+func TestServiceStripsAPIVersionAndInternalQueryParams(t *testing.T) {
 	var seenVersion string
 	var seenOther string
+	var seenTarget string
+	var seenAPIKey string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		seenVersion = q.Get("api-version")
+		if seenVersion == "" {
+			seenVersion = q.Get("API-Version")
+		}
 		seenOther = q.Get("other")
+		seenTarget = q.Get("target")
+		seenAPIKey = q.Get("api-key")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
@@ -420,7 +421,6 @@ func TestServiceOverridesAPIVersion(t *testing.T) {
 				Endpoint:           upstream.URL,
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -449,7 +449,7 @@ func TestServiceOverridesAPIVersion(t *testing.T) {
 		t.Fatal("expected principal")
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/openai/deployments/gpt-4o/chat/completions?api-version=foo&other=yes", bytes.NewBufferString(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/openai/deployments/gpt-4o/chat/completions?api-version=foo&API-Version=bar&target=primary&api-key=client&other=yes", bytes.NewBufferString(`{}`))
 	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
 
 	rr := httptest.NewRecorder()
@@ -458,11 +458,17 @@ func TestServiceOverridesAPIVersion(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
-	if seenVersion != "2025-04-01-preview" {
-		t.Fatalf("expected api-version override, got %q", seenVersion)
+	if seenVersion != "" {
+		t.Fatalf("expected api-version to be stripped, got %q", seenVersion)
 	}
 	if seenOther != "yes" {
 		t.Fatalf("expected other query param preserved, got %q", seenOther)
+	}
+	if seenTarget != "" {
+		t.Fatalf("expected internal target query param stripped, got %q", seenTarget)
+	}
+	if seenAPIKey != "" {
+		t.Fatalf("expected client api-key query param stripped, got %q", seenAPIKey)
 	}
 }
 
@@ -487,7 +493,6 @@ func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
 				Endpoint:           target1.URL,
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key1",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 			{
@@ -495,7 +500,6 @@ func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
 				Endpoint:           target2.URL,
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key2",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 		},
@@ -551,7 +555,6 @@ func TestServiceReturnsErrorWhenModelMissingAndAllowlistsConfigured(t *testing.T
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key1",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -614,7 +617,6 @@ func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
 				Endpoint:           s1.URL,
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key1",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 			{
@@ -622,7 +624,6 @@ func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
 				Endpoint:           s2.URL,
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key2",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 		},
@@ -682,7 +683,6 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key1",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-4o", "gpt-5.1"},
 			},
 			{
@@ -690,7 +690,6 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key2",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-5.1", "gpt-4o-mini"},
 			},
 		},
@@ -759,7 +758,6 @@ func TestServiceListsModelsLocally(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				AzureAPIKey:        "key1",
-				DefaultAPIVersion:  "2025-04-01-preview",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -805,6 +803,169 @@ func TestServiceListsModelsLocally(t *testing.T) {
 		if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-4o" {
 			t.Fatalf("%s unexpected data: %+v", p, resp.Data)
 		}
+	}
+}
+
+func TestServiceListsModelsLocallyRespectsAllowedTargets(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "t1",
+				Endpoint:           "http://example.com",
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key1",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+			{
+				Name:               "t2",
+				Endpoint:           "http://example2.com",
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key2",
+				AllowedModels:      []string{"gpt-5.2"},
+			},
+		},
+		Clients: []config.Client{{
+			Name:           "tester",
+			AccessKey:      "token",
+			AllowedTargets: []string{"t1"},
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-4o" {
+		t.Fatalf("unexpected filtered models: %+v", resp.Data)
+	}
+}
+
+func TestServiceListsModelsLocallyRespectsRequestedTargetFilter(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{
+			{
+				Name:               "t1",
+				Endpoint:           "http://example.com",
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key1",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+			{
+				Name:               "t2",
+				Endpoint:           "http://example2.com",
+				ResourcePathPrefix: "/openai",
+				AzureAPIKey:        "key2",
+				AllowedModels:      []string{"gpt-5.2"},
+			},
+		},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models?target=t2", nil)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-5.2" {
+		t.Fatalf("unexpected target-filtered models: %+v", resp.Data)
+	}
+}
+
+func TestExtractModelFromFormEncoded(t *testing.T) {
+	body := []byte("model=gpt-4o&input=hello")
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	if got := extractModel(req, body); got != "gpt-4o" {
+		t.Fatalf("expected model gpt-4o, got %q", got)
+	}
+}
+
+func TestExtractModelFromMultipartForm(t *testing.T) {
+	var payload bytes.Buffer
+	writer := multipart.NewWriter(&payload)
+	if err := writer.WriteField("model", "gpt-image-1"); err != nil {
+		t.Fatalf("write model field: %v", err)
+	}
+	if err := writer.WriteField("prompt", "draw a cat"); err != nil {
+		t.Fatalf("write prompt field: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	body := payload.Bytes()
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	if got := extractModel(req, body); got != "gpt-image-1" {
+		t.Fatalf("expected model gpt-image-1, got %q", got)
 	}
 }
 

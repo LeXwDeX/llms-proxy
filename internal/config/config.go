@@ -32,7 +32,6 @@ type AzureTarget struct {
 	AzureAPIKey        string   `json:"azure_api_key"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AllowedModels      []string `json:"allowed_models"`
-	DefaultAPIVersion  string   `json:"default_api_version"`
 }
 
 // Client describes a consumer and its access rights.
@@ -171,9 +170,6 @@ func (c *Config) Validate() error {
 		}
 		if strings.TrimSpace(target.AzureAPIKey) == "" && !target.AllowBearer {
 			problems = append(problems, prefix+" azure_api_key must not be empty when allow_bearer_passthrough is false")
-		}
-		if strings.TrimSpace(target.DefaultAPIVersion) == "" {
-			problems = append(problems, prefix+" default_api_version must not be empty")
 		}
 		for j, m := range target.AllowedModels {
 			if strings.TrimSpace(m) == "" {

@@ -46,6 +46,6 @@
 - 可操作性：支持不重启热加载配置；部署需满足日志目录可写、配置文件可读的最小权限原则。
 
 ## External Dependencies
-- Azure OpenAI endpoints（`config.azure_targets[*].endpoint`）、API Version（`default_api_version`）与 API Key（`azure_api_key`）。
+- Azure OpenAI endpoints（`config.azure_targets[*].endpoint`）、模型白名单（`allowed_models`）与 API Key（`azure_api_key`）。
 - 运行环境：systemd 或容器运行时（Docker/nerdctl），以及宿主机日志与配置挂载目录。
 - 可选：出站代理（`HTTP_PROXY`/`HTTPS_PROXY`），由 Go `http.Transport` 自动读取环境变量。
