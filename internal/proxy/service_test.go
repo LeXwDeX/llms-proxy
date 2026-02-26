@@ -472,6 +472,152 @@ func TestServiceStripsAPIVersionAndInternalQueryParams(t *testing.T) {
 	}
 }
 
+func TestServiceStripsUnsupportedFieldsForResponses(t *testing.T) {
+	var captured map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream body: %v", err)
+		}
+		if err := json.Unmarshal(data, &captured); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:               "primary",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "key",
+			AllowedModels:      []string{"gpt-5.2"},
+		}},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-5.2","input":"hi","prompt_cache_key":"session-a","prompt_cache_retention":"24h","foo":"bar"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if _, ok := captured["prompt_cache_retention"]; ok {
+		t.Fatalf("expected prompt_cache_retention to be stripped, got body=%v", captured)
+	}
+	if _, ok := captured["foo"]; ok {
+		t.Fatalf("expected unknown field foo to be stripped, got body=%v", captured)
+	}
+	if got, ok := captured["prompt_cache_key"].(string); !ok || got != "session-a" {
+		t.Fatalf("expected prompt_cache_key to be preserved, got %v", captured["prompt_cache_key"])
+	}
+}
+
+func TestServiceStripsUnsupportedFieldsForChatCompletions(t *testing.T) {
+	var captured map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream body: %v", err)
+		}
+		if err := json.Unmarshal(data, &captured); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:               "primary",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "key",
+			AllowedModels:      []string{"gpt-5.2"},
+		}},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-5.2","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":16,"prompt_cache_key":"session-a","prompt_cache_retention":"24h","foo":"bar"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if _, ok := captured["prompt_cache_retention"]; ok {
+		t.Fatalf("expected prompt_cache_retention to be stripped, got body=%v", captured)
+	}
+	if _, ok := captured["foo"]; ok {
+		t.Fatalf("expected unknown field foo to be stripped, got body=%v", captured)
+	}
+	if _, ok := captured["messages"]; !ok {
+		t.Fatalf("expected messages to be preserved, got body=%v", captured)
+	}
+}
+
 func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
 	target1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Target", "t1")

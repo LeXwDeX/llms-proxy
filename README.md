@@ -61,6 +61,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 - 客户端只需按 OpenAI API 调用代理（例如 `POST /v1/chat/completions`、`POST /v1/embeddings`、`POST /v1/images/generations`）。
 - 代理会从请求中提取 `model`（JSON、`application/x-www-form-urlencoded`、`multipart/form-data`）并在 `allowed_models` 范围内选择目标。
 - 代理转发前会移除内部路由参数（`target`）和 Azure 旧版查询参数（`api-version`），避免污染 Azure v1 请求。
+- 代理会对核心 JSON 接口执行 Azure 参数白名单过滤，详见 `docs/azure-parameter-whitelist.md`。
 
 ## Azure v1 兼容验证
 可以用以下方式快速验证某个 endpoint 的模型是否可用（v1 模型检索接口）：

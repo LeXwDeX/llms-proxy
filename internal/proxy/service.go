@@ -41,6 +41,75 @@ var hopHeaders = map[string]struct{}{
 	"upgrade":             {},
 }
 
+var (
+	azureChatCompletionsFieldWhitelist = toFieldSet(
+		"audio",
+		"data_sources",
+		"frequency_penalty",
+		"function_call",
+		"functions",
+		"logit_bias",
+		"logprobs",
+		"max_completion_tokens",
+		"max_tokens",
+		"messages",
+		"metadata",
+		"modalities",
+		"model",
+		"n",
+		"parallel_tool_calls",
+		"prediction",
+		"presence_penalty",
+		"prompt_cache_key",
+		"reasoning_effort",
+		"response_format",
+		"seed",
+		"stop",
+		"store",
+		"stream",
+		"stream_options",
+		"temperature",
+		"tool_choice",
+		"tools",
+		"top_logprobs",
+		"top_p",
+		"user",
+		"user_security_context",
+	)
+	azureResponsesFieldWhitelist = toFieldSet(
+		"background",
+		"include",
+		"input",
+		"instructions",
+		"max_output_tokens",
+		"max_tool_calls",
+		"metadata",
+		"model",
+		"parallel_tool_calls",
+		"previous_response_id",
+		"prompt",
+		"prompt_cache_key",
+		"reasoning",
+		"store",
+		"stream",
+		"temperature",
+		"text",
+		"tool_choice",
+		"tools",
+		"top_logprobs",
+		"top_p",
+		"truncation",
+		"user",
+	)
+	azureEmbeddingsFieldWhitelist = toFieldSet(
+		"dimensions",
+		"encoding_format",
+		"input",
+		"model",
+		"user",
+	)
+)
+
 type forwardAttemptError struct {
 	status    int
 	retryable bool
@@ -306,6 +375,15 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.metrics.totalSuccess.Add(1)
 		s.metrics.activeRequests.Add(-1)
 		return
+	}
+
+	bodyBytes, strippedFields := sanitizeRequestBodyForAzure(r, bodyBytes)
+	if len(strippedFields) > 0 {
+		s.logger.Debug("stripped unsupported request fields",
+			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+			"path", r.URL.Path,
+			"fields", strings.Join(strippedFields, ","),
+		)
 	}
 
 	attempted := make(map[string]struct{})
@@ -752,6 +830,81 @@ func deleteQueryKeyCaseInsensitive(query url.Values, key string) {
 			delete(query, existing)
 		}
 	}
+}
+
+func toFieldSet(fields ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		field = strings.ToLower(strings.TrimSpace(field))
+		if field == "" {
+			continue
+		}
+		set[field] = struct{}{}
+	}
+	return set
+}
+
+func whitelistForPath(path string) (map[string]struct{}, bool) {
+	path = strings.ToLower(strings.TrimSpace(path))
+	if path == "" {
+		return nil, false
+	}
+
+	if strings.HasSuffix(path, "/chat/completions") {
+		return azureChatCompletionsFieldWhitelist, true
+	}
+	if strings.HasSuffix(path, "/responses") {
+		return azureResponsesFieldWhitelist, true
+	}
+	if strings.HasSuffix(path, "/embeddings") {
+		return azureEmbeddingsFieldWhitelist, true
+	}
+
+	return nil, false
+}
+
+func sanitizeRequestBodyForAzure(r *http.Request, body []byte) ([]byte, []string) {
+	if r == nil || len(body) == 0 {
+		return body, nil
+	}
+
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+	default:
+		return body, nil
+	}
+
+	fieldWhitelist, ok := whitelistForPath(r.URL.Path)
+	if !ok {
+		return body, nil
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body, nil
+	}
+
+	stripped := make([]string, 0)
+	for key := range payload {
+		keyLower := strings.ToLower(strings.TrimSpace(key))
+		if _, allowed := fieldWhitelist[keyLower]; allowed {
+			continue
+		}
+		delete(payload, key)
+		stripped = append(stripped, key)
+	}
+
+	if len(stripped) == 0 {
+		return body, nil
+	}
+
+	filtered, err := json.Marshal(payload)
+	if err != nil {
+		return body, nil
+	}
+
+	sort.Strings(stripped)
+	return filtered, stripped
 }
 
 func (s *Service) handleForwardError(r *http.Request, state *targetState, err error, status int) {
