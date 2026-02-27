@@ -42,6 +42,10 @@ var hopHeaders = map[string]struct{}{
 }
 
 var (
+	upstream503MaxRetries  = 2
+	upstream503RetryDelay  = time.Second
+	upstream503RetryJitter = 300 * time.Millisecond
+
 	azureChatCompletionsFieldWhitelist = toFieldSet(
 		"audio",
 		"data_sources",
@@ -435,7 +439,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		targetKey := strings.ToLower(target.Name)
 		attempted[targetKey] = struct{}{}
 
-		resp, cancel, fErr := s.forwardRequest(r, state, bodyBytes)
+		resp, cancel, fErr := s.forwardRequestWith503Retry(r, state, bodyBytes)
 		if fErr != nil {
 			deferCancel(cancel)
 
@@ -595,6 +599,41 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	return resp, cancel, nil
 }
 
+func (s *Service) forwardRequestWith503Retry(r *http.Request, state *targetState, body []byte) (*http.Response, context.CancelFunc, error) {
+	retries := 0
+	for {
+		resp, cancel, err := s.forwardRequest(r, state, body)
+		if err != nil {
+			return nil, nil, err
+		}
+		if resp.StatusCode != http.StatusServiceUnavailable || retries >= upstream503MaxRetries {
+			return resp, cancel, nil
+		}
+
+		_ = resp.Body.Close()
+		deferCancel(cancel)
+
+		retries++
+		s.metrics.totalRetries.Add(1)
+		delay := retryDelayWithJitter(upstream503RetryDelay, upstream503RetryJitter)
+		s.logger.Info("retrying request after upstream 503",
+			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+			"target", targetName(state.Target()),
+			"retry", retries,
+			"max_retries", upstream503MaxRetries,
+			"delay_ms", delay.Milliseconds(),
+		)
+
+		if err := sleepWithContext(r.Context(), delay); err != nil {
+			return nil, nil, &forwardAttemptError{
+				status:    classifyTransportError(err),
+				retryable: false,
+				err:       err,
+			}
+		}
+	}
+}
+
 func (s *Service) writeResponse(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -669,6 +708,35 @@ func classifyTransportError(err error) int {
 	}
 
 	return http.StatusBadGateway
+}
+
+func retryDelayWithJitter(base, jitter time.Duration) time.Duration {
+	if base < 0 {
+		base = 0
+	}
+	if jitter <= 0 {
+		return base
+	}
+	nanos := time.Now().UnixNano()
+	if nanos < 0 {
+		nanos = -nanos
+	}
+	return base + time.Duration(nanos%int64(jitter+1))
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func targetName(t *Target) string {

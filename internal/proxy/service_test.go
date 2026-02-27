@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -260,6 +261,148 @@ func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
 		if st.Name == "slow" && st.Muted {
 			t.Fatalf("expected target not to be muted on timeout")
 		}
+	}
+}
+
+func TestServiceRetriesOnUpstream503(t *testing.T) {
+	restore := setUpstream503RetryConfig(2, 2*time.Millisecond, 0)
+	defer restore()
+
+	var attempts atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":"busy"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:               "image",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "key",
+			AllowedModels:      []string{"gpt-image-1"},
+		}},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-image-1","prompt":"draw a cat"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("expected 3 upstream attempts, got %d", got)
+	}
+
+	metrics := service.MetricsSnapshot()
+	if metrics.TotalRetries != 2 {
+		t.Fatalf("expected 2 retries for upstream 503, got %d", metrics.TotalRetries)
+	}
+}
+
+func TestServiceReturns503AfterExhaustingUpstream503Retries(t *testing.T) {
+	restore := setUpstream503RetryConfig(2, 2*time.Millisecond, 0)
+	defer restore()
+
+	var attempts atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"busy"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:               "image",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "key",
+			AllowedModels:      []string{"gpt-image-1"},
+		}},
+		Clients: []config.Client{{
+			Name:      "tester",
+			AccessKey: "token",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-image-1","prompt":"draw a cat"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rr.Code)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("expected 3 upstream attempts, got %d", got)
+	}
+
+	metrics := service.MetricsSnapshot()
+	if metrics.TotalRetries != 2 {
+		t.Fatalf("expected 2 retries for upstream 503, got %d", metrics.TotalRetries)
 	}
 }
 
@@ -1112,6 +1255,22 @@ func TestExtractModelFromMultipartForm(t *testing.T) {
 
 	if got := extractModel(req, body); got != "gpt-image-1" {
 		t.Fatalf("expected model gpt-image-1, got %q", got)
+	}
+}
+
+func setUpstream503RetryConfig(maxRetries int, delay time.Duration, jitter time.Duration) func() {
+	oldMaxRetries := upstream503MaxRetries
+	oldDelay := upstream503RetryDelay
+	oldJitter := upstream503RetryJitter
+
+	upstream503MaxRetries = maxRetries
+	upstream503RetryDelay = delay
+	upstream503RetryJitter = jitter
+
+	return func() {
+		upstream503MaxRetries = oldMaxRetries
+		upstream503RetryDelay = oldDelay
+		upstream503RetryJitter = oldJitter
 	}
 }
 
