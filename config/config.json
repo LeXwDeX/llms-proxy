@@ -10,15 +10,7 @@
       "resource_path_prefix": "/openai",
       "azure_api_key": "REDACTED_KEY_6",
       "allowed_models": [
-        "gpt-5",
-        "gpt-5-chat",
-        "gpt-5-codex",
-        "gpt-5-mini",
-        "gpt-5-nano",
-        "gpt-5.1",
-        "gpt-5.1-codex",
-        "gpt-5.1-codex-mini",
-        "gpt-5.1-codex-max",
+        "gpt-image-1.5",
         "text-embedding-3-large",
         "gpt-5.2",
         "gpt-5.2-chat",
@@ -34,15 +26,6 @@
         "tts",
         "tts-hd",
         "whisper"
-      ]
-    },
-    {
-      "name": "West US 3",
-      "endpoint": "https://yc-primary-eastus-gpt.openai.azure.com/",
-      "resource_path_prefix": "/openai",
-      "azure_api_key": "REDACTED_KEY_7",
-      "allowed_models": [
-        "gpt-image-1"
       ]
     }
   ],
