@@ -8,7 +8,7 @@
       "name": "East US 2",
       "endpoint": "https://yc-east2-us-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "REDACTED_KEY_6",
+      "azure_api_key": "",
       "allowed_models": [
         "gpt-image-1.5",
         "text-embedding-3-large",
@@ -21,7 +21,7 @@
       "name": "North Central US",
       "endpoint": "https://yc-north-us-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "REDACTED_KEY_2",
+      "azure_api_key": "",
       "allowed_models": [
         "tts",
         "tts-hd",
@@ -32,12 +32,12 @@
   "clients": [
     {
       "name": "operations",
-      "access_key": "token1",
+      "access_key": "token123",
       "allowed_targets": []
     },
     {
       "name": "team-alpha",
-      "access_key": "token2",
+      "access_key": "token321",
       "allowed_targets": []
     }
   ],
