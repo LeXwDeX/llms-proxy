@@ -6,16 +6,45 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
 
 // Config is the top-level configuration model matching config/config.json.
 type Config struct {
-	Server       ServerConfig  `json:"server"`
-	AzureTargets []AzureTarget `json:"azure_targets"`
-	Clients      []Client      `json:"clients"`
-	Logging      LoggingConfig `json:"logging"`
+	Server       ServerConfig       `json:"server"`
+	AzureTargets []AzureTarget      `json:"azure_targets"`
+	DataFiles    DataFiles          `json:"data_files"`
+	AdminSession AdminSessionConfig `json:"admin_session"`
+	Logging      LoggingConfig      `json:"logging"`
+}
+
+// DataFiles contains paths to file-backed NoSQL data.
+type DataFiles struct {
+	ClientsFile     string `json:"clients_file"`
+	ModelCostsFile  string `json:"model_costs_file"`
+	UsageEventsFile string `json:"usage_events_file"`
+	AdminUsersFile  string `json:"admin_users_file"`
+	AdminAuditFile  string `json:"admin_audit_file"`
+}
+
+// AdminSessionConfig controls the admin login session.
+type AdminSessionConfig struct {
+	CookieName        string `json:"cookie_name"`
+	Secret            string `json:"secret"`
+	TTLSeconds        int    `json:"ttl_seconds"`
+	SlidingExpiration bool   `json:"sliding_expiration"`
+	SecureCookie      bool   `json:"secure_cookie"`
+}
+
+// AdminUser describes one admin account.
+type AdminUser struct {
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
+	Role         string `json:"role"`
+	Disabled     bool   `json:"disabled"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 // ServerConfig controls the HTTP server behaviour.
@@ -129,6 +158,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: validate %s: %w", path, err)
 	}
 
+	resolveDataFilePaths(cfg, filepath.Dir(path))
+
 	return cfg, nil
 }
 
@@ -178,14 +209,30 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	for i, client := range c.Clients {
-		prefix := fmt.Sprintf("clients[%d]", i)
-		if strings.TrimSpace(client.Name) == "" {
-			problems = append(problems, prefix+" name must not be empty")
-		}
-		if strings.TrimSpace(client.AccessKey) == "" {
-			problems = append(problems, prefix+" access_key must not be empty")
-		}
+	if strings.TrimSpace(c.DataFiles.ClientsFile) == "" {
+		problems = append(problems, "data_files.clients_file must not be empty")
+	}
+	if strings.TrimSpace(c.DataFiles.ModelCostsFile) == "" {
+		problems = append(problems, "data_files.model_costs_file must not be empty")
+	}
+	if strings.TrimSpace(c.DataFiles.UsageEventsFile) == "" {
+		problems = append(problems, "data_files.usage_events_file must not be empty")
+	}
+	if strings.TrimSpace(c.DataFiles.AdminUsersFile) == "" {
+		problems = append(problems, "data_files.admin_users_file must not be empty")
+	}
+	if strings.TrimSpace(c.DataFiles.AdminAuditFile) == "" {
+		problems = append(problems, "data_files.admin_audit_file must not be empty")
+	}
+
+	if strings.TrimSpace(c.AdminSession.CookieName) == "" {
+		problems = append(problems, "admin_session.cookie_name must not be empty")
+	}
+	if strings.TrimSpace(c.AdminSession.Secret) == "" {
+		problems = append(problems, "admin_session.secret must not be empty")
+	}
+	if c.AdminSession.TTLSeconds <= 0 {
+		problems = append(problems, "admin_session.ttl_seconds must be greater than zero")
 	}
 
 	if strings.TrimSpace(c.Logging.Level) == "" {
@@ -221,15 +268,30 @@ func (c *Config) Clone() *Config {
 		}
 	}
 
-	if len(c.Clients) > 0 {
-		clone.Clients = make([]Client, len(c.Clients))
-		for i := range c.Clients {
-			clone.Clients[i] = c.Clients[i]
-			if len(c.Clients[i].AllowedTargets) > 0 {
-				clone.Clients[i].AllowedTargets = append([]string(nil), c.Clients[i].AllowedTargets...)
-			}
-		}
-	}
-
 	return &clone
+}
+
+func resolveDataFilePaths(cfg *Config, baseDir string) {
+	if cfg == nil {
+		return
+	}
+	cfg.DataFiles.ClientsFile = resolvePath(baseDir, cfg.DataFiles.ClientsFile)
+	cfg.DataFiles.ModelCostsFile = resolvePath(baseDir, cfg.DataFiles.ModelCostsFile)
+	cfg.DataFiles.UsageEventsFile = resolvePath(baseDir, cfg.DataFiles.UsageEventsFile)
+	cfg.DataFiles.AdminUsersFile = resolvePath(baseDir, cfg.DataFiles.AdminUsersFile)
+	cfg.DataFiles.AdminAuditFile = resolvePath(baseDir, cfg.DataFiles.AdminAuditFile)
+}
+
+func resolvePath(baseDir, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	if strings.TrimSpace(baseDir) == "" {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(filepath.Join(baseDir, path))
 }

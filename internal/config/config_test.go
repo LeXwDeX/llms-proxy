@@ -19,10 +19,18 @@ func TestConfigValidateSuccess(t *testing.T) {
 			AzureAPIKey:        "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
-		Clients: []Client{{
-			Name:      "client",
-			AccessKey: "secret",
-		}},
+		DataFiles: DataFiles{
+			ClientsFile:     "config/clients.json",
+			ModelCostsFile:  "config/model_costs.json",
+			UsageEventsFile: "config/usage_events.jsonl",
+			AdminUsersFile:  "config/admin_users.json",
+			AdminAuditFile:  "config/admin_audit.jsonl",
+		},
+		AdminSession: AdminSessionConfig{
+			CookieName: "admin_sid",
+			Secret:     "test-secret",
+			TTLSeconds: 3600,
+		},
 		Logging: LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/access.log",
@@ -47,10 +55,18 @@ func TestConfigValidateAllowsBearerWithoutAPIKey(t *testing.T) {
 			ResourcePathPrefix: "/openai",
 			AllowBearer:        true,
 		}},
-		Clients: []Client{{
-			Name:      "client",
-			AccessKey: "secret",
-		}},
+		DataFiles: DataFiles{
+			ClientsFile:     "config/clients.json",
+			ModelCostsFile:  "config/model_costs.json",
+			UsageEventsFile: "config/usage_events.jsonl",
+			AdminUsersFile:  "config/admin_users.json",
+			AdminAuditFile:  "config/admin_audit.jsonl",
+		},
+		AdminSession: AdminSessionConfig{
+			CookieName: "admin_sid",
+			Secret:     "test-secret",
+			TTLSeconds: 3600,
+		},
 		Logging: LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/access.log",
@@ -76,10 +92,18 @@ func TestConfigValidateAllowsOmittedAPIVersionField(t *testing.T) {
 			AzureAPIKey:        "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
-		Clients: []Client{{
-			Name:      "client",
-			AccessKey: "secret",
-		}},
+		DataFiles: DataFiles{
+			ClientsFile:     "config/clients.json",
+			ModelCostsFile:  "config/model_costs.json",
+			UsageEventsFile: "config/usage_events.jsonl",
+			AdminUsersFile:  "config/admin_users.json",
+			AdminAuditFile:  "config/admin_audit.jsonl",
+		},
+		AdminSession: AdminSessionConfig{
+			CookieName: "admin_sid",
+			Secret:     "test-secret",
+			TTLSeconds: 3600,
+		},
 		Logging: LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/access.log",
@@ -117,11 +141,11 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 			AzureAPIKey:        "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
-		Clients: []Client{{
-			Name:           "team",
-			AccessKey:      "abc",
-			AllowedTargets: []string{"primary"},
-		}},
+		DataFiles: DataFiles{
+			ClientsFile:     "config/clients.json",
+			ModelCostsFile:  "config/model_costs.json",
+			UsageEventsFile: "config/usage_events.jsonl",
+		},
 		Logging: LoggingConfig{
 			Level:     "debug",
 			AccessLog: "logs/access.log",
@@ -137,7 +161,7 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 	cloned.Server.Bind = "127.0.0.1:9999"
 	cloned.AzureTargets[0].Name = "secondary"
 	cloned.AzureTargets[0].AllowedModels[0] = "other"
-	cloned.Clients[0].AllowedTargets[0] = "secondary"
+	cloned.DataFiles.ClientsFile = "other/clients.json"
 
 	if cfg.Server.Bind != "0.0.0.0:8080" {
 		t.Errorf("original server bind mutated: %s", cfg.Server.Bind)
@@ -148,8 +172,8 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 	if cfg.AzureTargets[0].AllowedModels[0] != "gpt-4o" {
 		t.Errorf("original target allowed models mutated: %v", cfg.AzureTargets[0].AllowedModels)
 	}
-	if cfg.Clients[0].AllowedTargets[0] != "primary" {
-		t.Errorf("original client allowed targets mutated: %s", cfg.Clients[0].AllowedTargets[0])
+	if cfg.DataFiles.ClientsFile != "config/clients.json" {
+		t.Errorf("original data_files mutated: %s", cfg.DataFiles.ClientsFile)
 	}
 }
 
@@ -167,11 +191,18 @@ func TestLoadReadsFile(t *testing.T) {
 			"resource_path_prefix":"/openai",
 			"azure_api_key":"key"
 		}],
-		"clients":[{
-			"name":"demo",
-			"access_key":"token",
-			"allowed_targets":["primary"]
-		}],
+		"data_files":{
+			"clients_file":"clients.json",
+			"model_costs_file":"model_costs.json",
+			"usage_events_file":"usage_events.jsonl",
+			"admin_users_file":"admin_users.json",
+			"admin_audit_file":"admin_audit.jsonl"
+		},
+		"admin_session":{
+			"cookie_name":"admin_sid",
+			"secret":"test-secret",
+			"ttl_seconds":3600
+		},
 		"logging":{
 			"level":"info",
 			"access_log":"logs/access.log",
@@ -193,5 +224,8 @@ func TestLoadReadsFile(t *testing.T) {
 	}
 	if len(cfg.AzureTargets) != 1 || cfg.AzureTargets[0].Name != "primary" {
 		t.Fatalf("unexpected targets: %#v", cfg.AzureTargets)
+	}
+	if cfg.DataFiles.ClientsFile != filepath.Join(dir, "clients.json") {
+		t.Fatalf("expected clients file resolved to absolute path, got %q", cfg.DataFiles.ClientsFile)
 	}
 }

@@ -8,20 +8,22 @@
       "name": "East US 2",
       "endpoint": "https://yc-east2-us-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "",
+      "azure_api_key": "REDACTED_KEY_3",
       "allowed_models": [
         "gpt-image-1.5",
         "text-embedding-3-large",
         "gpt-5.2",
         "gpt-5.2-chat",
-        "gpt-5.3-codex"
+        "gpt-5.3-codex",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano"
       ]
     },
     {
       "name": "North Central US",
       "endpoint": "https://yc-north-us-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
-      "azure_api_key": "",
+      "azure_api_key": "REDACTED_KEY_4",
       "allowed_models": [
         "tts",
         "tts-hd",
@@ -29,18 +31,20 @@
       ]
     }
   ],
-  "clients": [
-    {
-      "name": "operations",
-      "access_key": "token123",
-      "allowed_targets": []
-    },
-    {
-      "name": "team-alpha",
-      "access_key": "token321",
-      "allowed_targets": []
-    }
-  ],
+  "data_files": {
+    "clients_file": "clients.json",
+    "model_costs_file": "model_costs.json",
+    "usage_events_file": "usage_events.jsonl",
+    "admin_users_file": "admin_users.json",
+    "admin_audit_file": "admin_audit.jsonl"
+  },
+  "admin_session": {
+    "cookie_name": "azure_proxy_admin_session",
+    "secret": "dev-session-secret-change-me",
+    "ttl_seconds": 86400,
+    "sliding_expiration": true,
+    "secure_cookie": false
+  },
   "logging": {
     "level": "info",
     "access_log": "/var/log/azure-proxy/access.log",

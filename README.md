@@ -4,10 +4,10 @@
 
 ## 功能特性
 - 基于 JSON 的配置文件，并支持管理接口触发热加载。
-- 按客户端令牌划分访问权限，可限定允许访问的 Azure 目标。
+- 按客户端令牌划分访问权限，可限定允许访问的 Azure 目标；客户端账户已拆分为 `./config/` 下的文件型 NoSQL 数据。
 - 使用结构化日志，支持文件轮转，兼顾控制台输出。
 - 具备智能目标选择机制，遇到网络错误会重试并触发静默窗口。
-- 管理接口提供健康检查、指标统计与配置重载。
+- 管理接口提供健康检查、指标统计、配置重载，以及网页化管理台与消费统计页。
 - 自带单元测试与集成测试脚本，便于本地验证。
 - 对外提供 OpenAI 风格 API 入口（`/v1/*`），内部自动转发到 Azure OpenAI。
 - 转发遵循 Azure v1 最新规范：不依赖 `api-version`，并自动剥离客户端传入的 `api-version` 参数。
@@ -54,7 +54,8 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 
 - `server`：监听地址、对外基址、超时时间、请求体大小限制。
 - `azure_targets`：Azure 终端列表及对应 API Key，顺序决定主备优先级；`allowed_models` 用于模型级路由和白名单。
-- `clients`：客户端访问令牌与可访问目标；`allowed_targets` 为空时表示放通所有目标。客户端请求携带 `api-key: <access_key>` 或 `Authorization: Bearer <access_key>` 即可通过代理鉴权（与 Azure SDK 调用方式保持一致）。
+- `data_files`：文件型 NoSQL 数据路径，默认指向 `config/clients.json`、`config/model_costs.json`、`config/usage_events.jsonl`、`config/admin_users.json`、`config/admin_audit.jsonl`；客户端访问令牌、模型费用、消费事件、后台管理员账号与审计日志分别存放在这些文件中。
+- `admin_session`：后台管理会话配置，包括 cookie 名称、签名密钥（`secret`）、会话有效期（`ttl_seconds`）、滑动过期（`sliding_expiration`）与安全 cookie 标志。
 - `logging`：日志等级及文件路径，轮转策略由 `internal/logging` 统一处理。
 
 请求转发行为（关键点）：
@@ -76,21 +77,38 @@ curl -sS \
 
 管理端支持热加载：
 ```sh
-curl -X POST -H "Authorization: Bearer <admin-token>" \
+curl -X POST -b "azure_proxy_admin_session=<session-cookie>" \
      http://localhost:8080/admin/config/reload
 ```
 
 ## 日志
 默认输出位置为 `logs/access.log` 与 `logs/error.log`。可在配置文件中调整路径或轮转策略，确保满足部署环境的磁盘与合规要求。
 
+## 后台管理系统
+后台管理系统采用**独立账号密码**登录，与客户端代理鉴权完全分离。管理员账号存放在 `config/admin_users.json`，密码以 `sha256$<salt>$<hex>` 格式哈希存储。
+
+- **登录入口**：浏览器访问 `http://localhost:8080/login`，输入管理员账号密码完成登录。
+- **会话管理**：登录后通过 cookie（`azure_proxy_admin_session`）维持会话，支持滑动过期与登出。
+- **管理台**：登录后进入 `/admin`，左侧导航包含：总览、客户端管理、模型费用、消费统计、审计日志。
+- **默认账号**：首次部署自带 `admin` / `admin123`，**生产环境请立即更换密码**。
+
+未登录访问 `/admin/*` 会自动跳转到登录页。
+
 ## 管理接口
-所有管理接口均需携带合法的客户端令牌（建议单独配置运维令牌）：
+所有管理接口（`/admin/*`）均受 session cookie 鉴权保护，需先通过 `/login` 登录：
 
 | 接口路径              | 方法 | 说明                         |
 |-----------------------|------|------------------------------|
+| `/login`              | GET/POST | 管理员登录页 / 登录提交    |
+| `/logout`             | POST | 登出并销毁 session           |
+| `/admin/`             | GET  | 后台管理台入口（左侧导航式） |
+| `/admin/api/me`       | GET  | 当前登录用户信息             |
+| `/admin/api/overview` | GET  | 总览数据（指标、目标、消费） |
+| `/admin/api/audit`    | GET  | 审计日志查询                 |
 | `/admin/healthz`      | GET  | 返回目标状态、静默窗口、统计 |
 | `/admin/metrics`      | GET  | 聚合请求计数与当前运行指标   |
 | `/admin/config/reload`| POST | 从磁盘重新加载配置           |
+| `/admin/data/*`       | GET/POST/PUT/DELETE | 客户端、模型费用、消费统计 JSON API |
 
 ## 测试
 - 运行单元测试：

@@ -79,6 +79,170 @@
 - OpenAI 侧优先以 `responses` 为主，`chat.completions` 作为兼容补充，并对响应对象与流式事件做概览说明。
 - Claude 侧以 `messages` 为主，补充 content block、stop_reason 和 token 计数接口。
 
+### 追加任务：Responses 流式事件格式
+- `ResponseStreamEvent` 是按 `type` 字段区分的判别式联合类型。
+- 常见分组：生命周期（`response.created` / `queued` / `in_progress` / `completed` / `failed` / `incomplete` / `error`）、文本增量、文本完成、输出项、内容块、补充事件（如 `response.refusal.*`、`response.reasoning_text.*`）。
+- 文档补充时以 `type` + `sequence_number` 为主线，辅以 `item_id`、`output_index`、`content_index`、`delta`、`text`、`item`、`part` 等关键字段。
+
 ### 追加任务落地状态
 - `OPENAI.MD`：已扩写为包含 Responses / Chat Completions 的请求与回应结构说明。
 - `CLAUDE.md`：已扩写为包含 Messages / count_tokens 的请求与回应结构说明。
+
+---
+
+## 新增改造：配置 NoSQL 化与消费统计
+
+### 方案初判
+- 采用文件型文档存储，避免把客户端、模型费用、消费记录继续放进单一 `config.json`。
+- 建议拆分为：
+  - `config/clients.json`：客户端账户集合（CRUD）；
+  - `config/model_costs.json`：模型 token 费用配置；
+  - `config/usage_events.jsonl`：消费事件追加日志（按请求记录）。
+- 主 `config.json` 仅保留服务、Azure targets、日志以及上述数据文件路径。
+
+### 中间件/采集口径
+- 在代理响应写回阶段做 best-effort usage 解析：优先从 JSON body / SSE 事件中提取 usage；若缺失则跳过，不阻断请求。
+- 采集字段建议至少包含：`client_name`、`request_id`、`model`、`input_tokens`、`output_tokens`、`cached_tokens`、`status_code`、`target`、`path`、`timestamp`。
+- 统计页面可基于 usage 事件按时间窗口聚合；费用按模型费率文件实时计算。
+
+### 网页系统
+- 复用现有 `/admin` 鉴权，新增 `/admin/ui` 页面与 `/admin/api/*` JSON 接口。
+- 页面建议包含：客户端管理、统计页（30 天柱状图、每小时/昨日消费、时间段总表）、模型费用查看/编辑入口。
+
+### 已落地的后端方案（来自 coder 回传）
+- 主配置新增 `data_files`，指向：
+  - `clients_file`
+  - `model_costs_file`
+  - `usage_events_file`
+- 新增文件型存储：
+  - `config/clients.json`
+  - `config/model_costs.json`
+  - `config/usage_events.jsonl`
+- 新增管理数据接口：
+  - 客户端 CRUD：`/admin/data/clients`、`/admin/data/clients/{name}`
+  - 模型费用：`/admin/data/model-costs`、`/admin/data/model-costs/{model}`
+  - usage/统计：`/admin/data/usage/events`、`/admin/data/usage/aggregate`、`/admin/data/usage/summary`
+- usage 采集为 best-effort：在成功响应后尝试从 JSON / SSE 中解析 `input_tokens`、`output_tokens`、`cached_tokens`，缺失时不阻断请求。
+- 为提高 SSE 场景鲁棒性，usage 捕获缓冲已改为“保留尾部字节”，避免长流式响应只记录开头而丢失末尾 usage 信息。
+
+### 已落地的网页系统（来自 coder 回传）
+- 新增 Admin UI 入口：`GET /admin/` 与 `GET /admin/ui`。
+- 通过 `go:embed` 内嵌单页管理界面，页面不依赖外部前端构建工具。
+- 页面包含两个主 TAB：
+  - 客户端管理：客户端列表、新增/编辑/删除/刷新，模型费用只读表；
+  - 消费统计：近 30 天日均柱状图、近 1 小时/昨日/近 30 天统计卡片、时间段内按用户总 token 消费表。
+- UI 已通过 admin 鉴权中间件验证，可在 `/admin` 挂载下访问。
+
+### 已同步的文档更新
+- `README.md`：已改为说明客户端账户存放在 `config/clients.json` 等 `data_files` 指定位置，并补充 `/admin/ui` 与 `/admin/data/*`。
+- `docs/api-contract.md`：已补充 `/admin/ui`、客户端 CRUD、模型费用、usage 统计 API 说明。
+- `docs/operations.md`：已补充 `config/` 下数据文件的部署/备份/恢复/权限注意事项，以及消费统计与模型费用运维说明。
+
+### Docker 构建与测试结果
+- Docker 镜像构建成功，镜像名：`azure-proxy:test`。
+- 容器烟雾测试通过（临时配置目录挂载到 `/etc/azure-proxy`）：
+  - `/healthz` 返回 200
+  - `/admin/ui` 返回 200
+  - `/admin/data/clients` 返回 200
+
+---
+
+## 新任务：后台管理系统设计文档
+
+### 已知背景
+- 用户明确反馈：当前“后台”更像 API 列表页，不符合其预期；希望先做设计，再做真正的后台管理系统。
+
+### 当前设计待澄清项
+- 登录方式已确认：独立账号密码；不再复用 Bearer token 直接作为后台会话凭据。
+- 默认按“后台账号 + 会话（cookie）”来设计，后续可再考虑 token/API-key 兼容入口。
+- 是否需要左侧菜单 + 顶部导航的传统后台布局。
+- 是否需要总览页（关键指标卡、最近请求、错误率、消费概览）。
+- 是否要把客户端管理、模型费用、消费统计作为后台核心一级菜单。
+- 是否需要操作审计/变更记录页。
+
+### 已确认的设计前提
+- 登录路径建议固定为 `/login`，登录成功后进入 `/admin`。
+- 后台会话与客户端访问令牌分离；客户端 token 仅用于代理接口访问，不参与后台登录。
+- 后台主导航建议采用传统左侧栏布局，降低学习成本，便于扩展模块。
+- 首版后台应优先覆盖：总览、客户端、模型费用、消费统计、审计/日志；其他能力后置。
+- 后台账号数据建议采用独立的文件型数据源（例如 `config/admin_users.json`），避免与客户端代理凭据混在一起。
+- 会话建议采用 cookie + 签名/过期机制，配合配置中的 session secret，适配单机与容器部署。
+
+### 新任务启动记录
+- 已将工作从"设计文档"推进到"实际实现真正后台管理系统"。
+- 接下来实现重点：后台登录/会话、后台鉴权与客户端代理鉴权分离、左侧导航式后台 UI、后台账号文件型数据源。
+
+### 后端与 UI 实现已全部落地
+- 全部后端新增文件：`users.go`、`session.go`、`audit.go`、`portal.go`、`ui_embed.go`、`ui/index.html`
+- 全部改动文件：`handler.go`（新增 auditStore 参数）、`config.go`（AdminSession + DataFiles 扩展）、`main.go`（路由重构）
+- 测试全部修复并通过
+- 密码哈希格式：`sha256$<salt>$<hex>`，不可逆
+- Session 实现：内存 map + HMAC-SHA256 cookie 签名 + sliding expiration
+
+### Docker 烟雾测试关键发现
+- 之前失败原因：烟雾测试配置中 `resource_path_prefix` 为空字符串 `""`，触发 `Validate()` 校验 `azure_targets[0] resource_path_prefix must not be empty` 导致进程退出
+- 修正为 `/openai` 后，容器正常启动，10 项烟雾测试全部通过
+- 路径解析验证：`data_files` 中的相对路径（如 `clients.json`）被正确解析为 `/etc/azure-proxy/clients.json`（基于 config.json 所在目录）
+- 权限验证：容器以 root 运行时所有 data_files 可读写；生产部署建议确保 `azureproxy` 用户对挂载目录有写权限
+
+### 内部设计大纲已落地
+- 已在 `.codex_plan/reference/admin-backoffice-design.md` 形成内部设计大纲，作为后续实现与评审的唯一骨架参考。
+- 大纲明确了登录、页面结构、路由、数据模型、里程碑与暂不做项，避免继续回到 API 面板思路。
+- 已补充核心流程：登录、页面加载、配置变更、审计，以及各页面的数据契约。
+- 已补充后台 API 约定、账号与权限策略、会话与安全策略、错误反馈规范与实现顺序。
+
+---
+
+## 新任务：bbolt NoSQL 迁移 — 代码现状分析
+
+### 当前 5 个数据存储的实现模式
+1. **ClientStore** (`internal/nosql/clients.go`)
+   - JSON 文件全量读写 + `writeAtomic`（写 tmp → rename）
+   - 方法：`List`、`Create`、`Update`、`Delete`
+   - 依赖：`config.Client` 类型
+   - 每次写操作先全量读取，修改后全量重写
+
+2. **ModelCostStore** (`internal/nosql/model_costs.go`)
+   - JSON 文件全量读写 + `writeAtomic`
+   - 方法：`List`、`Upsert`、`Delete`
+   - 定义了 `ModelCost` 结构体（在 nosql 包内）
+   - `writeAtomic` 辅助函数也在此文件
+
+3. **UsageStore** (`internal/usage/store.go`)
+   - JSONL 追加写入 + 全量扫描读取
+   - 方法：`Record`、`List`、`Aggregate`、`Summary`
+   - 实现了 `Recorder` 接口
+   - 大量类型定义在同一文件：Event、Filter、CostTable、Totals、Bucket 等
+
+4. **UserStore** (`internal/admin/users.go`)
+   - JSON 文件只读 + 认证逻辑
+   - 方法：`List`、`Authenticate`
+   - 包含 `HashPassword`、`verifyPasswordHash` 函数
+   - 依赖 `config.AdminUser` 类型
+
+5. **AuditStore** (`internal/admin/audit.go`)
+   - JSONL 追加写入 + 全量扫描读取
+   - 方法：`Record`、`List`
+   - 定义了 `AuditEvent` 结构体
+
+### Handler 中的 Store 创建模式（需改造）
+- `handler.go` 中 `currentClientStore()`、`currentModelCostStore()`、`currentUsageStore()` 每次请求从配置读取路径创建新 store 实例。
+- bbolt 迁移后应改为启动时创建一次，作为 Handler 构造参数传入。
+
+### bbolt 选型依据
+- 纯 Go 实现，无 CGO 依赖
+- 单文件数据库，事务安全（ACID）
+- etcd、Kubernetes 等项目验证
+- 适合嵌入式场景，无需独立进程
+- 读事务可并行，写事务串行（适合本项目的中低并发写入场景）
+
+### 迁移策略
+- bbolt 使用 5 个 bucket：`clients`、`model_costs`、`usage_events`、`admin_users`、`admin_audit`
+- 每个 bucket 中以 key-value 存储：
+  - `clients`：key=name, value=json(Client)
+  - `model_costs`：key=model, value=json(ModelCost)
+  - `usage_events`：key=timestamp+uuid, value=json(Event)
+  - `admin_users`：key=username, value=json(AdminUser)
+  - `admin_audit`：key=timestamp+id, value=json(AuditEvent)
+- 配置变更：`data_files`（5 路径）→ `data_store.db_path`（单一路径）
+- 启动时检测：若 bbolt DB 不存在但旧 JSON 文件存在，自动迁移

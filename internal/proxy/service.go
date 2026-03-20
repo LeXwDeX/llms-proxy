@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 	"github.com/ycgame/azure-proxy/internal/auth"
 	"github.com/ycgame/azure-proxy/internal/config"
 	appmiddleware "github.com/ycgame/azure-proxy/internal/middleware"
+	"github.com/ycgame/azure-proxy/internal/usage"
 )
 
 const (
@@ -141,6 +143,9 @@ type Service struct {
 	requestTimeout atomic.Int64
 	quietPeriod    time.Duration
 
+	usageMu       sync.RWMutex
+	usageRecorder usage.Recorder
+
 	mu            sync.RWMutex
 	targetsByName map[string]*targetState
 	targetOrder   []*targetState
@@ -257,8 +262,28 @@ func (s *Service) ApplyConfig(cfg *config.Config) error {
 	s.targetOrder = order
 	s.mu.Unlock()
 
+	usagePath := strings.TrimSpace(cfg.DataFiles.UsageEventsFile)
+	if usagePath != "" {
+		s.SetUsageRecorder(usage.NewStore(usagePath))
+	} else {
+		s.SetUsageRecorder(nil)
+	}
+
 	s.setRequestTimeout(timeout)
 	return nil
+}
+
+// SetUsageRecorder configures usage recorder for best-effort tracking.
+func (s *Service) SetUsageRecorder(recorder usage.Recorder) {
+	s.usageMu.Lock()
+	s.usageRecorder = recorder
+	s.usageMu.Unlock()
+}
+
+func (s *Service) currentUsageRecorder() usage.Recorder {
+	s.usageMu.RLock()
+	defer s.usageMu.RUnlock()
+	return s.usageRecorder
 }
 
 func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, []*targetState, error) {
@@ -489,7 +514,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.writeResponse(w, r, state, resp, cancel, attempt)
+		s.writeResponse(w, r, state, resp, cancel, attempt, model)
 		requestOutcomeRecorded = true
 		return
 	}
@@ -641,6 +666,7 @@ func (s *Service) writeResponse(
 	resp *http.Response,
 	cancel context.CancelFunc,
 	attempt int,
+	model string,
 ) {
 	defer deferCancel(cancel)
 	defer resp.Body.Close()
@@ -686,7 +712,8 @@ func (s *Service) writeResponse(
 	}
 
 	writer := newStreamingWriter(w)
-	if _, err := io.Copy(writer, resp.Body); err != nil &&
+	capture := &limitedCaptureWriter{limit: 2 * 1024 * 1024}
+	if _, err := io.Copy(writer, io.TeeReader(resp.Body, capture)); err != nil &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded) {
 		s.logger.Warn("stream copy failed",
@@ -695,6 +722,270 @@ func (s *Service) writeResponse(
 			"error", err,
 		)
 	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		s.recordUsageEvent(r, target, resp.StatusCode, model, resp.Header.Get("Content-Type"), capture.Bytes())
+	}
+}
+
+func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode int, model string, contentType string, body []byte) {
+	recorder := s.currentUsageRecorder()
+	if recorder == nil || r == nil {
+		return
+	}
+
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || principal == nil {
+		return
+	}
+
+	tokens, parsedModel, found := extractUsageTokens(contentType, body)
+	if !found {
+		return
+	}
+
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		model = parsedModel
+	}
+
+	evt := usage.Event{
+		Timestamp:    time.Now().UTC(),
+		ClientName:   principal.Name,
+		Model:        model,
+		InputTokens:  tokens.InputTokens,
+		OutputTokens: tokens.OutputTokens,
+		CachedTokens: tokens.CachedTokens,
+		RequestID:    appmiddleware.RequestIDFromContext(r.Context()),
+		StatusCode:   statusCode,
+		Path:         r.URL.Path,
+	}
+	if target != nil {
+		evt.Target = target.Name
+	}
+
+	if err := recorder.Record(evt); err != nil {
+		s.logger.Warn("failed to record usage event",
+			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+			"client", principal.Name,
+			"error", err,
+		)
+	}
+}
+
+type usageTokens struct {
+	InputTokens  int64
+	OutputTokens int64
+	CachedTokens int64
+}
+
+func extractUsageTokens(contentType string, body []byte) (usageTokens, string, bool) {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return usageTokens{}, "", false
+	}
+
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	if strings.Contains(contentType, "text/event-stream") || bytes.HasPrefix(body, []byte("data:")) {
+		return extractUsageFromSSE(body)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return usageTokens{}, "", false
+	}
+	return parseUsageFromPayload(payload)
+}
+
+func extractUsageFromSSE(body []byte) (usageTokens, string, bool) {
+	var last usageTokens
+	var model string
+	found := false
+
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	buf := make([]byte, 0, 4096)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(strings.ToLower(line), "data:") {
+			continue
+		}
+		chunk := strings.TrimSpace(line[len("data:"):])
+		if chunk == "" || chunk == "[DONE]" {
+			continue
+		}
+
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(chunk), &payload); err != nil {
+			continue
+		}
+		tokens, m, ok := parseUsageFromPayload(payload)
+		if !ok {
+			continue
+		}
+		last = tokens
+		if m != "" {
+			model = m
+		}
+		found = true
+	}
+
+	if !found {
+		return usageTokens{}, "", false
+	}
+	return last, model, true
+}
+
+func parseUsageFromPayload(payload map[string]any) (usageTokens, string, bool) {
+	if payload == nil {
+		return usageTokens{}, "", false
+	}
+
+	model := strings.ToLower(readString(payload["model"]))
+
+	if usageMap, ok := payload["usage"].(map[string]any); ok {
+		tokens, found := parseUsageMap(usageMap)
+		if found {
+			return tokens, model, true
+		}
+	}
+
+	if responseMap, ok := payload["response"].(map[string]any); ok {
+		if model == "" {
+			model = strings.ToLower(readString(responseMap["model"]))
+		}
+		if usageMap, ok := responseMap["usage"].(map[string]any); ok {
+			tokens, found := parseUsageMap(usageMap)
+			if found {
+				return tokens, model, true
+			}
+		}
+	}
+
+	if _, hasPrompt := payload["prompt_tokens"]; hasPrompt {
+		return usageTokens{
+			InputTokens:  readInt64(payload["prompt_tokens"]),
+			OutputTokens: readInt64(payload["completion_tokens"]),
+		}, model, true
+	}
+
+	return usageTokens{}, model, false
+}
+
+func parseUsageMap(usageMap map[string]any) (usageTokens, bool) {
+	if usageMap == nil {
+		return usageTokens{}, false
+	}
+
+	hasAny := false
+	readField := func(names ...string) (int64, bool) {
+		for _, name := range names {
+			if value, ok := usageMap[name]; ok {
+				hasAny = true
+				return readInt64(value), true
+			}
+		}
+		return 0, false
+	}
+
+	input, _ := readField("input_tokens", "prompt_tokens")
+	output, _ := readField("output_tokens", "completion_tokens")
+	cached, hasCached := readField("cached_tokens")
+	if !hasCached {
+		if details, ok := usageMap["input_tokens_details"].(map[string]any); ok {
+			if value, ok := details["cached_tokens"]; ok {
+				hasAny = true
+				cached = readInt64(value)
+			}
+		}
+		if details, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
+			if value, ok := details["cached_tokens"]; ok {
+				hasAny = true
+				cached = readInt64(value)
+			}
+		}
+	}
+
+	if !hasAny {
+		return usageTokens{}, false
+	}
+
+	return usageTokens{
+		InputTokens:  input,
+		OutputTokens: output,
+		CachedTokens: cached,
+	}, true
+}
+
+func readInt64(value any) int64 {
+	switch v := value.(type) {
+	case float64:
+		return int64(v)
+	case float32:
+		return int64(v)
+	case int64:
+		return v
+	case int32:
+		return int64(v)
+	case int:
+		return int64(v)
+	case json.Number:
+		n, err := v.Int64()
+		if err == nil {
+			return n
+		}
+		f, err := v.Float64()
+		if err == nil {
+			return int64(f)
+		}
+	case string:
+		var n json.Number = json.Number(strings.TrimSpace(v))
+		if iv, err := n.Int64(); err == nil {
+			return iv
+		}
+	}
+	return 0
+}
+
+func readString(value any) string {
+	if value == nil {
+		return ""
+	}
+	if s, ok := value.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+type limitedCaptureWriter struct {
+	limit int
+	buf   []byte
+}
+
+func (w *limitedCaptureWriter) Write(p []byte) (int, error) {
+	if w.limit <= 0 {
+		return len(p), nil
+	}
+	if len(p) >= w.limit {
+		w.buf = append(w.buf[:0], p[len(p)-w.limit:]...)
+		return len(p), nil
+	}
+	combined := append(append(make([]byte, 0, len(w.buf)+len(p)), w.buf...), p...)
+	if len(combined) > w.limit {
+		combined = combined[len(combined)-w.limit:]
+	}
+	w.buf = combined
+	return len(p), nil
+}
+
+func (w *limitedCaptureWriter) Bytes() []byte {
+	if len(w.buf) == 0 {
+		return nil
+	}
+	out := make([]byte, len(w.buf))
+	copy(out, w.buf)
+	return out
 }
 
 func classifyTransportError(err error) int {

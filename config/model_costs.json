@@ -1,0 +1,20 @@
+[
+  {
+    "model": "gpt-5.2",
+    "input_per_1k_tokens": 0.005,
+    "output_per_1k_tokens": 0.015,
+    "cached_input_per_1k_tokens": 0.0015
+  },
+  {
+    "model": "gpt-5.2-chat",
+    "input_per_1k_tokens": 0.005,
+    "output_per_1k_tokens": 0.015,
+    "cached_input_per_1k_tokens": 0.0015
+  },
+  {
+    "model": "123",
+    "input_per_1k_tokens": 123,
+    "output_per_1k_tokens": 123,
+    "cached_input_per_1k_tokens": 123
+  }
+]

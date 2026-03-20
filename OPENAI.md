@@ -100,8 +100,20 @@
 ```
 
 ### 流式说明
-- 使用 `stream: true` 时，返回 SSE 事件流。
-- 常见事件包括创建、内容块增量、完成、错误等。
+- 使用 `stream: true` 时，返回 **SSE 事件流**。
+- 每个事件对象都通过 `type` 字段做判别；消费端应按 `sequence_number` 顺序合并。
+- 事件可按下面几类理解：
+
+| 分组 | 常见事件名 | 关键字段 |
+|---|---|---|
+| 生命周期 | `response.created`、`response.queued`、`response.in_progress`、`response.completed`、`response.failed`、`response.incomplete`、`error` | 通常含 `type`、`sequence_number`；前六类还带 `response`，`error` 带 `code` / `message` / `param`。 |
+| 文本增量 | `response.output_text.delta` | `type`、`sequence_number`、`item_id`、`output_index`、`content_index`、`delta`、`logprobs` |
+| 文本完成 | `response.output_text.done` | `type`、`sequence_number`、`item_id`、`output_index`、`content_index`、`text`、`logprobs` |
+| 输出项 | `response.output_item.added`、`response.output_item.done` | `type`、`sequence_number`、`output_index`、`item` |
+| 内容块 | `response.content_part.added`、`response.content_part.done` | `type`、`sequence_number`、`item_id`、`output_index`、`content_index`、`part` |
+| 补充事件 | `response.refusal.delta/done`、`response.reasoning_text.delta/done` | 与对应内容块一致，重点关注 `delta` / `text`。 |
+
+- 文档层面的最简理解：先看 `type`，再按 `response` 生命周期、`output_item`、`content_part` 和文本增量四层去组装最终结果。
 
 ### token 统计
 - `POST /v1/responses/input_tokens` 用于统计输入 token。

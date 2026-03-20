@@ -14,13 +14,20 @@
       ]
     }
   ],
-  "clients": [
-    {
-      "name": "tester",
-      "access_key": "test-key",
-      "allowed_targets": []
-    }
-  ],
+  "data_files": {
+    "clients_file": "clients.json",
+    "model_costs_file": "model_costs.json",
+    "usage_events_file": "usage_events.jsonl",
+    "admin_users_file": "admin_users.json",
+    "admin_audit_file": "admin_audit.jsonl"
+  },
+  "admin_session": {
+    "cookie_name": "admin_sid",
+    "secret": "test-secret-do-not-use-in-production",
+    "ttl_seconds": 3600,
+    "sliding_expiration": true,
+    "secure_cookie": false
+  },
   "logging": {
     "level": "debug",
     "access_log": "logs/test-access.log",

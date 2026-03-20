@@ -1,0 +1,1422 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Azure Proxy 管理台</title>
+  <style>
+    :root {
+      --sidebar-width: 240px;
+      --sidebar-bg: #1e293b;
+      --sidebar-hover: #334155;
+      --sidebar-active: #3b82f6;
+      --sidebar-text: #94a3b8;
+      --sidebar-text-active: #ffffff;
+      --topbar-height: 56px;
+      --topbar-bg: #ffffff;
+      --topbar-border: #e2e8f0;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --primary-light: #dbeafe;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --bg: #f1f5f9;
+      --card: #ffffff;
+      --card-border: #e2e8f0;
+      --text: #1e293b;
+      --text-secondary: #64748b;
+      --text-muted: #94a3b8;
+      --line: #e2e8f0;
+      --radius: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+      --transition: 0.2s ease;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.5;
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    /* ===== Layout ===== */
+    .layout { display: flex; height: 100vh; }
+
+    /* ===== Sidebar ===== */
+    .sidebar {
+      width: var(--sidebar-width);
+      min-width: var(--sidebar-width);
+      background: var(--sidebar-bg);
+      display: flex;
+      flex-direction: column;
+      transition: transform var(--transition), width var(--transition);
+      z-index: 100;
+      overflow: hidden;
+    }
+    .sidebar-brand {
+      padding: 20px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .sidebar-brand h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sidebar-brand h1 span.icon { font-size: 20px; }
+    .sidebar-brand p {
+      font-size: 11px;
+      color: var(--sidebar-text);
+      margin-top: 4px;
+    }
+
+    .sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      color: var(--sidebar-text);
+      cursor: pointer;
+      font-size: 14px;
+      transition: all var(--transition);
+      border-left: 3px solid transparent;
+      user-select: none;
+    }
+    .sidebar-nav-item:hover {
+      background: var(--sidebar-hover);
+      color: #cbd5e1;
+    }
+    .sidebar-nav-item.active {
+      background: rgba(59,130,246,0.12);
+      color: var(--sidebar-text-active);
+      border-left-color: var(--sidebar-active);
+    }
+    .sidebar-nav-item .nav-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+    .sidebar-nav-item .nav-label { white-space: nowrap; }
+
+    .sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .sidebar-footer .logout-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 6px;
+      color: #fca5a5;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all var(--transition);
+    }
+    .sidebar-footer .logout-btn:hover {
+      background: rgba(239,68,68,0.2);
+      color: #fecaca;
+    }
+
+    /* ===== Main Content ===== */
+    .main-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    /* ===== Topbar ===== */
+    .topbar {
+      height: var(--topbar-height);
+      background: var(--topbar-bg);
+      border-bottom: 1px solid var(--topbar-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      flex-shrink: 0;
+      box-shadow: var(--shadow);
+      z-index: 50;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .topbar-title { font-size: 16px; font-weight: 600; color: var(--text); }
+    .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-secondary); }
+    .topbar-right .user-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: var(--primary-light);
+      border-radius: 20px;
+      font-size: 12px;
+      color: var(--primary);
+      font-weight: 500;
+    }
+    .menu-toggle {
+      display: none;
+      background: none;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 18px;
+      color: var(--text);
+    }
+
+    /* ===== Content Area ===== */
+    .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* ===== Pages ===== */
+    .page { display: none; animation: fadeIn 0.25s ease; }
+    .page.active { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== Cards / Stats ===== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      box-shadow: var(--shadow);
+      transition: box-shadow var(--transition);
+    }
+    .stat-card:hover { box-shadow: var(--shadow-md); }
+    .stat-card .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .stat-card .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .stat-card .stat-sub {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    /* ===== Panel ===== */
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .panel-header h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .panel-body { padding: 16px 20px; }
+    .panel-body.no-pad { padding: 0; }
+
+    /* ===== Tables ===== */
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      background: #f8fafc;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      text-align: left;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 10px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 13px;
+      vertical-align: middle;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #f8fafc; }
+    .empty-row td { text-align: center; color: var(--text-muted); padding: 32px 16px; }
+    .key-mask {
+      font-family: "SF Mono", "Consolas", "Liberation Mono", monospace;
+      font-size: 12px;
+      color: var(--text-secondary);
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* ===== Buttons ===== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all var(--transition);
+      white-space: nowrap;
+      font-family: inherit;
+    }
+    .btn:hover { border-color: #cbd5e1; background: #f8fafc; }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+    }
+    .btn-danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    /* ===== Forms ===== */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .form-group label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .form-control {
+      padding: 7px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      transition: border-color var(--transition);
+      width: 100%;
+    }
+    .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    select.form-control { appearance: auto; }
+
+    .form-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+
+    /* ===== Modal ===== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      animation: fadeIn 0.15s ease;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--card);
+      border-radius: 12px;
+      width: 90%;
+      max-width: 520px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      animation: slideUp 0.2s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header h3 { font-size: 16px; font-weight: 600; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 4px;
+      line-height: 1;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { padding: 20px; }
+    .modal-body .form-group { margin-bottom: 14px; }
+    .modal-body .form-group:last-child { margin-bottom: 0; }
+    .modal-footer {
+      padding: 12px 20px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* ===== Toast ===== */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 300;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #fff;
+      box-shadow: var(--shadow-md);
+      animation: toastIn 0.3s ease;
+      max-width: 380px;
+    }
+    .toast.success { background: #16a34a; }
+    .toast.error { background: var(--danger); }
+    .toast.info { background: var(--primary); }
+    @keyframes toastIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* ===== Chart ===== */
+    .chart-container {
+      min-height: 220px;
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      padding: 12px 8px 8px;
+      overflow-x: auto;
+    }
+    .chart-bar-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 28px;
+      flex: 1;
+    }
+    .chart-bar {
+      width: 22px;
+      min-height: 2px;
+      background: linear-gradient(180deg, #60a5fa, var(--primary));
+      border-radius: 4px 4px 0 0;
+      transition: height 0.3s ease;
+      cursor: default;
+    }
+    .chart-bar:hover { background: linear-gradient(180deg, #93c5fd, #2563eb); }
+    .chart-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+    .chart-value {
+      font-size: 9px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    /* ===== Time Range Selector ===== */
+    .time-range-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .time-range-btn {
+      padding: 5px 12px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: #fff;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all var(--transition);
+      font-family: inherit;
+    }
+    .time-range-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .time-range-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    /* ===== Loading ===== */
+    .loading-spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--line);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-overlay {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 32px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    /* ===== Responsive ===== */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.3);
+      z-index: 99;
+    }
+    @media (max-width: 768px) {
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        transform: translateX(-100%);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-overlay.open { display: block; }
+      .menu-toggle { display: block; }
+      .content { padding: 16px; }
+    }
+
+    /* ===== Scrollbar ===== */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar Overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <h1><span class="icon">⚡</span> Azure Proxy</h1>
+        <p>运维管理台</p>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="sidebar-nav-item active" data-page="overview">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">总览</span>
+        </div>
+        <div class="sidebar-nav-item" data-page="clients">
+          <span class="nav-icon">👥</span>
+          <span class="nav-label">客户端管理</span>
+        </div>
+        <div class="sidebar-nav-item" data-page="model-costs">
+          <span class="nav-icon">💰</span>
+          <span class="nav-label">模型费用</span>
+        </div>
+        <div class="sidebar-nav-item" data-page="usage">
+          <span class="nav-icon">📈</span>
+          <span class="nav-label">消费统计</span>
+        </div>
+        <div class="sidebar-nav-item" data-page="audit">
+          <span class="nav-icon">📋</span>
+          <span class="nav-label">审计日志</span>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <form method="POST" action="/logout" id="logoutForm">
+          <button type="submit" class="logout-btn">
+            <span>🚪</span>
+            <span>退出登录</span>
+          </button>
+        </form>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="main-wrapper">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="menu-toggle" id="menuToggle">☰</button>
+          <span class="topbar-title" id="topbarTitle">总览</span>
+        </div>
+        <div class="topbar-right">
+          <span class="user-badge" id="userBadge">👤 管理员</span>
+        </div>
+      </header>
+
+      <!-- Content -->
+      <div class="content">
+
+        <!-- ========== Page: 总览 ========== -->
+        <div class="page active" id="page-overview">
+          <div class="stats-grid" id="overviewStats">
+            <div class="stat-card">
+              <div class="stat-label">请求总量</div>
+              <div class="stat-value" id="ovTotalReqs">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">成功率</div>
+              <div class="stat-value" id="ovSuccessRate">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">活跃目标数</div>
+              <div class="stat-value" id="ovTargets">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">客户端数</div>
+              <div class="stat-value" id="ovClients">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">模型费用配置数</div>
+              <div class="stat-value" id="ovModelCosts">-</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>近期请求统计</h3>
+            </div>
+            <div class="panel-body" id="overviewUsageSummary">
+              <div class="loading-overlay"><span class="loading-spinner"></span> 加载中...</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>近期审计日志</h3>
+            </div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>操作者</th>
+                    <th>动作</th>
+                    <th>对象</th>
+                    <th>结果</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewAuditBody">
+                  <tr class="empty-row"><td colspan="5">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== Page: 客户端管理 ========== -->
+        <div class="page" id="page-clients">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>客户端管理</h3>
+              <div class="btn-group">
+                <button class="btn" id="refreshClientsBtn">🔄 刷新</button>
+                <button class="btn btn-primary" id="newClientBtn">➕ 新增客户端</button>
+              </div>
+            </div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>Access Key</th>
+                    <th>允许目标</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="clientsTableBody">
+                  <tr class="empty-row"><td colspan="4">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== Page: 模型费用 ========== -->
+        <div class="page" id="page-model-costs">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>模型费用配置</h3>
+              <div class="btn-group">
+                <button class="btn" id="refreshModelCostsBtn">🔄 刷新</button>
+                <button class="btn btn-primary" id="newModelCostBtn">➕ 新增费用</button>
+              </div>
+            </div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>模型名</th>
+                    <th>输入单价 /1K tokens</th>
+                    <th>输出单价 /1K tokens</th>
+                    <th>缓存输入单价 /1K tokens</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="modelCostsTableBody">
+                  <tr class="empty-row"><td colspan="5">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== Page: 消费统计 ========== -->
+        <div class="page" id="page-usage">
+          <div class="time-range-bar">
+            <button class="time-range-btn" data-range="1h">近1小时</button>
+            <button class="time-range-btn" data-range="yesterday">昨日</button>
+            <button class="time-range-btn active" data-range="7d">近7天</button>
+            <button class="time-range-btn" data-range="30d">近30天</button>
+            <button class="time-range-btn" data-range="custom">自定义</button>
+            <div id="customRangeInputs" style="display:none;" class="form-row">
+              <div class="form-group">
+                <label>开始时间</label>
+                <input type="datetime-local" class="form-control" id="usageFrom">
+              </div>
+              <div class="form-group">
+                <label>结束时间</label>
+                <input type="datetime-local" class="form-control" id="usageTo">
+              </div>
+              <button class="btn btn-primary btn-sm" id="applyCustomRange">确定</button>
+            </div>
+          </div>
+
+          <div class="stats-grid" id="usageSummaryCards">
+            <div class="stat-card">
+              <div class="stat-label">请求数</div>
+              <div class="stat-value" id="usReqs">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">输入 Token</div>
+              <div class="stat-value" id="usInput">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">输出 Token</div>
+              <div class="stat-value" id="usOutput">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">缓存 Token</div>
+              <div class="stat-value" id="usCached">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">估算费用</div>
+              <div class="stat-value" id="usCost">-</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>按用户聚合</h3></div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>用户</th>
+                    <th>请求数</th>
+                    <th>输入 Token</th>
+                    <th>输出 Token</th>
+                    <th>缓存 Token</th>
+                    <th>总 Token</th>
+                    <th>估算费用</th>
+                  </tr>
+                </thead>
+                <tbody id="usageByClientBody">
+                  <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>按模型聚合</h3></div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>模型</th>
+                    <th>请求数</th>
+                    <th>输入 Token</th>
+                    <th>输出 Token</th>
+                    <th>缓存 Token</th>
+                    <th>总 Token</th>
+                    <th>估算费用</th>
+                  </tr>
+                </thead>
+                <tbody id="usageByModelBody">
+                  <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>近30天日均柱状图</h3></div>
+            <div class="panel-body">
+              <div class="chart-container" id="dailyChart">
+                <div class="loading-overlay"><span class="loading-spinner"></span> 加载中...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== Page: 审计日志 ========== -->
+        <div class="page" id="page-audit">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>审计日志</h3>
+              <button class="btn" id="refreshAuditBtn">🔄 刷新</button>
+            </div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>操作者</th>
+                    <th>动作</th>
+                    <th>对象</th>
+                    <th>结果</th>
+                    <th>详情</th>
+                  </tr>
+                </thead>
+                <tbody id="auditTableBody">
+                  <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Client Modal ===== -->
+  <div class="modal-overlay" id="clientModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="clientModalTitle">新增客户端</h3>
+        <button class="modal-close" data-close="clientModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>客户端名称</label>
+          <input class="form-control" id="clientName" placeholder="例如：client-prod" required>
+        </div>
+        <div class="form-group">
+          <label>Access Key</label>
+          <input class="form-control" id="clientAccessKey" placeholder="例如：sk-xxxxx" required>
+        </div>
+        <div class="form-group">
+          <label>允许目标（逗号分隔，留空表示全部）</label>
+          <input class="form-control" id="clientAllowedTargets" placeholder="例如：target-1, target-2">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="clientModal">取消</button>
+        <button class="btn btn-primary" id="saveClientBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Model Cost Modal ===== -->
+  <div class="modal-overlay" id="modelCostModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modelCostModalTitle">新增模型费用</h3>
+        <button class="modal-close" data-close="modelCostModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>模型名称</label>
+          <input class="form-control" id="mcModel" placeholder="例如：gpt-4o" required>
+        </div>
+        <div class="form-group">
+          <label>输入单价 /1K tokens</label>
+          <input class="form-control" id="mcInputPrice" type="number" step="any" min="0" placeholder="0.0025">
+        </div>
+        <div class="form-group">
+          <label>输出单价 /1K tokens</label>
+          <input class="form-control" id="mcOutputPrice" type="number" step="any" min="0" placeholder="0.01">
+        </div>
+        <div class="form-group">
+          <label>缓存输入单价 /1K tokens</label>
+          <input class="form-control" id="mcCachedPrice" type="number" step="any" min="0" placeholder="0.00125">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="modelCostModal">取消</button>
+        <button class="btn btn-primary" id="saveModelCostBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Confirm Modal ===== -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>确认操作</h3>
+        <button class="modal-close" data-close="confirmModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage">确认执行此操作？</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="confirmModal">取消</button>
+        <button class="btn btn-danger" id="confirmOkBtn">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Toast Container ===== -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      /* ===== Utility ===== */
+      function esc(v) {
+        return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      }
+      function fmtNum(v) { return Number(v||0).toLocaleString("zh-CN"); }
+      function fmtMoney(v) { return "$" + Number(v||0).toFixed(4); }
+      function fmtPct(v) { return Number(v||0).toFixed(1) + "%"; }
+      function totalTok(r) { return Number(r.input_tokens||0) + Number(r.output_tokens||0) + Number(r.cached_tokens||0); }
+      function maskKey(k) {
+        if (!k) return "-";
+        if (k.length <= 8) return k.substring(0,2) + "****" + k.substring(k.length-2);
+        return k.substring(0,4) + "****" + k.substring(k.length-4);
+      }
+      function fmtTime(ts) {
+        if (!ts) return "-";
+        var d = new Date(ts);
+        if (isNaN(d.getTime())) return String(ts);
+        var pad = function(n) { return String(n).padStart(2,"0"); };
+        return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+      }
+      function toLocalInput(d) {
+        var local = new Date(d.getTime() - d.getTimezoneOffset()*60000);
+        return local.toISOString().slice(0,16);
+      }
+      function inputToISO(id) {
+        var v = document.getElementById(id).value;
+        var d = new Date(v);
+        if (isNaN(d.getTime())) throw new Error("请填写有效时间");
+        return d.toISOString();
+      }
+
+      /* ===== Toast ===== */
+      var toastContainer = document.getElementById("toastContainer");
+      function toast(msg, type) {
+        var el = document.createElement("div");
+        el.className = "toast " + (type || "info");
+        el.textContent = msg;
+        toastContainer.appendChild(el);
+        setTimeout(function() { el.remove(); }, 3000);
+      }
+
+      /* ===== API ===== */
+      async function api(url, opts) {
+        var init = Object.assign({}, opts || {});
+        init.headers = Object.assign({}, init.headers || {});
+        if (init.body && typeof init.body !== "string") {
+          init.body = JSON.stringify(init.body);
+          init.headers["Content-Type"] = "application/json";
+        }
+        var resp = await fetch(url, init);
+        var text = await resp.text();
+        var data = {};
+        if (text) { try { data = JSON.parse(text); } catch(e) { data = {raw: text}; } }
+        if (!resp.ok) throw new Error(data.error || "请求失败 (HTTP " + resp.status + ")");
+        return data;
+      }
+
+      /* ===== Modal ===== */
+      function openModal(id) { document.getElementById(id).classList.add("open"); }
+      function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+      document.querySelectorAll("[data-close]").forEach(function(btn) {
+        btn.addEventListener("click", function() { closeModal(btn.dataset.close); });
+      });
+      document.querySelectorAll(".modal-overlay").forEach(function(overlay) {
+        overlay.addEventListener("click", function(e) {
+          if (e.target === overlay) closeModal(overlay.id);
+        });
+      });
+
+      var confirmCallback = null;
+      function showConfirm(msg, cb) {
+        document.getElementById("confirmMessage").textContent = msg;
+        confirmCallback = cb;
+        openModal("confirmModal");
+      }
+      document.getElementById("confirmOkBtn").addEventListener("click", function() {
+        closeModal("confirmModal");
+        if (confirmCallback) { confirmCallback(); confirmCallback = null; }
+      });
+
+      /* ===== Navigation ===== */
+      var currentPage = "overview";
+      var pageTitles = {
+        overview: "总览",
+        clients: "客户端管理",
+        "model-costs": "模型费用",
+        usage: "消费统计",
+        audit: "审计日志"
+      };
+      function switchPage(page) {
+        currentPage = page;
+        document.querySelectorAll(".sidebar-nav-item").forEach(function(n) {
+          n.classList.toggle("active", n.dataset.page === page);
+        });
+        document.querySelectorAll(".page").forEach(function(p) {
+          p.classList.toggle("active", p.id === "page-" + page);
+        });
+        document.getElementById("topbarTitle").textContent = pageTitles[page] || page;
+        /* Close sidebar on mobile */
+        document.getElementById("sidebar").classList.remove("open");
+        document.getElementById("sidebarOverlay").classList.remove("open");
+        /* Load data */
+        loadPageData(page);
+      }
+      document.querySelectorAll(".sidebar-nav-item").forEach(function(item) {
+        item.addEventListener("click", function() { switchPage(item.dataset.page); });
+      });
+
+      /* Mobile menu */
+      document.getElementById("menuToggle").addEventListener("click", function() {
+        document.getElementById("sidebar").classList.toggle("open");
+        document.getElementById("sidebarOverlay").classList.toggle("open");
+      });
+      document.getElementById("sidebarOverlay").addEventListener("click", function() {
+        document.getElementById("sidebar").classList.remove("open");
+        document.getElementById("sidebarOverlay").classList.remove("open");
+      });
+
+      /* ===== State ===== */
+      var state = {
+        clients: [],
+        editingClient: null,
+        editingModelCost: null,
+        usageRange: { from: null, to: null }
+      };
+
+      /* ===== Overview ===== */
+      async function loadOverview() {
+        try {
+          var data = await api("/admin/api/overview");
+          var ov = data || {};
+          document.getElementById("ovTotalReqs").textContent = fmtNum(ov.total_requests);
+          document.getElementById("ovSuccessRate").textContent = fmtPct(ov.success_rate);
+          document.getElementById("ovTargets").textContent = fmtNum(ov.active_targets);
+          document.getElementById("ovClients").textContent = fmtNum(ov.client_count);
+          document.getElementById("ovModelCosts").textContent = fmtNum(ov.model_cost_count);
+
+          /* usage summary */
+          var summaryHTML = "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;'>";
+          var s = ov.usage_summary || {};
+          var periods = [{k:"last_hour",l:"近1小时"},{k:"yesterday",l:"昨日"},{k:"last_30_days",l:"近30天"}];
+          periods.forEach(function(p) {
+            var d = s[p.k] || {};
+            summaryHTML += "<div style='padding:12px;border:1px solid var(--line);border-radius:6px;'>";
+            summaryHTML += "<div style='font-size:12px;color:var(--text-muted);margin-bottom:4px;'>"+esc(p.l)+"</div>";
+            summaryHTML += "<div>请求数: <strong>"+fmtNum(d.requests)+"</strong></div>";
+            summaryHTML += "<div>总 Token: <strong>"+fmtNum(totalTok(d))+"</strong></div>";
+            summaryHTML += "<div>费用: <strong>"+fmtMoney(d.estimated_cost)+"</strong></div>";
+            summaryHTML += "</div>";
+          });
+          summaryHTML += "</div>";
+          document.getElementById("overviewUsageSummary").innerHTML = summaryHTML;
+        } catch(e) {
+          document.getElementById("overviewUsageSummary").innerHTML = "<div class='loading-overlay'>加载失败: "+esc(e.message)+"</div>";
+        }
+
+        /* recent audit logs */
+        try {
+          var auditData = await api("/admin/data/audit?limit=10");
+          renderAuditTable("overviewAuditBody", auditData.events || [], 5);
+        } catch(e) {
+          document.getElementById("overviewAuditBody").innerHTML = "<tr class='empty-row'><td colspan='5'>加载失败</td></tr>";
+        }
+      }
+
+      /* ===== Clients ===== */
+      async function loadClients() {
+        try {
+          var data = await api("/admin/data/clients");
+          state.clients = Array.isArray(data.clients) ? data.clients : [];
+          renderClients();
+        } catch(e) {
+          toast("加载客户端失败: " + e.message, "error");
+        }
+      }
+      function renderClients() {
+        var tb = document.getElementById("clientsTableBody");
+        if (!state.clients.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='4'>暂无客户端</td></tr>";
+          return;
+        }
+        tb.innerHTML = state.clients.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(c) {
+          var targets = Array.isArray(c.allowed_targets) && c.allowed_targets.length > 0
+            ? c.allowed_targets.join(", ") : "全部目标";
+          return "<tr><td>"+esc(c.name)+"</td>"
+            + "<td><span class='key-mask'>"+esc(maskKey(c.access_key))+"</span></td>"
+            + "<td>"+esc(targets)+"</td>"
+            + "<td><div class='btn-group'>"
+            + "<button class='btn btn-sm' data-edit-client='"+esc(c.name)+"'>编辑</button>"
+            + "<button class='btn btn-danger btn-sm' data-del-client='"+esc(c.name)+"'>删除</button>"
+            + "</div></td></tr>";
+        }).join("");
+      }
+      document.getElementById("clientsTableBody").addEventListener("click", function(e) {
+        var t = e.target;
+        if (t.dataset.editClient) {
+          var c = state.clients.find(function(x){return x.name===t.dataset.editClient;});
+          if (c) openClientModal(c);
+        }
+        if (t.dataset.delClient) {
+          var name = t.dataset.delClient;
+          showConfirm("确认删除客户端「"+name+"」？此操作不可恢复。", async function() {
+            try {
+              await api("/admin/data/clients/"+encodeURIComponent(name), {method:"DELETE"});
+              toast("已删除客户端: "+name, "success");
+              await loadClients();
+            } catch(e) { toast("删除失败: "+e.message, "error"); }
+          });
+        }
+      });
+      function openClientModal(c) {
+        state.editingClient = c || null;
+        document.getElementById("clientModalTitle").textContent = c ? "编辑客户端" : "新增客户端";
+        document.getElementById("clientName").value = c ? c.name : "";
+        document.getElementById("clientName").readOnly = !!c;
+        document.getElementById("clientAccessKey").value = c ? c.access_key : "";
+        document.getElementById("clientAllowedTargets").value = c && c.allowed_targets ? c.allowed_targets.join(", ") : "";
+        openModal("clientModal");
+      }
+      document.getElementById("newClientBtn").addEventListener("click", function() { openClientModal(null); });
+      document.getElementById("refreshClientsBtn").addEventListener("click", function() { loadClients(); });
+      document.getElementById("saveClientBtn").addEventListener("click", async function() {
+        var name = document.getElementById("clientName").value.trim();
+        var key = document.getElementById("clientAccessKey").value.trim();
+        var targets = document.getElementById("clientAllowedTargets").value.split(",").map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+        if (!name || !key) { toast("请填写名称和 Access Key", "error"); return; }
+        var payload = { name: name, access_key: key, allowed_targets: targets };
+        try {
+          if (state.editingClient) {
+            await api("/admin/data/clients/"+encodeURIComponent(name), { method: "PUT", body: payload });
+            toast("客户端已更新", "success");
+          } else {
+            await api("/admin/data/clients", { method: "POST", body: payload });
+            toast("客户端已创建", "success");
+          }
+          closeModal("clientModal");
+          await loadClients();
+        } catch(e) { toast("保存失败: "+e.message, "error"); }
+      });
+
+      /* ===== Model Costs ===== */
+      async function loadModelCosts() {
+        try {
+          var data = await api("/admin/data/model-costs");
+          var models = Array.isArray(data.models) ? data.models : [];
+          renderModelCosts(models);
+        } catch(e) { toast("加载模型费用失败: "+e.message, "error"); }
+      }
+      function renderModelCosts(models) {
+        var tb = document.getElementById("modelCostsTableBody");
+        if (!models.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='5'>暂无费用配置</td></tr>";
+          return;
+        }
+        tb.innerHTML = models.slice().sort(function(a,b){return String(a.model||"").localeCompare(String(b.model||""));}).map(function(m) {
+          return "<tr><td>"+esc(m.model)+"</td>"
+            +"<td>"+fmtMoney(m.input_per_1k_tokens)+"</td>"
+            +"<td>"+fmtMoney(m.output_per_1k_tokens)+"</td>"
+            +"<td>"+fmtMoney(m.cached_input_per_1k_tokens)+"</td>"
+            +"<td><div class='btn-group'>"
+            +"<button class='btn btn-sm' data-edit-mc='"+esc(m.model)+"'>编辑</button>"
+            +"<button class='btn btn-danger btn-sm' data-del-mc='"+esc(m.model)+"'>删除</button>"
+            +"</div></td></tr>";
+        }).join("");
+      }
+      document.getElementById("modelCostsTableBody").addEventListener("click", function(e) {
+        var t = e.target;
+        if (t.dataset.editMc) {
+          openModelCostModal(t.dataset.editMc);
+        }
+        if (t.dataset.delMc) {
+          var model = t.dataset.delMc;
+          showConfirm("确认删除模型费用配置「"+model+"」？", async function() {
+            try {
+              await api("/admin/data/model-costs/"+encodeURIComponent(model), {method:"DELETE"});
+              toast("已删除: "+model, "success");
+              await loadModelCosts();
+            } catch(e) { toast("删除失败: "+e.message, "error"); }
+          });
+        }
+      });
+      function openModelCostModal(modelName) {
+        state.editingModelCost = modelName || null;
+        document.getElementById("modelCostModalTitle").textContent = modelName ? "编辑模型费用" : "新增模型费用";
+        document.getElementById("mcModel").value = modelName || "";
+        document.getElementById("mcModel").readOnly = !!modelName;
+        document.getElementById("mcInputPrice").value = "";
+        document.getElementById("mcOutputPrice").value = "";
+        document.getElementById("mcCachedPrice").value = "";
+        openModal("modelCostModal");
+      }
+      document.getElementById("newModelCostBtn").addEventListener("click", function() { openModelCostModal(null); });
+      document.getElementById("refreshModelCostsBtn").addEventListener("click", function() { loadModelCosts(); });
+      document.getElementById("saveModelCostBtn").addEventListener("click", async function() {
+        var model = document.getElementById("mcModel").value.trim();
+        if (!model) { toast("请填写模型名称", "error"); return; }
+        var payload = {
+          input_per_1k_tokens: parseFloat(document.getElementById("mcInputPrice").value) || 0,
+          output_per_1k_tokens: parseFloat(document.getElementById("mcOutputPrice").value) || 0,
+          cached_input_per_1k_tokens: parseFloat(document.getElementById("mcCachedPrice").value) || 0
+        };
+        try {
+          await api("/admin/data/model-costs/"+encodeURIComponent(model), { method: "PUT", body: payload });
+          toast("模型费用已保存", "success");
+          closeModal("modelCostModal");
+          await loadModelCosts();
+        } catch(e) { toast("保存失败: "+e.message, "error"); }
+      });
+
+      /* ===== Usage / Stats ===== */
+      function getTimeRange(range) {
+        var now = new Date();
+        var to = now;
+        var from;
+        switch(range) {
+          case "1h":
+            from = new Date(now.getTime() - 3600*1000);
+            break;
+          case "yesterday":
+            from = new Date(now.getFullYear(), now.getMonth(), now.getDate()-1);
+            to = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            break;
+          case "7d":
+            from = new Date(now.getTime() - 7*24*3600*1000);
+            from.setHours(0,0,0,0);
+            break;
+          case "30d":
+            from = new Date(now.getTime() - 30*24*3600*1000);
+            from.setHours(0,0,0,0);
+            break;
+          default:
+            from = new Date(now.getTime() - 7*24*3600*1000);
+        }
+        return { from: from.toISOString(), to: to.toISOString() };
+      }
+
+      var activeRange = "7d";
+      document.querySelectorAll(".time-range-btn").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+          document.querySelectorAll(".time-range-btn").forEach(function(b){b.classList.remove("active");});
+          btn.classList.add("active");
+          activeRange = btn.dataset.range;
+          if (activeRange === "custom") {
+            document.getElementById("customRangeInputs").style.display = "flex";
+            var r = getTimeRange("7d");
+            document.getElementById("usageFrom").value = toLocalInput(new Date(r.from));
+            document.getElementById("usageTo").value = toLocalInput(new Date(r.to));
+          } else {
+            document.getElementById("customRangeInputs").style.display = "none";
+            loadUsage();
+          }
+        });
+      });
+      document.getElementById("applyCustomRange").addEventListener("click", function() { loadUsage(); });
+
+      async function loadUsage() {
+        var range;
+        if (activeRange === "custom") {
+          try {
+            range = { from: inputToISO("usageFrom"), to: inputToISO("usageTo") };
+          } catch(e) { toast(e.message, "error"); return; }
+        } else {
+          range = getTimeRange(activeRange);
+        }
+        state.usageRange = range;
+        var qs = new URLSearchParams({ from: range.from, to: range.to });
+        try {
+          var results = await Promise.all([
+            api("/admin/data/usage/summary"),
+            api("/admin/data/usage/aggregate?group_by=client_name&" + qs.toString()),
+            api("/admin/data/usage/aggregate?group_by=model&" + qs.toString()),
+            api("/admin/data/usage/aggregate?group_by=day&from=" + encodeURIComponent(new Date(Date.now()-30*24*3600*1000).toISOString()) + "&to=" + encodeURIComponent(new Date().toISOString()))
+          ]);
+          var summary = results[0];
+          var byClient = results[1];
+          var byModel = results[2];
+          var byDay = results[3];
+
+          /* Pick the right summary period */
+          var sp;
+          switch(activeRange) {
+            case "1h": sp = summary.last_hour; break;
+            case "yesterday": sp = summary.yesterday; break;
+            case "30d": sp = summary.last_30_days; break;
+            default: sp = summary.last_30_days;
+          }
+          sp = sp || {};
+          document.getElementById("usReqs").textContent = fmtNum(sp.requests);
+          document.getElementById("usInput").textContent = fmtNum(sp.input_tokens);
+          document.getElementById("usOutput").textContent = fmtNum(sp.output_tokens);
+          document.getElementById("usCached").textContent = fmtNum(sp.cached_tokens);
+          document.getElementById("usCost").textContent = fmtMoney(sp.estimated_cost);
+
+          renderAggregateTable("usageByClientBody", byClient.buckets || [], "client_name");
+          renderAggregateTable("usageByModelBody", byModel.buckets || [], "model");
+          renderDailyChart(byDay.buckets || []);
+        } catch(e) { toast("加载统计失败: "+e.message, "error"); }
+      }
+
+      function renderAggregateTable(tbId, rows, keyField) {
+        var tb = document.getElementById(tbId);
+        if (!rows.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='7'>当前时间段无数据</td></tr>";
+          return;
+        }
+        tb.innerHTML = rows.slice().sort(function(a,b){return totalTok(b)-totalTok(a);}).map(function(r) {
+          var key = r.key || r[keyField] || r.bucket_start || "unknown";
+          return "<tr><td>"+esc(key)+"</td>"
+            +"<td>"+fmtNum(r.requests)+"</td>"
+            +"<td>"+fmtNum(r.input_tokens)+"</td>"
+            +"<td>"+fmtNum(r.output_tokens)+"</td>"
+            +"<td>"+fmtNum(r.cached_tokens)+"</td>"
+            +"<td>"+fmtNum(totalTok(r))+"</td>"
+            +"<td>"+fmtMoney(r.estimated_cost)+"</td></tr>";
+        }).join("");
+      }
+
+      function renderDailyChart(buckets) {
+        var chart = document.getElementById("dailyChart");
+        if (!buckets.length) {
+          chart.innerHTML = "<div style='color:var(--text-muted);padding:32px;text-align:center;width:100%;'>当前时间段内暂无统计数据</div>";
+          return;
+        }
+        var rows = buckets.slice().sort(function(a,b){return String(a.bucket_start).localeCompare(String(b.bucket_start));}).map(function(b) {
+          var reqs = Number(b.requests||0);
+          var total = totalTok(b);
+          return { date: String(b.bucket_start||"").slice(5,10), reqs: reqs, total: total, cost: Number(b.estimated_cost||0) };
+        });
+        var maxTotal = rows.reduce(function(m,r){return Math.max(m,r.total);},0) || 1;
+        chart.innerHTML = rows.map(function(r) {
+          var h = Math.max(4, Math.round((r.total/maxTotal)*180));
+          var title = "总 Token: "+fmtNum(r.total)+"\n请求数: "+fmtNum(r.reqs)+"\n费用: "+fmtMoney(r.cost);
+          return "<div class='chart-bar-group' title='"+esc(title)+"'>"
+            +"<div class='chart-value'>"+fmtNum(r.total)+"</div>"
+            +"<div class='chart-bar' style='height:"+h+"px'></div>"
+            +"<div class='chart-label'>"+esc(r.date)+"</div>"
+            +"</div>";
+        }).join("");
+      }
+
+      /* ===== Audit ===== */
+      async function loadAudit() {
+        try {
+          var data = await api("/admin/data/audit?limit=50");
+          renderAuditTable("auditTableBody", data.events || [], 6);
+        } catch(e) {
+          toast("加载审计日志失败: "+e.message, "error");
+          document.getElementById("auditTableBody").innerHTML = "<tr class='empty-row'><td colspan='6'>加载失败</td></tr>";
+        }
+      }
+      function renderAuditTable(tbId, events, cols) {
+        var tb = document.getElementById(tbId);
+        if (!events.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='"+cols+"'>暂无审计记录</td></tr>";
+          return;
+        }
+        tb.innerHTML = events.map(function(ev) {
+          var row = "<tr><td>"+esc(fmtTime(ev.timestamp))+"</td>"
+            +"<td>"+esc(ev.actor||ev.operator||"-")+"</td>"
+            +"<td>"+esc(ev.action||"-")+"</td>"
+            +"<td>"+esc(ev.object||ev.target||"-")+"</td>"
+            +"<td>"+esc(ev.result||ev.status||"-")+"</td>";
+          if (cols >= 6) row += "<td style='max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>"+esc(ev.detail||ev.details||"-")+"</td>";
+          row += "</tr>";
+          return row;
+        }).join("");
+      }
+      document.getElementById("refreshAuditBtn").addEventListener("click", function() { loadAudit(); });
+
+      /* ===== User info ===== */
+      async function loadUserInfo() {
+        try {
+          var data = await api("/admin/api/me");
+          if (data && data.username) {
+            document.getElementById("userBadge").textContent = "👤 " + data.username;
+          }
+        } catch(e) { /* ignore - may not be logged in via session */ }
+      }
+
+      /* ===== Page Data Loader ===== */
+      function loadPageData(page) {
+        switch(page) {
+          case "overview": loadOverview(); break;
+          case "clients": loadClients(); break;
+          case "model-costs": loadModelCosts(); break;
+          case "usage": loadUsage(); break;
+          case "audit": loadAudit(); break;
+        }
+      }
+
+      /* ===== Boot ===== */
+      (async function boot() {
+        loadUserInfo();
+        loadPageData("overview");
+      })();
+    })();
+  </script>
+</body>
+</html>

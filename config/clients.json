@@ -1,0 +1,19 @@
+[
+  {
+    "name": "team-alpha",
+    "access_key": "token321",
+    "allowed_targets": []
+  },
+  {
+    "name": "tester",
+    "access_key": "test-key",
+    "allowed_targets": []
+  },
+  {
+    "name": "123",
+    "access_key": "123",
+    "allowed_targets": [
+      "123"
+    ]
+  }
+]

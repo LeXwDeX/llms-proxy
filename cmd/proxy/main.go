@@ -16,6 +16,7 @@ import (
 	"github.com/ycgame/azure-proxy/internal/config"
 	"github.com/ycgame/azure-proxy/internal/logging"
 	appmiddleware "github.com/ycgame/azure-proxy/internal/middleware"
+	"github.com/ycgame/azure-proxy/internal/nosql"
 	"github.com/ycgame/azure-proxy/internal/proxy"
 )
 
@@ -60,6 +61,19 @@ func main() {
 	}
 
 	appLogger := logManager.App()
+	clientStore := nosql.NewClientStore(cfg.DataFiles.ClientsFile)
+	adminUsers := admin.NewUserStore(cfg.DataFiles.AdminUsersFile)
+	auditStore := admin.NewAuditStore(cfg.DataFiles.AdminAuditFile)
+	sessionManager := admin.NewSessionManager(cfg.AdminSession, appLogger)
+	clients, err := clientStore.List()
+	if err != nil {
+		appLogger.Error("failed to load clients file",
+			"path", cfg.DataFiles.ClientsFile,
+			"error", err,
+		)
+		os.Exit(1)
+	}
+
 	appLogger.Info("configuration loaded",
 		"config_path", *configPath,
 		"config_bind", configBind,
@@ -67,12 +81,16 @@ func main() {
 		"config_log_level", cfg.Logging.Level,
 		"effective_log_level", logLevel,
 		"azure_targets", len(cfg.AzureTargets),
-		"clients", len(cfg.Clients),
+		"clients", len(clients),
 	)
 
 	authStore := auth.NewStore()
-	if err := authStore.LoadFromConfig(cfg.Clients); err != nil {
+	if err := authStore.LoadFromConfig(clients); err != nil {
 		appLogger.Error("failed to initialize auth store", "error", err)
+		os.Exit(1)
+	}
+	if _, err := adminUsers.List(); err != nil {
+		appLogger.Error("failed to load admin users file", "path", cfg.DataFiles.AdminUsersFile, "error", err)
 		os.Exit(1)
 	}
 
@@ -91,6 +109,15 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	portal := admin.NewPortal(adminUsers, sessionManager, auditStore, appLogger)
+	router.Get("/login", portal.HandleLoginPage)
+	router.Post("/login", portal.HandleLogin)
+	router.Post("/logout", portal.HandleLogout)
+
+	adminRouter := chi.NewRouter()
+	adminRouter.Use(sessionManager.Middleware)
+	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, appLogger))
+	router.Mount("/admin", adminRouter)
 
 	protected := chi.NewRouter()
 	protected.Use(auth.Middleware(authStore, appLogger))
@@ -103,7 +130,6 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(fmt.Sprintf(`{"message":"pong","client":"%s"}`, clientName)))
 	})
-	protected.Mount("/admin", admin.NewHandler(manager, authStore, proxyService, appLogger))
 	protected.NotFound(proxyService.ServeHTTP)
 
 	router.Mount("/", protected)

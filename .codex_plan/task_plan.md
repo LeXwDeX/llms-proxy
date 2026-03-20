@@ -39,6 +39,198 @@
 
 ---
 
+# 新任务：实现真正的后台管理系统
+
+## 目标
+- 基于既定设计，实际落地独立账号密码登录、session 会话、后台左侧导航式管理台，以及后台账号/会话数据源。
+- 将当前“客户端 token + API 列表页”模式分离出来，让后台成为真正可浏览、可登录、可管理的系统。
+
+## 阶段拆解
+### 阶段 1：实现准备
+- 梳理现有 admin / auth / config / main 路由，明确新增文件与改动边界。
+- 输出：`findings.md` 记录实现方案与迁移点。
+
+### 阶段 2：后端实现
+- 实现后台账号文件型存储、密码校验、session 管理与后台鉴权中间件。
+- 改造路由：`/login`、`/logout`、`/admin/*`、`/admin/api/*`。
+- 保证客户端代理鉴权与后台鉴权互不影响。
+
+### 阶段 3：前端与交互实现
+- 将后台页面改造成左侧导航式管理台，补齐总览、客户端、模型费用、消费统计、审计页面骨架与交互。
+- 增加登录页与会话过期跳转。
+
+### 阶段 4：测试、回归与文档
+- 补充/更新单元测试、集成测试、Docker 烟雾测试与操作文档。
+
+## 验收门禁
+- 浏览器可通过 `/login` 登录并访问 `/admin`。
+- 未登录访问后台会被拦截或跳转登录页。
+- 后台页面不再表现为“单纯 API 面板”。
+- 客户端管理、模型费用、消费统计保留可用。
+
+## 风险与回流条件
+- **风险 1：** session/登录态不稳定。回流阶段 2 修复。
+- **风险 2：** 路由冲突影响现有代理。回流阶段 2 调整路由挂载顺序。
+- **风险 3：** 页面改造过大导致功能回退。回流阶段 3 优先恢复可用性。
+
+## 当前状态
+- 阶段 1：complete
+- 阶段 2：complete
+- 阶段 3：complete
+- 阶段 4：complete
+
+---
+
+# 追加任务：客户端配置 NoSQL 化、消费统计与网页管理系统
+
+## 目标
+- 将 `clients` 从主 `config.json` 拆分为位于 `./config/` 的 NoSQL 数据文件，并保留热加载/校验能力。
+- 增加消费统计中间件：按客户端 `name` 汇总上传总 token、回传总 token、缓存命中数，且对缺失字段/非标准响应具备鲁棒性。
+- 新增网页管理系统：基于 `./config/` 的 NoSQL 数据源，实现客户端账户的增删改查，并提供每小时、昨日、近 30 天等消费统计视图。
+- 引入模型 token 费用配置，支持在统计页上推算大致消费金额。
+
+## 阶段拆解
+### 阶段 1：方案与数据结构设计
+- 明确 NoSQL 文件格式、数据迁移方式、统计口径、网页路由与页面结构。
+- 输出：`findings.md` 记录方案结论与约束。
+
+### 阶段 2：后端实现
+- 重构配置与客户端存储层。
+- 添加 token 消费中间件与统计聚合器。
+- 增加模型费用配置读取与汇总计算。
+- 提供客户端管理与统计的 HTTP 接口。
+
+### 阶段 3：网页系统实现
+- 制作管理网页与统计 TAB 页，展示 CRUD 与统计图表/表格。
+- 确保页面与 `./config/` 数据源一致。
+
+### 阶段 4：测试、回归与文档
+- 补充/更新测试与操作文档，验证配置读写、统计口径与网页可用性。
+
+## 验收门禁
+- `clients` 不再存放在主 `config.json`，而是由 `./config/` 下的 NoSQL 文件提供。
+- 可以通过网页增删改查客户端账户。
+- 可以查看至少近 30 天的日均消费柱状图与时间段内用户总 token 表格。
+- 可以按模型费用配置推算大致消费金额。
+- 中间件对缺失 usage 字段、流式响应、异常响应具备容错。
+
+## 风险与回流条件
+- **风险 1：** 数据格式设计不稳定。回流阶段 1 先定 schema 与迁移方案。
+- **风险 2：** Token 统计口径与上游返回不一致。回流阶段 2 调整中间件与解析逻辑。
+- **风险 3：** 页面统计粒度/图表需求变化。回流阶段 3 调整页面与接口。
+- **风险 4：** 现有代理转发行为被破坏。回流阶段 2 优先保持现有路由与转发兼容。
+
+## 当前状态
+- 阶段 1：complete
+- 阶段 2：complete
+- 阶段 3：complete
+- 阶段 4：complete
+
+---
+
+# 新任务：后台管理系统设计文档
+
+## 目标
+- 先形成一份可执行的设计文档，明确“真正的后台管理系统”应该长什么样，再进入实现。
+- 重点解决：浏览器可直接访问的后台登录/会话、左侧菜单、总览页、客户端管理页、模型费用管理页、消费统计页，以及对应的鉴权和数据流。
+
+## 阶段拆解
+### 阶段 1：上下文收集
+- 明确文档类型、目标读者、预期效果、格式要求、现有约束与优先级。
+- 输出：`findings.md` 记录需求澄清点。
+
+### 阶段 2：结构与方案设计
+- 产出后台系统的信息架构、页面结构、路由分层、交互流程、权限模型与数据接口草案。
+- 明确哪些内容必须先做，哪些可后置。
+
+### 阶段 3：文档成稿
+- 将设计内容整理为可执行文档，确保读者能据此实现或评审。
+
+## 验收门禁
+- 文档明确描述“后台管理系统”而不是普通 API 列表页。
+- 文档包含登录/会话、导航、页面、数据流、接口、权限与非功能要求。
+- 文档可作为后续实现依据，不依赖口头说明。
+
+## 风险与回流条件
+- **风险 1：** 需求边界不清。回流阶段 1 重新澄清。
+- **风险 2：** 设计落回“API 面板”。回流阶段 2 补齐浏览器端交互与会话层。
+- **风险 3：** 文档过长。回流阶段 3 收敛为“必须项 / 可选项”。
+
+## 当前状态
+- 阶段 1：complete
+- 阶段 2：complete
+- 阶段 3：complete
+
+## 当前设计方向（已确认）
+- 后台登录采用**独立账号密码**，与客户端代理 token 解耦。
+- 默认使用 **session cookie** 维持后台登录态。
+- 后台定位为“真正的管理台”，而不是 API 列表页或接口测试台。
+
+## 阶段 2：结构与方案设计（细化）
+### 2.1 认证与会话
+- 登录页 `/login`。
+- 账号密码登录后建立服务端 session。
+- 支持退出登录、会话过期、未登录跳转。
+- 后台鉴权中间件与客户端代理鉴权分离。
+
+### 2.2 页面结构
+- 左侧导航 + 顶部状态栏。
+- 一级菜单建议：
+  - 总览
+  - 客户端管理
+  - 模型费用
+  - 消费统计
+  - 审计/日志
+
+### 2.3 数据与接口
+- 后台账号数据源独立于客户端数据源，建议采用 `config/admin_users.json`。
+- 配置中补充后台会话参数（cookie 名称、签名密钥、过期时间）。
+- 需要明确：账号、角色、密码哈希、登录态、操作审计。
+- 页面所需接口按“页面域”划分，而不是按“单个按钮”散落设计。
+
+### 2.4 非功能要求
+- 浏览器直达、无需外部构建链。
+- 与现有代理/统计能力共存，不破坏当前 `/admin/data/*` 能力。
+- 为后续 RBAC、审计、账号管理留扩展点。
+
+### 2.5 设计成果
+- 以上内容已固化为 `.codex_plan/reference/admin-backoffice-design.md`，后续实现/评审以该大纲为准。
+
+---
+
+# 追加任务：补充 `OPENAI.MD` 的 Responses 流式事件格式
+
+## 目标
+- 在 `OPENAI.MD` 中补充 Responses API 的流式事件格式，说明 SSE 事件分组、`type` 判别字段、常见事件名与关键字段。
+- 说明应基于官方公开 SDK 类型定义，避免引入不实字段。
+
+## 阶段拆解
+### 阶段 1：资料核对
+- 核对 OpenAI Responses 流式事件的公开类型定义，整理事件分组与关键字段。
+- 输出：`findings.md` 记录来源与结论。
+
+### 阶段 2：文档补充
+- 在 `OPENAI.MD` 中新增“流式事件格式”章节，按生命周期、文本、输出项、内容块与补充事件分组说明。
+
+### 阶段 3：收尾
+- 检查 `OPENAI.MD` 表述清晰且与公开资料一致；记录进度。
+
+## 验收门禁
+- `OPENAI.MD` 包含 Responses 流式事件格式说明。
+- 说明中包含 `type` 判别、常见事件名和关键字段。
+- 不写入未经确认的私有字段。
+
+## 风险与回流条件
+- **风险 1：** 事件过多导致文档冗长。回流到阶段 2 只保留高频事件与分组说明。
+- **风险 2：** 字段名与 SDK 类型不一致。回流到阶段 1 重新核对。
+
+## 当前状态
+- 阶段 1：complete
+- 阶段 2：complete
+- 阶段 3：complete
+
+---
+
 # 追加任务：扩写 `OPENAI.MD` 与 `CLAUDE.md` 的请求/回应结构
 
 ## 目标
@@ -107,3 +299,80 @@
 - 阶段 1：complete
 - 阶段 2：complete
 - 阶段 3：complete
+
+---
+
+# 新任务：将 JSON 文件存储迁移为 bbolt 嵌入式 NoSQL 数据库
+
+## 目标
+- 将 `internal/nosql/` 包从"假 NoSQL（JSON 文件读写）"改为真正的嵌入式 NoSQL 数据库（bbolt）。
+- 将分散在 `internal/usage/store.go`、`internal/admin/users.go`、`internal/admin/audit.go` 中的文件 I/O 统一到 `internal/nosql/` 包。
+- 配置从 `data_files`（5 个路径）改为 `data_store`（单一 DB 路径）。
+- 修复 Docker 部署中 read-only 文件系统导致所有 CRUD 失败的问题。
+- 提供启动时自动从 JSON 文件迁移到 bbolt 的能力。
+
+## 阶段拆解
+
+### 阶段 1：bbolt 核心基础设施与全部存储实现
+- 添加 `go.etcd.io/bbolt` 依赖。
+- 在 `internal/nosql/db.go` 创建 DB 管理层：打开/关闭 bbolt、创建 5 个 bucket。
+- 重写 `internal/nosql/clients.go`：ClientStore 从 JSON 文件改为 bbolt bucket。
+- 重写 `internal/nosql/model_costs.go`：ModelCostStore 从 JSON 文件改为 bbolt bucket。
+- 新增 `internal/nosql/usage.go`：UsageStore 使用 bbolt bucket（替代 `internal/usage/store.go` 的文件 I/O）。
+- 新增 `internal/nosql/users.go`：UserStore 使用 bbolt bucket（替代 `internal/admin/users.go` 的文件 I/O）。
+- 新增 `internal/nosql/audit.go`：AuditStore 使用 bbolt bucket（替代 `internal/admin/audit.go` 的文件 I/O）。
+- 新增 `internal/nosql/migrate.go`：检测旧 JSON 文件并自动迁移到 bbolt。
+
+### 阶段 2：配置层适配
+- `internal/config/config.go`：`DataFiles`（5 个路径字段）→ `DataStore`（`DBPath` 单一字段 + 可选 `MigrationDir` 指定旧 JSON 文件目录）。
+- `internal/config/config_test.go`：同步更新所有配置测试。
+- `config/config.json` + `config/test.config.json`：更新格式。
+
+### 阶段 3：启动层与业务层适配
+- `cmd/proxy/main.go`：启动时打开 bbolt DB，创建所有 store，执行迁移检测，传递给 handler。
+- `internal/admin/handler.go`：Handler 接收 store 实例而非每次请求从配置创建。去掉 `currentClientStore()`/`currentModelCostStore()`/`currentUsageStore()` 模式。
+- `internal/admin/portal.go`：适配新 UserStore 来源。
+- `internal/admin/users.go`：保留密码哈希/校验函数，删除文件 I/O 逻辑。
+- `internal/admin/audit.go`：删除（已移入 nosql 包）。
+- `internal/usage/store.go`：保留类型定义（Event、Filter、CostTable 等），删除文件 I/O 逻辑。
+- `internal/proxy/service.go`：usage 采集适配新 Recorder 接口。
+
+### 阶段 4：测试
+- `internal/nosql/*_test.go`：为所有 bbolt store 编写单元测试。
+- `internal/admin/handler_test.go`：适配新构造签名。
+- `internal/config/config_test.go`：适配新配置结构。
+- `test/integration/proxy_integration_test.go`：适配。
+- `go test ./...` 全部通过。
+
+### 阶段 5：Docker 修复与回归
+- 更新 `deploy/docker/Dockerfile`：声明数据卷。
+- 更新 `docker-compose.yml`：config 只读挂载 + data 可写卷分离。
+- Docker 烟雾测试通过。
+- 全部容器日志错误已修复。
+
+### 阶段 6：文档同步
+- 更新 README、api-contract、operations 中的配置说明。
+- 更新 AGENTS.md 中的架构说明。
+
+## 验收门禁
+- `go test ./...` 全部通过。
+- Docker 容器中所有 CRUD 操作正常（config 只读 + data 可写）。
+- 容器日志无 read-only filesystem、favicon 401、audit 文件缺失等错误。
+- 启动时自动检测并迁移旧 JSON 文件到 bbolt。
+- 现有代理转发功能不退化。
+- 浏览器可正常登录后台并执行客户端/模型费用/消费统计/审计的所有操作。
+
+## 风险与回流条件
+- **风险 1：** bbolt 事务/并发模型不匹配。回流阶段 1 调整 store 实现。
+- **风险 2：** 配置变更影响现有部署。回流阶段 2 调整配置兼容策略。
+- **风险 3：** 迁移逻辑丢失数据。回流阶段 1 补充迁移前备份与校验。
+- **风险 4：** Handler 签名变更导致大面积测试失败。回流阶段 4 逐步修复。
+- **风险 5：** Docker 部署权限问题。回流阶段 5 调整用户/卷设置。
+
+## 当前状态
+- 阶段 1：in_progress
+- 阶段 2：pending
+- 阶段 3：pending
+- 阶段 4：pending
+- 阶段 5：pending
+- 阶段 6：pending

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -25,6 +26,25 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	defer success.Close()
 
 	tempDir := t.TempDir()
+	clientsPath := filepath.Join(tempDir, "clients.json")
+	modelCostsPath := filepath.Join(tempDir, "model_costs.json")
+	usageEventsPath := filepath.Join(tempDir, "usage_events.jsonl")
+	clients := []config.Client{{
+		Name:      "integration",
+		AccessKey: "integration-token",
+	}}
+	if payload, err := json.Marshal(clients); err != nil {
+		t.Fatalf("marshal clients: %v", err)
+	} else if err := os.WriteFile(clientsPath, payload, 0o644); err != nil {
+		t.Fatalf("write clients file: %v", err)
+	}
+	if err := os.WriteFile(modelCostsPath, []byte("[]\n"), 0o644); err != nil {
+		t.Fatalf("write model costs file: %v", err)
+	}
+	if err := os.WriteFile(usageEventsPath, []byte{}, 0o644); err != nil {
+		t.Fatalf("write usage events file: %v", err)
+	}
+
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Bind:                  "127.0.0.1:0",
@@ -44,10 +64,18 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 				AzureAPIKey:        "secondary-key",
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "integration",
-			AccessKey: "integration-token",
-		}},
+		DataFiles: config.DataFiles{
+			ClientsFile:     clientsPath,
+			ModelCostsFile:  modelCostsPath,
+			UsageEventsFile: usageEventsPath,
+			AdminUsersFile:  filepath.Join(tempDir, "admin_users.json"),
+			AdminAuditFile:  filepath.Join(tempDir, "admin_audit.jsonl"),
+		},
+		AdminSession: config.AdminSessionConfig{
+			CookieName: "admin_sid",
+			Secret:     "test-secret",
+			TTLSeconds: 3600,
+		},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: filepath.Join(tempDir, "access.log"),
@@ -73,7 +101,7 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(clients); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("integration-token")
@@ -100,7 +128,7 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	manager := config.NewManager("testdata/config.json")
 	manager.Replace(cfg)
 
-	adminHandler := admin.NewHandler(manager, store, proxyService, appLogger)
+	adminHandler := admin.NewHandler(manager, store, proxyService, nil, appLogger)
 
 	t.Run("health endpoint", func(t *testing.T) {
 		rec := httptest.NewRecorder()

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/ycgame/azure-proxy/internal/auth"
 	"github.com/ycgame/azure-proxy/internal/config"
+	"github.com/ycgame/azure-proxy/internal/usage"
 )
 
 type failingTransport struct {
@@ -64,10 +66,6 @@ func TestServiceFailoverOnTransportError(t *testing.T) {
 				AzureAPIKey:        "secondary-key",
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -85,7 +83,7 @@ func TestServiceFailoverOnTransportError(t *testing.T) {
 	service.quietPeriod = 10 * time.Millisecond
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -156,11 +154,6 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 				AzureAPIKey:        "key2",
 			},
 		},
-		Clients: []config.Client{{
-			Name:           "team-alpha",
-			AccessKey:      "alpha",
-			AllowedTargets: []string{"primary"},
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -174,7 +167,7 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("team-alpha", "alpha", "primary")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("alpha")
@@ -214,10 +207,6 @@ func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
 				AzureAPIKey:        "key",
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -233,7 +222,7 @@ func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
 	service.quietPeriod = 10 * time.Millisecond
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -292,10 +281,6 @@ func TestServiceRetriesOnUpstream503(t *testing.T) {
 			AzureAPIKey:        "key",
 			AllowedModels:      []string{"gpt-image-1"},
 		}},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -309,7 +294,7 @@ func TestServiceRetriesOnUpstream503(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -361,10 +346,6 @@ func TestServiceReturns503AfterExhaustingUpstream503Retries(t *testing.T) {
 			AzureAPIKey:        "key",
 			AllowedModels:      []string{"gpt-image-1"},
 		}},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -378,7 +359,7 @@ func TestServiceReturns503AfterExhaustingUpstream503Retries(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -432,10 +413,6 @@ func TestServiceAllowsBearerPassthrough(t *testing.T) {
 				AllowBearer:        true,
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -449,7 +426,7 @@ func TestServiceAllowsBearerPassthrough(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -495,10 +472,6 @@ func TestServiceRejectsDisallowedModel(t *testing.T) {
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -512,7 +485,7 @@ func TestServiceRejectsDisallowedModel(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -567,10 +540,6 @@ func TestServiceStripsAPIVersionAndInternalQueryParams(t *testing.T) {
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -584,7 +553,7 @@ func TestServiceStripsAPIVersionAndInternalQueryParams(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -642,10 +611,6 @@ func TestServiceStripsUnsupportedFieldsForResponses(t *testing.T) {
 			AzureAPIKey:        "key",
 			AllowedModels:      []string{"gpt-5.2"},
 		}},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -659,7 +624,7 @@ func TestServiceStripsUnsupportedFieldsForResponses(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -715,10 +680,6 @@ func TestServiceStripsUnsupportedFieldsForChatCompletions(t *testing.T) {
 			AzureAPIKey:        "key",
 			AllowedModels:      []string{"gpt-5.2"},
 		}},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -732,7 +693,7 @@ func TestServiceStripsUnsupportedFieldsForChatCompletions(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -792,10 +753,6 @@ func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -809,7 +766,7 @@ func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -847,10 +804,6 @@ func TestServiceReturnsErrorWhenModelMissingAndAllowlistsConfigured(t *testing.T
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -864,7 +817,7 @@ func TestServiceReturnsErrorWhenModelMissingAndAllowlistsConfigured(t *testing.T
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -916,10 +869,6 @@ func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -933,7 +882,7 @@ func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, ok := store.Authenticate("token")
@@ -982,10 +931,6 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 				AllowedModels:      []string{"gpt-5.1", "gpt-4o-mini"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -998,7 +943,7 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, _ := store.Authenticate("token")
@@ -1050,10 +995,6 @@ func TestServiceListsModelsLocally(t *testing.T) {
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -1066,7 +1007,7 @@ func TestServiceListsModelsLocally(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, _ := store.Authenticate("token")
@@ -1117,11 +1058,6 @@ func TestServiceListsModelsLocallyRespectsAllowedTargets(t *testing.T) {
 				AllowedModels:      []string{"gpt-5.2"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:           "tester",
-			AccessKey:      "token",
-			AllowedTargets: []string{"t1"},
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -1134,7 +1070,7 @@ func TestServiceListsModelsLocallyRespectsAllowedTargets(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token", "t1")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, _ := store.Authenticate("token")
@@ -1183,10 +1119,6 @@ func TestServiceListsModelsLocallyRespectsRequestedTargetFilter(t *testing.T) {
 				AllowedModels:      []string{"gpt-5.2"},
 			},
 		},
-		Clients: []config.Client{{
-			Name:      "tester",
-			AccessKey: "token",
-		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -1199,7 +1131,7 @@ func TestServiceListsModelsLocallyRespectsRequestedTargetFilter(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 	store := auth.NewStore()
-	if err := store.LoadFromConfig(cfg.Clients); err != nil {
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
 		t.Fatalf("load clients: %v", err)
 	}
 	principal, _ := store.Authenticate("token")
@@ -1223,6 +1155,70 @@ func TestServiceListsModelsLocallyRespectsRequestedTargetFilter(t *testing.T) {
 	}
 	if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-5.2" {
 		t.Fatalf("unexpected target-filtered models: %+v", resp.Data)
+	}
+}
+
+func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"gpt-4o","usage":{"prompt_tokens":11,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":3}}}`))
+	}))
+	defer upstream.Close()
+
+	usagePath := filepath.Join(t.TempDir(), "usage_events.jsonl")
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:               "t1",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "key",
+		}},
+		DataFiles: config.DataFiles{UsageEventsFile: usagePath},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	authStore := auth.NewStore()
+	if err := authStore.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := authStore.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	usageStore := usage.NewStore(usagePath)
+	events, err := usageStore.List(usage.Filter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list usage events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 usage event, got %d", len(events))
+	}
+	evt := events[0]
+	if evt.ClientName != "tester" || evt.InputTokens != 11 || evt.OutputTokens != 7 || evt.CachedTokens != 3 {
+		t.Fatalf("unexpected usage event: %+v", evt)
 	}
 }
 
@@ -1276,4 +1272,15 @@ func setUpstream503RetryConfig(maxRetries int, delay time.Duration, jitter time.
 
 func newTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))
+}
+
+func testAuthClients(name, accessKey string, allowedTargets ...string) []config.Client {
+	client := config.Client{
+		Name:      name,
+		AccessKey: accessKey,
+	}
+	if len(allowedTargets) > 0 {
+		client.AllowedTargets = append([]string(nil), allowedTargets...)
+	}
+	return []config.Client{client}
 }
