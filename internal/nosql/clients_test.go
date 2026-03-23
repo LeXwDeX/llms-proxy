@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ycgame/azure-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 func TestClientStoreCRUD(t *testing.T) {

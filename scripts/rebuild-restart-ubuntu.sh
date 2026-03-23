@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-${ROOT_DIR}/docker-compose.yml}"
-SERVICE_NAME="${SERVICE_NAME:-azure-proxy}"
+SERVICE_NAME="${SERVICE_NAME:-llms-proxy}"
 NO_CACHE="${NO_CACHE:-1}"
 TAIL_LINES="${TAIL_LINES:-120}"
 

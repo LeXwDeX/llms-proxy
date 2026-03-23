@@ -48,14 +48,14 @@
     }
   ],
   "data_files": {
-    "clients_file": "/etc/azure-proxy/clients.json",
-    "model_costs_file": "/etc/azure-proxy/model_costs.json",
-    "usage_events_file": "/etc/azure-proxy/usage_events.jsonl",
-    "admin_users_file": "/etc/azure-proxy/admin_users.json",
-    "admin_audit_file": "/etc/azure-proxy/admin_audit.jsonl"
+    "clients_file": "/etc/llms-proxy/clients.json",
+    "model_costs_file": "/etc/llms-proxy/model_costs.json",
+    "usage_events_file": "/etc/llms-proxy/usage_events.jsonl",
+    "admin_users_file": "/etc/llms-proxy/admin_users.json",
+    "admin_audit_file": "/etc/llms-proxy/admin_audit.jsonl"
   },
   "admin_session": {
-    "cookie_name": "azure_proxy_admin_session",
+    "cookie_name": "llms_proxy_admin_session",
     "secret": "dev-session-secret-change-me",
     "ttl_seconds": 86400,
     "sliding_expiration": true,
@@ -63,7 +63,7 @@
   },
   "logging": {
     "level": "info",
-    "access_log": "/var/log/azure-proxy/access.log",
-    "error_log": "/var/log/azure-proxy/error.log"
+    "access_log": "/var/log/llms-proxy/access.log",
+    "error_log": "/var/log/llms-proxy/error.log"
   }
 }

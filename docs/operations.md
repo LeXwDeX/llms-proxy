@@ -30,33 +30,33 @@ This guide covers the preparation, deployment, and day-two operations for the Az
    ```sh
    make build
    ```
-   Copy `bin/azure-proxy` to the target host if building elsewhere.
+   Copy `bin/llms-proxy` to the target host if building elsewhere.
 
 2. **Install configuration, NoSQL data, and logs**
     ```
-    /etc/azure-proxy/config.json
-    /etc/azure-proxy/config/clients.json
-    /etc/azure-proxy/config/model_costs.json
-    /etc/azure-proxy/config/usage_events.jsonl
-    /etc/azure-proxy/config/admin_users.json
-    /etc/azure-proxy/config/admin_audit.jsonl
-    /var/log/azure-proxy/access.log
-    /var/log/azure-proxy/error.log
+    /etc/llms-proxy/config.json
+    /etc/llms-proxy/config/clients.json
+    /etc/llms-proxy/config/model_costs.json
+    /etc/llms-proxy/config/usage_events.jsonl
+    /etc/llms-proxy/config/admin_users.json
+    /etc/llms-proxy/config/admin_audit.jsonl
+    /var/log/llms-proxy/access.log
+    /var/log/llms-proxy/error.log
     ```
 
 3. **Systemd service**
-   - Copy `deploy/systemd/azure-proxy.service` to `/etc/systemd/system/azure-proxy.service`.
+   - Copy `deploy/systemd/llms-proxy.service` to `/etc/systemd/system/llms-proxy.service`.
    - Update the `User`, `Group`, binary path, and config path placeholders.
    - Reload units and start the service:
      ```sh
      sudo systemctl daemon-reload
-     sudo systemctl enable --now azure-proxy
+     sudo systemctl enable --now llms-proxy
      ```
 
 4. **Post-deploy validation**
    - `curl http://<host>:8080/healthz`
    - Open `http://<host>:8080/login` in a browser and verify admin login works.
-   - Check `/var/log/azure-proxy/error.log` for startup errors.
+   - Check `/var/log/llms-proxy/error.log` for startup errors.
 
 ## Monitoring & Alerting
 | Metric / Signal                  | Source               | Recommended Thresholds            |
@@ -89,7 +89,7 @@ Automate polling of admin endpoints or export metrics to Prometheus via a lightw
 ## Incident Response
 1. **Client sees 403** – verify token mapping in `config/config.json` or check `allowed_targets`.
 2. **Increased 5xx responses** – inspect `/admin/healthz` for muted targets; investigate upstream Azure incidents.
-3. **Proxy unreachable** – check systemd status and logs; restart with `sudo systemctl restart azure-proxy`.
+3. **Proxy unreachable** – check systemd status and logs; restart with `sudo systemctl restart llms-proxy`.
 4. **Log growth** – adjust logging config to use rotated paths or compress old logs (see `internal/logging` for options).
 5. **Client sees 400 model not supported** – verify request `model` is included in at least one target's `allowed_models`.
 6. **Statistics page shows zero/empty cost** – confirm `config/model_costs.json` contains the requested model name and non-zero per-token prices.

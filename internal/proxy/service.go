@@ -20,10 +20,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ycgame/azure-proxy/internal/auth"
-	"github.com/ycgame/azure-proxy/internal/config"
-	appmiddleware "github.com/ycgame/azure-proxy/internal/middleware"
-	"github.com/ycgame/azure-proxy/internal/usage"
+	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/config"
+	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
+	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
 const (

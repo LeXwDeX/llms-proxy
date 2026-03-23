@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ycgame/azure-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 func TestMiddlewareAcceptsAzureStyleAuth(t *testing.T) {

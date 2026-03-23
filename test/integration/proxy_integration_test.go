@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ycgame/azure-proxy/internal/admin"
-	"github.com/ycgame/azure-proxy/internal/auth"
-	"github.com/ycgame/azure-proxy/internal/config"
-	"github.com/ycgame/azure-proxy/internal/logging"
-	"github.com/ycgame/azure-proxy/internal/proxy"
+	"github.com/ycgame/llms-proxy/internal/admin"
+	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/logging"
+	"github.com/ycgame/llms-proxy/internal/proxy"
 )
 
 func TestEndToEndAdminAndProxyFlow(t *testing.T) {

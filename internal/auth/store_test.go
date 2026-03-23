@@ -3,7 +3,7 @@ package auth
 import (
 	"testing"
 
-	"github.com/ycgame/azure-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 func TestStoreLoadFromConfigAndAuthenticate(t *testing.T) {

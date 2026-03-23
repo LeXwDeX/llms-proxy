@@ -12,24 +12,24 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -o /workspace/bin/azure-proxy ./cmd/proxy
+    go build -o /workspace/bin/llms-proxy ./cmd/proxy
 
 FROM alpine:3.19
 LABEL org.opencontainers.image.title="LLMs Proxy" \
       org.opencontainers.image.description="Lightweight proxy with auth, logging, and failover for LLMs Endpoints" \
-      org.opencontainers.image.source="https://github.com/ycgame/azure-proxy"
+      org.opencontainers.image.source="https://github.com/ycgame/llms-proxy"
 
-RUN addgroup -S azureproxy && adduser -S azureproxy -G azureproxy && \
-    mkdir -p /etc/azure-proxy /var/log/azure-proxy && \
-    chown -R azureproxy:azureproxy /etc/azure-proxy /var/log/azure-proxy
+RUN addgroup -S llmsproxy && adduser -S llmsproxy -G llmsproxy && \
+    mkdir -p /etc/llms-proxy /var/log/llms-proxy && \
+    chown -R llmsproxy:llmsproxy /etc/llms-proxy /var/log/llms-proxy
 
 WORKDIR /app
-COPY --from=build /workspace/bin/azure-proxy /usr/local/bin/azure-proxy
+COPY --from=build /workspace/bin/llms-proxy /usr/local/bin/llms-proxy
 
-USER azureproxy:azureproxy
+USER llmsproxy:llmsproxy
 
 EXPOSE 8080
-VOLUME ["/etc/azure-proxy", "/var/log/azure-proxy"]
+VOLUME ["/etc/llms-proxy", "/var/log/llms-proxy"]
 
-ENTRYPOINT ["/usr/local/bin/azure-proxy"]
-CMD ["-config", "/etc/azure-proxy/config.json"]
+ENTRYPOINT ["/usr/local/bin/llms-proxy"]
+CMD ["-config", "/etc/llms-proxy/config.json"]

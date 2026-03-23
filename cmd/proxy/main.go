@@ -11,14 +11,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ycgame/azure-proxy/internal/admin"
-	"github.com/ycgame/azure-proxy/internal/auth"
-	"github.com/ycgame/azure-proxy/internal/catalog"
-	"github.com/ycgame/azure-proxy/internal/config"
-	"github.com/ycgame/azure-proxy/internal/logging"
-	appmiddleware "github.com/ycgame/azure-proxy/internal/middleware"
-	"github.com/ycgame/azure-proxy/internal/nosql"
-	"github.com/ycgame/azure-proxy/internal/proxy"
+	"github.com/ycgame/llms-proxy/internal/admin"
+	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/catalog"
+	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/logging"
+	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
+	"github.com/ycgame/llms-proxy/internal/nosql"
+	"github.com/ycgame/llms-proxy/internal/proxy"
 )
 
 func main() {

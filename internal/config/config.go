@@ -197,7 +197,7 @@ func DefaultConfig() *Config {
 			AdminAuditFile:  "admin_audit.jsonl",
 		},
 		AdminSession: AdminSessionConfig{
-			CookieName:        "azure_proxy_admin_session",
+			CookieName:        "llms_proxy_admin_session",
 			Secret:            "change-me-on-first-login",
 			TTLSeconds:        86400,
 			SlidingExpiration: true,

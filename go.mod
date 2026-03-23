@@ -1,4 +1,4 @@
-module github.com/ycgame/azure-proxy
+module github.com/ycgame/llms-proxy
 
 go 1.24.2
 

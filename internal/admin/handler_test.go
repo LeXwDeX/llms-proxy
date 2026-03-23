@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ycgame/azure-proxy/internal/auth"
-	"github.com/ycgame/azure-proxy/internal/config"
-	"github.com/ycgame/azure-proxy/internal/proxy"
-	"github.com/ycgame/azure-proxy/internal/usage"
+	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/proxy"
+	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
 func TestHandlerUIEntry(t *testing.T) {

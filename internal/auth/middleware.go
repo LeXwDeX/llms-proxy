@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	appmiddleware "github.com/ycgame/azure-proxy/internal/middleware"
+	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 )
 
 type contextKey string

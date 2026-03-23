@@ -139,8 +139,8 @@
 - `docs/operations.md`：已补充 `config/` 下数据文件的部署/备份/恢复/权限注意事项，以及消费统计与模型费用运维说明。
 
 ### Docker 构建与测试结果
-- Docker 镜像构建成功，镜像名：`azure-proxy:test`。
-- 容器烟雾测试通过（临时配置目录挂载到 `/etc/azure-proxy`）：
+- Docker 镜像构建成功，镜像名：`llms-proxy:test`。
+- 容器烟雾测试通过（临时配置目录挂载到 `/etc/llms-proxy`）：
   - `/healthz` 返回 200
   - `/admin/ui` 返回 200
   - `/admin/data/clients` 返回 200
@@ -182,8 +182,8 @@
 ### Docker 烟雾测试关键发现
 - 之前失败原因：烟雾测试配置中 `resource_path_prefix` 为空字符串 `""`，触发 `Validate()` 校验 `azure_targets[0] resource_path_prefix must not be empty` 导致进程退出
 - 修正为 `/openai` 后，容器正常启动，10 项烟雾测试全部通过
-- 路径解析验证：`data_files` 中的相对路径（如 `clients.json`）被正确解析为 `/etc/azure-proxy/clients.json`（基于 config.json 所在目录）
-- 权限验证：容器以 root 运行时所有 data_files 可读写；生产部署建议确保 `azureproxy` 用户对挂载目录有写权限
+- 路径解析验证：`data_files` 中的相对路径（如 `clients.json`）被正确解析为 `/etc/llms-proxy/clients.json`（基于 config.json 所在目录）
+- 权限验证：容器以 root 运行时所有 data_files 可读写；生产部署建议确保 `llmsproxy` 用户对挂载目录有写权限
 
 ### 内部设计大纲已落地
 - 已在 `.codex_plan/reference/admin-backoffice-design.md` 形成内部设计大纲，作为后续实现与评审的唯一骨架参考。
@@ -291,7 +291,7 @@
 
 ### 构建结果
 - 使用 `deploy/docker/Dockerfile` 构建 Docker 镜像成功。
-- 镜像标签：`azure-proxy:docker-test`。
+- 镜像标签：`llms-proxy:docker-test`。
 
 ### Azure 上游请求
 - 有效请求路径：`POST /v1/responses`

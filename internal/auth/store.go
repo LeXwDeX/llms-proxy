@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ycgame/azure-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 // Principal represents an authenticated client.

@@ -1,10 +1,10 @@
 services:
-  azure-proxy:
-    container_name: azure-proxy
+  llms-proxy:
+    container_name: llms-proxy
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile
-    image: azure-proxy:latest
+    image: llms-proxy:latest
     restart: unless-stopped
     environment:
       - SERVER_BIND=0.0.0.0:8000
@@ -12,5 +12,5 @@ services:
     ports:
       - 8000:8000
     volumes:
-      - ./config:/etc/azure-proxy
-      - ./logs:/var/log/azure-proxy
+      - ./config:/etc/llms-proxy
+      - ./logs:/var/log/llms-proxy

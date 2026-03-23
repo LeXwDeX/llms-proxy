@@ -1,5 +1,5 @@
 BIN_DIR := bin
-BINARY := $(BIN_DIR)/azure-proxy
+BINARY := $(BIN_DIR)/llms-proxy
 
 .PHONY: all build test integration clean
 

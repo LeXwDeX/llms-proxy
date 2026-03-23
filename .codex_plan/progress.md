@@ -68,12 +68,12 @@
 - 已重新运行 `go test ./...` 与 `go test -tags integration ./test/integration/...`，均通过。
 
 ## 2026-03-20（Docker 构建与烟雾测试）
-- 已完成 Docker 镜像构建：`azure-proxy:test`，构建使用 `deploy/docker/Dockerfile`。
+- 已完成 Docker 镜像构建：`llms-proxy:test`，构建使用 `deploy/docker/Dockerfile`。
 - 已通过容器烟雾测试验证：
   - `GET /healthz` -> 200
   - `GET /admin/ui`（Bearer `test-key`）-> 200
   - `GET /admin/data/clients`（Bearer `test-key`）-> 200
-- 运行方式：使用临时配置目录挂载到 `/etc/azure-proxy`，并以 root 运行容器以确保日志目录可写。
+- 运行方式：使用临时配置目录挂载到 `/etc/llms-proxy`，并以 root 运行容器以确保日志目录可写。
 
 ## 2026-03-20（后台设计文档启动）
 - 已开启“真正后台管理系统”的设计阶段，不再继续沿用 API 列表页思路。
@@ -153,7 +153,7 @@
 ## 命令与结果
 - `go test ./...` — PASS（所有 9 个包）
 - `go test -tags integration ./test/integration/...` — PASS
-- `docker build -t azure-proxy:test -f deploy/docker/Dockerfile .` — 成功
+- `docker build -t llms-proxy:test -f deploy/docker/Dockerfile .` — 成功
 - Docker 烟雾测试 10/10 PASS
 
 ## 当前整体状态
@@ -242,7 +242,7 @@
 - 文档：`AGENTS.md`、`README.md`、`docs/api-contract.md`、`docs/operations.md`、`下一步计划.md`
 
 ## 2026-03-23（Docker build + API 请求测试）
-- 已使用 `deploy/docker/Dockerfile` 完成 Docker 镜像构建，镜像标签：`azure-proxy:docker-test`。
+- 已使用 `deploy/docker/Dockerfile` 完成 Docker 镜像构建，镜像标签：`llms-proxy:docker-test`。
 - 已基于用户提供的 `测试用URL和KEY.txt` 生成临时 Docker 配置，并成功启动容器。
 - Azure 测试：
   - 代理请求 `POST /v1/responses`

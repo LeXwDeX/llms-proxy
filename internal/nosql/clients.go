@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ycgame/azure-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 // ClientStore manages clients backed by a JSON file.

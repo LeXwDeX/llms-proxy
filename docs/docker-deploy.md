@@ -8,7 +8,7 @@ The repository ships with a multi-stage Dockerfile (`deploy/docker/Dockerfile`) 
 ```sh
 docker build \
   -f deploy/docker/Dockerfile \
-  -t ycgame/azure-proxy:latest \
+  -t ycgame/llms-proxy:latest \
   .
 ```
 
@@ -17,25 +17,25 @@ Arguments:
 
 ## 2. Prepare Configuration & Log Volumes
 The container expects:
-- `/etc/azure-proxy/config.json` – mounted configuration file containing Azure endpoints, clients, and logging paths.
-- `/var/log/azure-proxy` – writable directory for access/error logs (matches defaults in `config/config.json`).
+- `/etc/llms-proxy/config.json` – mounted configuration file containing Azure endpoints, clients, and logging paths.
+- `/var/log/llms-proxy` – writable directory for access/error logs (matches defaults in `config/config.json`).
 
 Create directories on the host and copy your config:
 ```sh
-mkdir -p /opt/azure-proxy
-cp config/config.json /opt/azure-proxy/config.json
+mkdir -p /opt/llms-proxy
+cp config/config.json /opt/llms-proxy/config.json
 # Edit config.json to include real endpoints, keys, and tokens.
-mkdir -p /var/log/azure-proxy
+mkdir -p /var/log/llms-proxy
 ```
 
 ## 3. Run with `docker run`
 ```sh
 docker run -d \
-  --name azure-proxy \
+  --name llms-proxy \
   -p 8000:8000 \
-  -v /opt/azure-proxy/config.json:/etc/azure-proxy/config.json:ro \
-  -v /var/log/azure-proxy:/var/log/azure-proxy \
-  ycgame/azure-proxy:latest
+  -v /opt/llms-proxy/config.json:/etc/llms-proxy/config.json:ro \
+  -v /var/log/llms-proxy:/var/log/llms-proxy \
+  ycgame/llms-proxy:latest
 ```
 
 Environment variables:
@@ -72,22 +72,22 @@ The repository includes a ready-to-use compose file at `docker-compose.yml` and 
    ```
 
 By default, compose maps:
-- `CONFIG_DIR=./config` → `/etc/azure-proxy`
-- `LOG_PATH=./logs` → `/var/log/azure-proxy`
+- `CONFIG_DIR=./config` → `/etc/llms-proxy`
+- `LOG_PATH=./logs` → `/var/log/llms-proxy`
 
-Ensure the directory referenced by `CONFIG_DIR` contains `config.json` so `/etc/azure-proxy/config.json` resolves inside the container. `PROXY_PORT` updates both the published port and the container's `SERVER_BIND`, so startup logs reflect the client-facing port.
+Ensure the directory referenced by `CONFIG_DIR` contains `config.json` so `/etc/llms-proxy/config.json` resolves inside the container. `PROXY_PORT` updates both the published port and the container's `SERVER_BIND`, so startup logs reflect the client-facing port.
 
-Because the container runs as a non-root user (`azureproxy`), both host directories must be writable by the container user from inside the mount. If startup logs show `permission denied`, verify host permissions and mounted content:
+Because the container runs as a non-root user (`llmsproxy`), both host directories must be writable by the container user from inside the mount. If startup logs show `permission denied`, verify host permissions and mounted content:
 
 ```sh
 ls -ld ./config ./logs
 ls -l ./config/config.json
-docker compose exec azure-proxy sh -lc 'id && ls -ld /etc/azure-proxy /var/log/azure-proxy && ls -l /etc/azure-proxy/config.json'
+docker compose exec llms-proxy sh -lc 'id && ls -ld /etc/llms-proxy /var/log/llms-proxy && ls -l /etc/llms-proxy/config.json'
 ```
 
 ## 5. Operational Notes
-- The container runs as a non-root user (`azureproxy`) and exposes the `PROXY_PORT` value (default `8000`).
-- Configure log rotation on the host if `/var/log/azure-proxy` grows quickly, or change the log paths in the mounted `config.json`.
+- The container runs as a non-root user (`llmsproxy`) and exposes the `PROXY_PORT` value (default `8000`).
+- Configure log rotation on the host if `/var/log/llms-proxy` grows quickly, or change the log paths in the mounted `config.json`.
 - Use the admin API (`/admin/healthz`, `/admin/metrics`, `/admin/config/reload`) the same way as the bare-metal deployment. Tokens are identical.
-- To upgrade: `docker pull ycgame/azure-proxy:<tag>` and redeploy; no state is stored inside the container.
+- To upgrade: `docker pull ycgame/llms-proxy:<tag>` and redeploy; no state is stored inside the container.
 - For Kubernetes, adapt the same volumes using ConfigMap/Secret for `config.json` and a persistent volume claim for logs.

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ycgame/azure-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 type sessionContextKey struct{}

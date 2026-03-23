@@ -52,7 +52,7 @@ The admin management system uses **independent username/password authentication*
 
 - Admin users are stored in `config/admin_users.json` (configured via `config.data_files.admin_users_file`).
 - Passwords are stored as `sha256$<salt>$<hex>` hashes.
-- After login, the server sets a signed session cookie (`azure_proxy_admin_session` by default).
+- After login, the server sets a signed session cookie (`llms_proxy_admin_session` by default).
 - Session configuration (cookie name, secret, TTL, sliding expiration) is defined in `config.admin_session`.
 - Unauthenticated requests to `/admin/*` are redirected to `/login` with HTTP 302.
 

@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ycgame/azure-proxy/internal/auth"
-	"github.com/ycgame/azure-proxy/internal/config"
-	"github.com/ycgame/azure-proxy/internal/usage"
+	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
 type failingTransport struct {
