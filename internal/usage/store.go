@@ -19,6 +19,7 @@ import (
 type Event struct {
 	Timestamp    time.Time `json:"timestamp"`
 	ClientName   string    `json:"client_name"`
+	EndpointType string    `json:"endpoint_type,omitempty"`
 	Model        string    `json:"model,omitempty"`
 	InputTokens  int64     `json:"input_tokens"`
 	OutputTokens int64     `json:"output_tokens"`
@@ -45,8 +46,26 @@ type CostRates struct {
 	CachedInputPer1KToken float64
 }
 
-// CostTable holds rates by normalized model name.
+// CostTable holds rates by "endpoint_type:model" key, falling back to "model" for backward compat.
 type CostTable map[string]CostRates
+
+// LookupCost finds cost rates for an event, trying "endpoint_type:model" first, then "model".
+func (ct CostTable) LookupCost(endpointType, model string) (CostRates, bool) {
+	endpointType = strings.ToLower(strings.TrimSpace(endpointType))
+	model = strings.ToLower(strings.TrimSpace(model))
+
+	// Exact match: endpoint_type:model
+	if endpointType != "" {
+		if rates, ok := ct[endpointType+":"+model]; ok {
+			return rates, true
+		}
+	}
+	// Fallback: model only
+	if rates, ok := ct[model]; ok {
+		return rates, true
+	}
+	return CostRates{}, false
+}
 
 // Totals is aggregated usage and estimated cost.
 type Totals struct {
@@ -133,6 +152,7 @@ func (s *Store) Record(event Event) error {
 		event.Timestamp = time.Now().UTC()
 	}
 	event.ClientName = strings.TrimSpace(event.ClientName)
+	event.EndpointType = strings.ToLower(strings.TrimSpace(event.EndpointType))
 	event.Model = strings.ToLower(strings.TrimSpace(event.Model))
 	event.RequestID = strings.TrimSpace(event.RequestID)
 	event.Target = strings.TrimSpace(event.Target)
@@ -329,6 +349,7 @@ func (s *Store) readAll() ([]Event, error) {
 			continue
 		}
 		evt.ClientName = strings.TrimSpace(evt.ClientName)
+		evt.EndpointType = strings.ToLower(strings.TrimSpace(evt.EndpointType))
 		evt.Model = strings.ToLower(strings.TrimSpace(evt.Model))
 		items = append(items, evt)
 	}
@@ -430,7 +451,7 @@ func addEventTotals(target *Totals, evt Event, costs CostTable) {
 }
 
 func estimateEventCost(evt Event, costs CostTable) float64 {
-	rate, ok := costs[strings.ToLower(strings.TrimSpace(evt.Model))]
+	rate, ok := costs.LookupCost(evt.EndpointType, evt.Model)
 	if !ok {
 		return 0
 	}

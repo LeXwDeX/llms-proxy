@@ -6,9 +6,11 @@
   "azure_targets": [
     {
       "name": "East US 2",
+      "endpoint_type": "azure_openai",
       "endpoint": "https://yc-east2-us-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
       "azure_api_key": "REDACTED_KEY_3",
+      "allow_bearer_passthrough": false,
       "allowed_models": [
         "gpt-image-1.5",
         "text-embedding-3-large",
@@ -21,22 +23,36 @@
     },
     {
       "name": "North Central US",
+      "endpoint_type": "azure_openai",
       "endpoint": "https://yc-north-us-gpt.openai.azure.com/",
       "resource_path_prefix": "/openai",
       "azure_api_key": "REDACTED_KEY_4",
+      "allow_bearer_passthrough": false,
       "allowed_models": [
         "tts",
         "tts-hd",
         "whisper"
       ]
+    },
+    {
+      "name": "Claude",
+      "endpoint_type": "claude",
+      "endpoint": "https://aigateway.edgecloudapp.com/v2/gws/1il16qpv/anthropic/",
+      "resource_path_prefix": "",
+      "azure_api_key": "REDACTED_KEY_1",
+      "allow_bearer_passthrough": false,
+      "allowed_models": [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6"
+      ]
     }
   ],
   "data_files": {
-    "clients_file": "clients.json",
-    "model_costs_file": "model_costs.json",
-    "usage_events_file": "usage_events.jsonl",
-    "admin_users_file": "admin_users.json",
-    "admin_audit_file": "admin_audit.jsonl"
+    "clients_file": "/etc/azure-proxy/clients.json",
+    "model_costs_file": "/etc/azure-proxy/model_costs.json",
+    "usage_events_file": "/etc/azure-proxy/usage_events.jsonl",
+    "admin_users_file": "/etc/azure-proxy/admin_users.json",
+    "admin_audit_file": "/etc/azure-proxy/admin_audit.jsonl"
   },
   "admin_session": {
     "cookie_name": "azure_proxy_admin_session",

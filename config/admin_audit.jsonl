@@ -3,3 +3,35 @@
 {"id":"197b2a14-337a-465c-a91a-856510ba6587","timestamp":"2026-03-20T09:31:25.835851226Z","actor":"admin","action":"client_create","object":"123","result":"success","detail":"123"}
 {"id":"68e0098a-c97e-4af5-915a-5de32ee19b80","timestamp":"2026-03-20T09:31:28.689955034Z","actor":"admin","action":"model_cost_delete","object":"gpt-4o","result":"success"}
 {"id":"b4d459e5-d0d0-444e-bff8-c50685ea9a4a","timestamp":"2026-03-20T09:31:33.09513194Z","actor":"admin","action":"model_cost_upsert","object":"123","result":"success"}
+{"id":"17e5e600-21e8-4f59-8f42-8c239a1e37d2","timestamp":"2026-03-23T04:51:13.53454056Z","actor":"admin","action":"login","result":"failure","detail":"invalid credentials"}
+{"id":"0d66eb99-f1aa-464c-ae9d-a234390ad20d","timestamp":"2026-03-23T04:51:17.568457315Z","actor":"admin","action":"login","result":"success","detail":"session created"}
+{"id":"5d4d2c10-86d7-4b41-bdfc-bc8144b7e1ce","timestamp":"2026-03-23T04:52:27.311564389Z","actor":"admin","action":"create_target","object":"Claude","result":"success"}
+{"id":"f06fe7f8-29e1-4bd6-bc41-b8c435d7cd4c","timestamp":"2026-03-23T04:52:31.166254259Z","actor":"admin","action":"client_delete","object":"123","result":"success"}
+{"id":"b97e2a4a-20a7-4a0d-a561-fda714b2bac9","timestamp":"2026-03-23T04:52:32.724470541Z","actor":"admin","action":"client_delete","object":"team-alpha","result":"success"}
+{"id":"e6472952-11a7-4cc2-808e-95f9be2038eb","timestamp":"2026-03-23T04:52:33.799265503Z","actor":"admin","action":"client_delete","object":"tester","result":"success"}
+{"id":"5f857e9f-5ccd-49a8-bfa8-4e3cf03c0c85","timestamp":"2026-03-23T04:52:46.831060337Z","actor":"admin","action":"client_create","object":"Cherry-Studio","result":"success","detail":"sk-123"}
+{"id":"89fe3d6c-87cf-4eff-aa54-10a07ad4f913","timestamp":"2026-03-23T04:52:51.746396216Z","actor":"admin","action":"model_cost_delete","object":"123","result":"success"}
+{"id":"0d38fec4-99dd-49a8-9683-5f411dd17024","timestamp":"2026-03-23T04:52:53.193125895Z","actor":"admin","action":"model_cost_delete","object":"gpt-5.2","result":"success"}
+{"id":"5fd805a2-4bbf-4128-9d1c-de78c6cb6b7e","timestamp":"2026-03-23T04:52:54.365086692Z","actor":"admin","action":"model_cost_delete","object":"gpt-5.2-chat","result":"success"}
+{"id":"f93945d0-f889-45bb-82ad-4dd26a4e657a","timestamp":"2026-03-23T04:53:08.827291301Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.4","result":"success"}
+{"id":"5ebcc6e8-0dd2-4abd-8362-16b63f0962b4","timestamp":"2026-03-23T04:53:17.117618087Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.4-mini","result":"success"}
+{"id":"29d7df54-001d-42b2-b2da-091656c90a72","timestamp":"2026-03-23T04:53:24.651097769Z","actor":"admin","action":"model_cost_delete","object":"gpt-5.4","result":"success"}
+{"id":"65e5e339-c3e0-4ba4-8ca1-c2b86774c6f6","timestamp":"2026-03-23T04:53:27.057016972Z","actor":"admin","action":"model_cost_delete","object":"gpt-5.4-mini","result":"success"}
+{"id":"4de064a6-ae9c-4740-9cdf-cd33c51bf07a","timestamp":"2026-03-23T04:57:47.980443824Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.4-mini","result":"success"}
+{"id":"c0e6a3a1-8095-483f-9784-0dcd09ed201e","timestamp":"2026-03-23T04:58:01.491625575Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.3-codex","result":"success"}
+{"id":"068cda4e-8755-49f5-8e43-f503c99a4412","timestamp":"2026-03-23T04:58:15.07691144Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.4-mini","result":"success"}
+{"id":"a3456423-8f8f-4328-8e2b-0a9b38f703b9","timestamp":"2026-03-23T05:05:18.927675139Z","actor":"admin","action":"login","result":"success","detail":"session created"}
+{"id":"a4d9a022-0de3-46ba-b33e-33e456d4a249","timestamp":"2026-03-23T05:05:46.612910601Z","actor":"admin","action":"model_cost_delete","object":"gpt-5.3-codex","result":"success"}
+{"id":"8cfa82ee-1453-4a59-be41-a7666a12cd2c","timestamp":"2026-03-23T05:05:48.229480504Z","actor":"admin","action":"model_cost_delete","object":"gpt-5.4-mini","result":"success"}
+{"id":"a850ae71-7194-4812-88d1-f08ff23b8abc","timestamp":"2026-03-23T05:05:49.597945927Z","actor":"admin","action":"model_cost_delete","object":"gpt-5.4-mini","result":"success"}
+{"id":"d62cf61a-2845-4cb3-984e-2783916b0063","timestamp":"2026-03-23T05:06:24.777721566Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.4-mini","result":"success"}
+{"id":"1ffc48c1-6f11-410e-8c75-e258a795f42e","timestamp":"2026-03-23T05:06:30.361064083Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.4","result":"success"}
+{"id":"0e0251c6-d839-4d5c-9b6d-8d2491a56520","timestamp":"2026-03-23T05:06:42.752326401Z","actor":"admin","action":"model_cost_upsert","object":"gpt-5.3-codex","result":"success"}
+{"id":"35b174b7-797f-4fff-8d82-1bd5256c87b9","timestamp":"2026-03-23T05:06:51.244850503Z","actor":"admin","action":"model_cost_upsert","object":"claude-sonnet-4-6","result":"success"}
+{"id":"7ad565bc-5d82-4aad-83cf-3ac2775cb135","timestamp":"2026-03-23T05:07:00.608482802Z","actor":"admin","action":"model_cost_upsert","object":"claude-opus-4-6","result":"success"}
+{"id":"4d9282e2-ab27-4aa5-9de2-6f50773eabdb","timestamp":"2026-03-23T05:08:16.750673268Z","actor":"admin","action":"client_update","object":"Cherry-Studio","result":"success","detail":"sk-123"}
+{"id":"6d65e2e7-276e-47c4-80da-5e1314465751","timestamp":"2026-03-23T05:08:44.480998226Z","actor":"admin","action":"client_update","object":"Cherry-Studio","result":"success","detail":"123123"}
+{"id":"553e4ad9-8536-4450-92a0-8382b3b39d50","timestamp":"2026-03-23T05:17:47.35677238Z","actor":"admin","action":"login","result":"success","detail":"session created"}
+{"id":"1d1cf0a1-e0a5-4157-9e88-e12326842b46","timestamp":"2026-03-23T05:17:54.653982751Z","actor":"admin","action":"update_target","object":"Claude","result":"success"}
+{"id":"d6f1adea-a48c-4142-b4f9-860fc3108716","timestamp":"2026-03-23T05:38:56.598357508Z","actor":"admin","action":"login","result":"success","detail":"session created"}
+{"id":"75915aa5-18e0-45a2-b6c8-73df9699e59f","timestamp":"2026-03-23T05:39:28.606365567Z","actor":"admin","action":"logout","result":"success","detail":"session destroyed"}

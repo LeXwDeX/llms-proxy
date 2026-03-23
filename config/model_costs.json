@@ -1,20 +1,37 @@
 [
   {
-    "model": "gpt-5.2",
-    "input_per_1k_tokens": 0.005,
+    "endpoint_type": "azure_openai",
+    "model": "gpt-5.4-mini",
+    "input_per_1k_tokens": 0.0025,
     "output_per_1k_tokens": 0.015,
-    "cached_input_per_1k_tokens": 0.0015
+    "cached_input_per_1k_tokens": 0.00025
   },
   {
-    "model": "gpt-5.2-chat",
-    "input_per_1k_tokens": 0.005,
+    "endpoint_type": "azure_openai",
+    "model": "gpt-5.4",
+    "input_per_1k_tokens": 0.0025,
     "output_per_1k_tokens": 0.015,
-    "cached_input_per_1k_tokens": 0.0015
+    "cached_input_per_1k_tokens": 0.00025
   },
   {
-    "model": "123",
-    "input_per_1k_tokens": 123,
-    "output_per_1k_tokens": 123,
-    "cached_input_per_1k_tokens": 123
+    "endpoint_type": "azure_openai",
+    "model": "gpt-5.3-codex",
+    "input_per_1k_tokens": 0.00175,
+    "output_per_1k_tokens": 0.014,
+    "cached_input_per_1k_tokens": 0.000175
+  },
+  {
+    "endpoint_type": "claude",
+    "model": "claude-sonnet-4-6",
+    "input_per_1k_tokens": 0.003,
+    "output_per_1k_tokens": 0.015,
+    "cached_input_per_1k_tokens": 0.0003
+  },
+  {
+    "endpoint_type": "claude",
+    "model": "claude-opus-4-6",
+    "input_per_1k_tokens": 0.005,
+    "output_per_1k_tokens": 0.025,
+    "cached_input_per_1k_tokens": 0.0005
   }
 ]

@@ -11,6 +11,34 @@ import (
 	"sync"
 )
 
+const (
+	EndpointTypeAzureOpenAI = "azure_openai"
+	EndpointTypeOpenAI      = "openai"
+	EndpointTypeClaude      = "claude"
+)
+
+// ValidEndpointTypes lists all supported endpoint types.
+var ValidEndpointTypes = []string{EndpointTypeAzureOpenAI, EndpointTypeOpenAI, EndpointTypeClaude}
+
+// NormalizeEndpointType returns a canonical endpoint type; empty defaults to azure_openai.
+func NormalizeEndpointType(t string) string {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "" {
+		return EndpointTypeAzureOpenAI
+	}
+	return t
+}
+
+// IsValidEndpointType reports whether t is a recognised endpoint type.
+func IsValidEndpointType(t string) bool {
+	for _, valid := range ValidEndpointTypes {
+		if t == valid {
+			return true
+		}
+	}
+	return false
+}
+
 // Config is the top-level configuration model matching config/config.json.
 type Config struct {
 	Server       ServerConfig       `json:"server"`
@@ -53,9 +81,10 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
-// AzureTarget represents one Azure OpenAI endpoint.
+// AzureTarget represents one upstream endpoint (Azure OpenAI, OpenAI, or Claude).
 type AzureTarget struct {
 	Name               string   `json:"name"`
+	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude; default azure_openai
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	AzureAPIKey        string   `json:"azure_api_key"`
@@ -121,6 +150,20 @@ func (m *Manager) Reload() (*Config, error) {
 	return cfg.Clone(), nil
 }
 
+// LoadOrInit loads the config file, creating a default one when missing.
+// The second return value is true when a new default config was generated.
+func (m *Manager) LoadOrInit() (*Config, bool, error) {
+	cfg, created, err := LoadOrCreate(m.path)
+	if err != nil {
+		return nil, false, err
+	}
+
+	m.mu.Lock()
+	m.cache = cfg
+	m.mu.Unlock()
+	return cfg.Clone(), created, nil
+}
+
 // Replace updates the cached configuration without reading from disk.
 func (m *Manager) Replace(cfg *Config) {
 	if m == nil {
@@ -134,6 +177,38 @@ func (m *Manager) Replace(cfg *Config) {
 		m.cache = cfg.Clone()
 	}
 	m.mu.Unlock()
+}
+
+// DefaultConfig returns a minimal valid configuration suitable for first-time
+// startup.  The system can boot with zero upstream targets; users add targets
+// later via the admin UI.
+func DefaultConfig() *Config {
+	return &Config{
+		Server: ServerConfig{
+			Bind:                  "0.0.0.0:8080",
+			RequestTimeoutSeconds: 300,
+		},
+		AzureTargets: []AzureTarget{},
+		DataFiles: DataFiles{
+			ClientsFile:     "clients.json",
+			ModelCostsFile:  "model_costs.json",
+			UsageEventsFile: "usage_events.jsonl",
+			AdminUsersFile:  "admin_users.json",
+			AdminAuditFile:  "admin_audit.jsonl",
+		},
+		AdminSession: AdminSessionConfig{
+			CookieName:        "azure_proxy_admin_session",
+			Secret:            "change-me-on-first-login",
+			TTLSeconds:        86400,
+			SlidingExpiration: true,
+			SecureCookie:      false,
+		},
+		Logging: LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/access.log",
+			ErrorLog:  "logs/error.log",
+		},
+	}
 }
 
 // Load reads and validates the config file from path.
@@ -163,6 +238,40 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// LoadOrCreate tries to load an existing config file.  When the file does not
+// exist it writes a default configuration to disk and returns it.  The second
+// return value is true when a new file was created.
+func LoadOrCreate(path string) (*Config, bool, error) {
+	cfg, err := Load(path)
+	if err == nil {
+		return cfg, false, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, false, err
+	}
+
+	// File does not exist — generate default config and persist it.
+	cfg = DefaultConfig()
+	data, marshalErr := json.MarshalIndent(cfg, "", "  ")
+	if marshalErr != nil {
+		return nil, false, fmt.Errorf("config: marshal default: %w", marshalErr)
+	}
+	data = append(data, '\n')
+
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+			return nil, false, fmt.Errorf("config: create dir %s: %w", dir, mkErr)
+		}
+	}
+	if writeErr := os.WriteFile(path, data, 0o644); writeErr != nil {
+		return nil, false, fmt.Errorf("config: write default %s: %w", path, writeErr)
+	}
+
+	resolveDataFilePaths(cfg, filepath.Dir(path))
+	return cfg, true, nil
+}
+
 func parse(data []byte) (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -184,20 +293,25 @@ func (c *Config) Validate() error {
 		problems = append(problems, "server.request_timeout_seconds must be greater than zero")
 	}
 
-	if len(c.AzureTargets) == 0 {
-		problems = append(problems, "azure_targets must contain at least one entry")
-	}
-
 	for i, target := range c.AzureTargets {
 		prefix := fmt.Sprintf("azure_targets[%d]", i)
+
+		// Normalise and validate endpoint_type.
+		epType := NormalizeEndpointType(target.EndpointType)
+		if !IsValidEndpointType(epType) {
+			problems = append(problems, fmt.Sprintf("%s endpoint_type %q is not valid; must be one of: %s",
+				prefix, target.EndpointType, strings.Join(ValidEndpointTypes, ", ")))
+		}
+
 		if strings.TrimSpace(target.Name) == "" {
 			problems = append(problems, prefix+" name must not be empty")
 		}
 		if strings.TrimSpace(target.Endpoint) == "" {
 			problems = append(problems, prefix+" endpoint must not be empty")
 		}
-		if strings.TrimSpace(target.ResourcePathPrefix) == "" {
-			problems = append(problems, prefix+" resource_path_prefix must not be empty")
+		// resource_path_prefix is required only for azure_openai targets.
+		if epType == EndpointTypeAzureOpenAI && strings.TrimSpace(target.ResourcePathPrefix) == "" {
+			problems = append(problems, prefix+" resource_path_prefix must not be empty for azure_openai targets")
 		}
 		if strings.TrimSpace(target.AzureAPIKey) == "" && !target.AllowBearer {
 			problems = append(problems, prefix+" azure_api_key must not be empty when allow_bearer_passthrough is false")

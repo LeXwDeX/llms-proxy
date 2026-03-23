@@ -14,6 +14,7 @@ import (
 
 // ModelCost defines token pricing (per 1k tokens).
 type ModelCost struct {
+	EndpointType          string  `json:"endpoint_type,omitempty"`
 	Model                 string  `json:"model"`
 	InputPer1KTokens      float64 `json:"input_per_1k_tokens"`
 	OutputPer1KTokens     float64 `json:"output_per_1k_tokens"`
@@ -76,7 +77,7 @@ func (s *ModelCostStore) Upsert(cost ModelCost) error {
 
 	replaced := false
 	for i := range costs {
-		if strings.EqualFold(costs[i].Model, cost.Model) {
+		if strings.EqualFold(costs[i].Model, cost.Model) && strings.EqualFold(costs[i].EndpointType, cost.EndpointType) {
 			costs[i] = cost
 			replaced = true
 			break
@@ -89,7 +90,8 @@ func (s *ModelCostStore) Upsert(cost ModelCost) error {
 	return writeModelCosts(path, costs)
 }
 
-// Delete removes one model cost by model name.
+// Delete removes one model cost by model name (matches any endpoint_type).
+// Deprecated: use DeleteByKey for endpoint_type-aware deletion.
 func (s *ModelCostStore) Delete(model string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,6 +118,42 @@ func (s *ModelCostStore) Delete(model string) error {
 	}
 	if !removed {
 		return fmt.Errorf("model %q not found", model)
+	}
+
+	return writeModelCosts(path, next)
+}
+
+// DeleteByKey removes one model cost by endpoint_type + model.
+func (s *ModelCostStore) DeleteByKey(endpointType, model string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	model = strings.ToLower(strings.TrimSpace(model))
+	endpointType = strings.ToLower(strings.TrimSpace(endpointType))
+	if endpointType == "" {
+		endpointType = "azure_openai"
+	}
+	if model == "" {
+		return errors.New("model must not be empty")
+	}
+
+	path := s.path
+	costs, err := readModelCosts(path)
+	if err != nil {
+		return err
+	}
+
+	next := make([]ModelCost, 0, len(costs))
+	removed := false
+	for _, item := range costs {
+		if strings.EqualFold(item.Model, model) && strings.EqualFold(item.EndpointType, endpointType) {
+			removed = true
+			continue
+		}
+		next = append(next, item)
+	}
+	if !removed {
+		return fmt.Errorf("model %q (endpoint_type=%q) not found", model, endpointType)
 	}
 
 	return writeModelCosts(path, next)
@@ -153,8 +191,8 @@ func readModelCosts(path string) ([]ModelCost, error) {
 
 	for i := range costs {
 		for j := i + 1; j < len(costs); j++ {
-			if strings.EqualFold(costs[i].Model, costs[j].Model) {
-				return nil, fmt.Errorf("duplicate model %q", costs[i].Model)
+			if strings.EqualFold(costs[i].Model, costs[j].Model) && strings.EqualFold(costs[i].EndpointType, costs[j].EndpointType) {
+				return nil, fmt.Errorf("duplicate model %q (endpoint_type=%q)", costs[i].Model, costs[i].EndpointType)
 			}
 		}
 	}
@@ -192,6 +230,10 @@ func validateCost(cost ModelCost) error {
 
 func normalizeCost(cost ModelCost) ModelCost {
 	cost.Model = strings.ToLower(strings.TrimSpace(cost.Model))
+	cost.EndpointType = strings.ToLower(strings.TrimSpace(cost.EndpointType))
+	if cost.EndpointType == "" {
+		cost.EndpointType = "azure_openai"
+	}
 	return cost
 }
 

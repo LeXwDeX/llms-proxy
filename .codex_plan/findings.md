@@ -246,3 +246,71 @@
   - `admin_audit`：key=timestamp+id, value=json(AuditEvent)
 - 配置变更：`data_files`（5 路径）→ `data_store.db_path`（单一路径）
 - 启动时检测：若 bbolt DB 不存在但旧 JSON 文件存在，自动迁移
+
+---
+
+## 追加任务：多 Endpoint / 默认值规划审阅
+
+### 当前实现边界
+- 配置层当前只有 `azure_targets` 与 `AzureTarget`，没有通用 `endpoint_type` 抽象；运行时 `buildTargetStates` 也直接接收 `[]config.AzureTarget`。
+- `allowed_models` 在构建 target 状态时会做 `strings.ToLower(strings.TrimSpace(...))` 归一化；usage 记录与 model cost 也统一按小写模型名处理。
+- 上游请求转发当前默认注入 `api-key`，只有 `allow_bearer_passthrough=true` 且客户端显式传入 `X-Azure-Authorization` 时，才改为上游 `Authorization`。
+- 后台当前只有客户端、模型费用、消费统计、审计相关 API 与页面；没有 Endpoint/Target CRUD，也没有 Endpoint 类型下拉或模型-Endpoint 绑定配置页。
+
+### 对用户规划的核心判断
+- “把 models 数据库缓存到本地并作为默认值来源”是最容易落地的一项，但不应直接把原始外部数据结构塞进运行时；更稳妥的做法是保留本地 snapshot，并提炼出项目内稳定 catalog schema。
+- “新增类 OpenAI / 类 Claude 的 Endpoint 映射”可行，但不能只把差异理解为 URL；至少还涉及上游鉴权头、特定协议字段、列表接口与请求清洗逻辑分支。
+- 若支持 Claude，第一期应限定为“Claude 原生协议 -> Claude 官方端点透传”，不做 OpenAI<->Claude 协议互转。
+- 模型费用与默认值若继续只按 `model` 建模，会在多 Endpoint 类型并存时产生歧义；至少应升级为 `endpoint_type + model` 维度。
+- 后台部分的真实起点不是“把 Azure 类型下拉改成多类型”，而是先补齐 Endpoint/Target 的管理能力，因为当前后台尚无该模块。
+
+### 推荐的一期收敛策略
+- 引入 `endpoint_type`，先支持：`azure_openai`、`openai`、`claude` 三种类型。
+- 保留 `azure_targets` 配置顶层与现有行为兼容，第一阶段只增字段，不急于全量重命名为更通用的 `targets`。
+- 模型默认值采用“本地 vendored snapshot + 项目精简 catalog + 后台手工覆盖”的三层结构。
+- 成本与 usage 统计补充 `endpoint_type` 维度后，再推进后台多类型 Endpoint 页面，避免先做 UI 后改底层 schema。
+
+---
+
+## 追加任务：需求文档化修正点
+
+### 已修正的不合理表述
+- “把 `models.dev/api.json` 直接融入项目”已收敛为：引入本地快照，并转换为项目内稳定 schema，运行时不依赖外部 URL。
+- “类 OpenAI / 类 Claude 除了 URL 之外先都保持一致”已收敛为：第一阶段仅支持同类官方协议透传，按类型处理鉴权头与必要协议头，不做 OpenAI 与 Claude 协议互转。
+- “后台中每个 Endpoint 基本就是 Key+密钥”已收敛为：最小必填项至少包括名称、类型、Endpoint、认证信息，必要时带类型专属字段。
+- “模型名统一小写后直接匹配默认值”已收敛为：归一化主键至少为 `endpoint_type + normalized_model`，必要时支持 alias。
+
+### 需求文档的正式化方向
+- 文档结构已从“审阅意见”切换为“正式需求”。
+- 已增加范围、非目标、功能需求、数据需求、兼容性要求、非功能要求与验收标准。
+- 已明确默认值只是默认值，不能覆盖手工配置，也不能被当成真实账单。
+
+---
+
+## Docker build / API 请求测试发现
+
+### 构建结果
+- 使用 `deploy/docker/Dockerfile` 构建 Docker 镜像成功。
+- 镜像标签：`azure-proxy:docker-test`。
+
+### Azure 上游请求
+- 有效请求路径：`POST /v1/responses`
+- 有效请求体：`{"model":"gpt-5.4-nano","input":"ping","max_output_tokens":16}`
+- 返回结果：HTTP 200。
+- 需要注意：`max_output_tokens` 低于 16 时，上游会返回校验错误。
+
+### Claude 上游请求
+- 有效请求路径：`POST /v1/messages`
+- 有效请求体：`{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`
+- 返回结果：HTTP 200。
+- 需要注意：Claude gateway 的 base path 不能直接写入 `endpoint`，应放在 `resource_path_prefix` 中；否则 `buildURL()` 使用 `url.Parse()` 时会把基路径覆盖掉，导致 404。
+
+### 代理返回头
+- 两个成功请求都返回了：
+  - `X-Proxy-Target`
+  - `X-Azure-Target`
+
+### 测试结论
+- Docker build 成功。
+- Azure 与 Claude 的代理请求均成功打通。
+- 当前没有发现需要回流到代码层的额外问题。

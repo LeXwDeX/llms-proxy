@@ -6,6 +6,7 @@
   "azure_targets": [
     {
       "name": "local-mock",
+      "endpoint_type": "azure_openai",
       "endpoint": "http://127.0.0.1:28080",
       "resource_path_prefix": "/",
       "azure_api_key": "dummy",

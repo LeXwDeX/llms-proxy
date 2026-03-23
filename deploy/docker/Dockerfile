@@ -15,13 +15,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -o /workspace/bin/azure-proxy ./cmd/proxy
 
 FROM alpine:3.19
-LABEL org.opencontainers.image.title="Azure OpenAI Proxy" \
-      org.opencontainers.image.description="Lightweight proxy with auth, logging, and failover for Azure OpenAI" \
+LABEL org.opencontainers.image.title="LLMs Proxy" \
+      org.opencontainers.image.description="Lightweight proxy with auth, logging, and failover for LLMs Endpoints" \
       org.opencontainers.image.source="https://github.com/ycgame/azure-proxy"
 
 RUN addgroup -S azureproxy && adduser -S azureproxy -G azureproxy && \
-    mkdir -p /var/log/azure-proxy && \
-    chown -R azureproxy:azureproxy /var/log/azure-proxy
+    mkdir -p /etc/azure-proxy /var/log/azure-proxy && \
+    chown -R azureproxy:azureproxy /etc/azure-proxy /var/log/azure-proxy
 
 WORKDIR /app
 COPY --from=build /workspace/bin/azure-proxy /usr/local/bin/azure-proxy

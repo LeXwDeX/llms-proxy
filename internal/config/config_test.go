@@ -229,3 +229,168 @@ func TestLoadReadsFile(t *testing.T) {
 		t.Fatalf("expected clients file resolved to absolute path, got %q", cfg.DataFiles.ClientsFile)
 	}
 }
+
+func TestNormalizeEndpointType(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", EndpointTypeAzureOpenAI},
+		{"  ", EndpointTypeAzureOpenAI},
+		{"azure_openai", EndpointTypeAzureOpenAI},
+		{"Azure_OpenAI", EndpointTypeAzureOpenAI},
+		{"  AZURE_OPENAI  ", EndpointTypeAzureOpenAI},
+		{"openai", EndpointTypeOpenAI},
+		{"OpenAI", EndpointTypeOpenAI},
+		{"claude", EndpointTypeClaude},
+		{"CLAUDE", EndpointTypeClaude},
+		{"unknown", "unknown"},
+	}
+	for _, tt := range tests {
+		got := NormalizeEndpointType(tt.input)
+		if got != tt.want {
+			t.Errorf("NormalizeEndpointType(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestIsValidEndpointType(t *testing.T) {
+	for _, valid := range ValidEndpointTypes {
+		if !IsValidEndpointType(valid) {
+			t.Errorf("expected %q to be valid", valid)
+		}
+	}
+	if IsValidEndpointType("unknown") {
+		t.Error("expected 'unknown' to be invalid")
+	}
+	if IsValidEndpointType("") {
+		t.Error("expected empty string to be invalid")
+	}
+}
+
+func TestConfigValidateEndpointTypes(t *testing.T) {
+	base := func() *Config {
+		return &Config{
+			Server: ServerConfig{
+				Bind:                  "127.0.0.1:8080",
+				RequestTimeoutSeconds: 30,
+			},
+			DataFiles: DataFiles{
+				ClientsFile:     "config/clients.json",
+				ModelCostsFile:  "config/model_costs.json",
+				UsageEventsFile: "config/usage_events.jsonl",
+				AdminUsersFile:  "config/admin_users.json",
+				AdminAuditFile:  "config/admin_audit.jsonl",
+			},
+			AdminSession: AdminSessionConfig{
+				CookieName: "admin_sid",
+				Secret:     "test-secret",
+				TTLSeconds: 3600,
+			},
+			Logging: LoggingConfig{
+				Level:     "info",
+				AccessLog: "logs/access.log",
+				ErrorLog:  "logs/error.log",
+			},
+		}
+	}
+
+	// openai target: resource_path_prefix not required
+	t.Run("openai without resource_path_prefix", func(t *testing.T) {
+		cfg := base()
+		cfg.AzureTargets = []AzureTarget{{
+			Name:         "openai-target",
+			EndpointType: "openai",
+			Endpoint:     "https://api.openai.com",
+			AzureAPIKey:  "sk-test",
+		}}
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("expected no validation error, got %v", err)
+		}
+	})
+
+	// claude target: resource_path_prefix not required
+	t.Run("claude without resource_path_prefix", func(t *testing.T) {
+		cfg := base()
+		cfg.AzureTargets = []AzureTarget{{
+			Name:         "claude-target",
+			EndpointType: "claude",
+			Endpoint:     "https://api.anthropic.com",
+			AzureAPIKey:  "sk-ant-test",
+		}}
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("expected no validation error, got %v", err)
+		}
+	})
+
+	// azure_openai target: resource_path_prefix required
+	t.Run("azure_openai without resource_path_prefix", func(t *testing.T) {
+		cfg := base()
+		cfg.AzureTargets = []AzureTarget{{
+			Name:        "azure-target",
+			Endpoint:    "https://example.com",
+			AzureAPIKey: "key",
+		}}
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatal("expected validation error for missing resource_path_prefix")
+		}
+		if !contains(err.Error(), "resource_path_prefix must not be empty for azure_openai targets") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestConfigValidateInvalidEndpointType(t *testing.T) {
+	cfg := &Config{
+		Server: ServerConfig{
+			Bind:                  "127.0.0.1:8080",
+			RequestTimeoutSeconds: 30,
+		},
+		AzureTargets: []AzureTarget{{
+			Name:               "bad-type",
+			EndpointType:       "gcp_vertex",
+			Endpoint:           "https://example.com",
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "key",
+		}},
+		DataFiles: DataFiles{
+			ClientsFile:     "config/clients.json",
+			ModelCostsFile:  "config/model_costs.json",
+			UsageEventsFile: "config/usage_events.jsonl",
+			AdminUsersFile:  "config/admin_users.json",
+			AdminAuditFile:  "config/admin_audit.jsonl",
+		},
+		AdminSession: AdminSessionConfig{
+			CookieName: "admin_sid",
+			Secret:     "test-secret",
+			TTLSeconds: 3600,
+		},
+		Logging: LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/access.log",
+			ErrorLog:  "logs/error.log",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid endpoint_type")
+	}
+	if !contains(err.Error(), "endpoint_type") || !contains(err.Error(), "gcp_vertex") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchSubstring(s, substr)
+}
+
+func searchSubstring(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

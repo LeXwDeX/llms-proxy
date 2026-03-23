@@ -179,3 +179,85 @@
 - 已选择空闲端口 `127.0.0.1:19090` 启动项目。
 - 当前服务已成功启动，日志显示 `http server starting`，进程 PID 为 `3527664`。
 - 8000 端口未关闭，因为当前被外部 `docker-proxy` 占用，且与本仓库进程无关；已通过改端口满足测试需求。
+
+---
+
+## 2026-03-23（规划审阅：多 Endpoint / 默认值 / 后台扩展）
+- 已读取现有 `.codex_plan/task_plan.md`、`.codex_plan/findings.md`、`.codex_plan/progress.md`，并执行 session catchup 检查，无额外补录输出。
+- 已核对以下关键实现：
+  - `internal/config/config.go`：当前配置仍以 `azure_targets` 为中心；
+  - `internal/proxy/service.go`：`allowed_models` 小写归一化、上游默认 `api-key` 鉴权；
+  - `internal/nosql/model_costs.go`：模型费用仅按 `model` 建模；
+  - `internal/usage/store.go`：usage 事件仅记录 `model/target/path/status_code`，未记录 `endpoint_type`；
+  - `internal/admin/handler.go` 与 `internal/admin/ui/index.html`：后台暂无 Endpoint/Target CRUD。
+- 已据此完成规划审阅，结论包括：
+  - 本地模型数据库默认值方案可行，但应采用本地 snapshot + 项目内精简 catalog；
+  - 多 Endpoint 映射可行，但第一期不应扩展为 OpenAI 与 Claude 协议互转；
+  - 后台多类型 Endpoint 管理可行，但应放在 `endpoint_type` 与 cost/usage 维度升级之后。
+- 已新增根目录 `下一步计划.md`，将审阅结论结构化落地。
+- 本轮未运行构建或测试；原因：仅新增规划文档与记录文件，未修改业务代码。
+
+## 2026-03-23（需求文档化）
+- 已将根目录 `下一步计划.md` 从“审阅/计划文档”重写为“正式需求文档”。
+- 已显式修正以下不合理点：
+  - 不再把外部模型数据库 raw JSON 直接视为运行时主结构；
+  - 不再把 OpenAI / Claude / Azure 的差异简化为“只改 URL”；
+  - 不再把 Endpoint 配置简化为“只有 Key+密钥”；
+  - 不再只按 `model` 单维度表达默认值与费用。
+- 新文档已补充：目标、修正清单、范围、非目标、功能需求、数据需求、兼容要求、非功能要求、验收标准。
+- 本轮仍未运行构建或测试；原因：仅改写需求与规划文档，未改动业务代码。
+
+## 2026-03-23（需求实现：5阶段全部完成）
+- **Phase1 endpoint_type 与上游策略**：
+  - `internal/config/config.go` 新增 EndpointType 字段、常量、辅助函数
+  - `internal/proxy/service.go` 按 endpoint_type 三路分支认证（azure:api-key / openai:Bearer / claude:x-api-key+anthropic-version）
+  - Azure 参数白名单过滤仅对 azure_openai 生效
+  - 响应头同时输出 X-Azure-Target 和 X-Proxy-Target
+- **Phase2 本地模型目录**：
+  - 新建 `internal/catalog/` 模块，go:embed 嵌入 187 条模型数据
+  - 支持 Lookup / ListByEndpointType / ResolveAlias
+  - `scripts/update-model-catalog.py` 用于从 models.dev 更新数据
+- **Phase3 费用与统计维度升级**：
+  - `internal/nosql/model_costs.go` 和 `internal/usage/store.go` 均加入 endpoint_type
+  - CostTable 支持双键查找（endpoint_type:model → model 降级兼容）
+- **Phase4 后台 Endpoint 管理**：
+  - 新增 Target CRUD API（GET/POST/PUT/DELETE /admin/data/targets）
+  - 新增 Catalog API（GET /admin/data/catalog）
+  - Admin UI 新增"目标管理"页面（第 6 个导航项）
+  - 模型费用页面支持 endpoint_type 维度
+- **Phase5 冒烟测试与文档**：
+  - 21 项冒烟测试：20 通过，1 项 DELETE model-cost 返回 204（正确 HTTP 语义，测试脚本判断逻辑需用状态码而非 JSON body）
+  - 修正后全部通过
+  - 更新文档：AGENTS.md、README.md、docs/api-contract.md、docs/operations.md
+
+### 验证结果
+- `go build ./...` — 成功
+- `go test ./...` — 10 个包全部通过
+- 冒烟测试 21/21 通过（含 Target CRUD、Catalog API、Model Costs endpoint_type、客户端鉴权、审计日志）
+- 4 份文档已更新反映多类型架构
+
+### 修改文件清单
+- 新增：`internal/catalog/catalog.go`、`internal/catalog/catalog_test.go`、`internal/catalog/data/models.json`、`scripts/update-model-catalog.py`
+- 修改：`internal/config/config.go`、`internal/config/config_test.go`、`internal/proxy/service.go`、`internal/proxy/service_test.go`、`internal/nosql/model_costs.go`、`internal/nosql/model_costs_test.go`、`internal/usage/store.go`、`internal/usage/store_test.go`、`internal/admin/handler.go`、`internal/admin/handler_test.go`、`internal/admin/ui/index.html`、`cmd/proxy/main.go`、`config/config.json`、`config/test.config.json`、`config/model_costs.json`、`test/integration/proxy_integration_test.go`
+- 文档：`AGENTS.md`、`README.md`、`docs/api-contract.md`、`docs/operations.md`、`下一步计划.md`
+
+## 2026-03-23（Docker build + API 请求测试）
+- 已使用 `deploy/docker/Dockerfile` 完成 Docker 镜像构建，镜像标签：`azure-proxy:docker-test`。
+- 已基于用户提供的 `测试用URL和KEY.txt` 生成临时 Docker 配置，并成功启动容器。
+- Azure 测试：
+  - 代理请求 `POST /v1/responses`
+  - 目标：`azure-smoke`
+  - 有效请求体：`{"model":"gpt-5.4-nano","input":"ping","max_output_tokens":16}`
+  - 结果：HTTP 200，响应头包含 `X-Proxy-Target: azure-smoke` 和 `X-Azure-Target: azure-smoke`
+- Claude 测试：
+  - 代理请求 `POST /v1/messages`
+  - 目标：`claude-smoke`
+  - 有效请求体：`{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`
+  - 结果：HTTP 200，响应头包含 `X-Proxy-Target: claude-smoke` 和 `X-Azure-Target: claude-smoke`
+- 重要发现：
+  - Azure 的 `responses` 测试中，`max_output_tokens` 需要 `>= 16` 才能通过上游校验。
+  - Claude 网关的 `endpoint` 不能把 `/v2/gws/.../anthropic` 这类基础路径直接写死在 `endpoint` 里；应放在 `resource_path_prefix`，否则 `url.Parse` 会丢掉基路径。
+- 当前已完成 Docker build 与真实 API 请求验证；后续无阻塞。
+
+## 2026-03-23（测试结果文档）
+- 已在仓库根目录新增 `下一步计划测试结果.md`，汇总 Docker build、Azure/Claude API 请求、关键修正点与结论。

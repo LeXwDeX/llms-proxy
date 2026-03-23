@@ -13,6 +13,7 @@ import (
 
 	"github.com/ycgame/azure-proxy/internal/admin"
 	"github.com/ycgame/azure-proxy/internal/auth"
+	"github.com/ycgame/azure-proxy/internal/catalog"
 	"github.com/ycgame/azure-proxy/internal/config"
 	"github.com/ycgame/azure-proxy/internal/logging"
 	appmiddleware "github.com/ycgame/azure-proxy/internal/middleware"
@@ -25,10 +26,13 @@ func main() {
 	flag.Parse()
 
 	manager := config.NewManager(*configPath)
-	cfg, err := manager.Reload()
+	cfg, created, err := manager.LoadOrInit()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
 		os.Exit(1)
+	}
+	if created {
+		fmt.Fprintf(os.Stderr, "default config generated at %s — add targets via admin UI\n", *configPath)
 	}
 
 	logLevel := cfg.Logging.Level
@@ -89,9 +93,27 @@ func main() {
 		appLogger.Error("failed to initialize auth store", "error", err)
 		os.Exit(1)
 	}
-	if _, err := adminUsers.List(); err != nil {
+	existingAdmins, err := adminUsers.List()
+	if err != nil {
 		appLogger.Error("failed to load admin users file", "path", cfg.DataFiles.AdminUsersFile, "error", err)
 		os.Exit(1)
+	}
+	if len(existingAdmins) == 0 {
+		seedErr := adminUsers.SeedDefaultUser(config.AdminUser{
+			Username:     "admin",
+			PasswordHash: admin.HashPassword("admin123", "default-salt"),
+			Role:         "admin",
+		})
+		if seedErr != nil {
+			appLogger.Warn("failed to seed default admin user", "error", seedErr)
+		} else {
+			appLogger.Info("seeded default admin user (admin / admin123) — change the password immediately")
+		}
+	}
+
+	modelCatalog, err := catalog.New()
+	if err != nil {
+		appLogger.Warn("failed to load model catalog, continuing without defaults", "error", err)
 	}
 
 	proxyService, err := proxy.NewService(cfg, appLogger)
@@ -116,7 +138,7 @@ func main() {
 
 	adminRouter := chi.NewRouter()
 	adminRouter.Use(sessionManager.Middleware)
-	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, appLogger))
+	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, modelCatalog, appLogger))
 	router.Mount("/admin", adminRouter)
 
 	protected := chi.NewRouter()

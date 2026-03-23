@@ -1,6 +1,6 @@
 # API Contract & Error Codes
 
-This document describes the externally visible HTTP contract that the Azure OpenAI proxy exposes to internal clients and operators. All endpoints speak JSON over HTTP/1.1. Unless noted otherwise, responses adopt UTF-8 encoding.
+This document describes the externally visible HTTP contract that the proxy exposes to internal clients and operators. The proxy supports multiple upstream endpoint types: **Azure OpenAI**, **OpenAI**, and **Claude (Anthropic)**. All endpoints speak JSON over HTTP/1.1. Unless noted otherwise, responses adopt UTF-8 encoding.
 
 ## Authentication
 - Client requests **must** include `Authorization: Bearer <access-key>`.
@@ -29,7 +29,7 @@ This document describes the externally visible HTTP contract that the Azure Open
   ```
 
 ### Proxy Pass-through (`/**`)
-- Any other path mounted beneath `/` forwards to Azure OpenAI.
+- Any other path mounted beneath `/` forwards to the configured upstream (Azure OpenAI, OpenAI, or Claude).
 - Clients should call the proxy with OpenAI-style paths (for example `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations`).
 - The upstream target is selected automatically; clients may opt-in to a specific backend by:
   - Header: `X-Proxy-Target: <target-name>`
@@ -37,9 +37,14 @@ This document describes the externally visible HTTP contract that the Azure Open
 - Model-aware routing is enforced when `allowed_models` is configured on targets:
   - Requests with a `model` outside all allowed target lists return `400 Bad Request`.
   - Supported extraction sources: JSON body, `application/x-www-form-urlencoded`, and `multipart/form-data`.
-- The proxy rewrites the `Host` header to the Azure endpoint and injects `api-key: <azure-api-key>`.
+- The proxy rewrites the `Host` header to the upstream endpoint.
+- **Upstream authentication differs by target `endpoint_type`:**
+  - `azure_openai` — injects `api-key: <key>` header (or forwards `X-Azure-Authorization` when `allow_bearer_passthrough` is enabled).
+  - `openai` — injects `Authorization: Bearer <key>`.
+  - `claude` — injects `x-api-key: <key>` and sets `anthropic-version: 2023-06-01` if not already present.
+- **Azure parameter whitelist filtering** (stripping unsupported request body fields) is applied **only** to `azure_openai` targets. Requests to `openai` and `claude` targets forward the original body unmodified.
 - The proxy removes internal/legacy query params before forwarding: `target`, `api-version`, `api_version`, `api-key`.
-- Successful responses set `X-Azure-Target: <target-name>` so callers can identify the chosen backend.
+- Successful responses set **both** `X-Proxy-Target: <target-name>` and `X-Azure-Target: <target-name>` so callers can identify the chosen backend. (`X-Azure-Target` is retained for backward compatibility with older clients.)
 - Streaming responses are relayed chunk-by-chunk (`io.Copy`), preserving status codes and headers except for hop-by-hop headers.
 
 ## Admin Authentication (Session-based)
@@ -68,7 +73,7 @@ The admin management system uses **independent username/password authentication*
 All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 
 ### `GET /admin/`
-- Web management console entry point (HTML) — left-sidebar navigation with 5 pages: Overview, Clients, Model Costs, Usage Statistics, Audit Logs.
+- Web management console entry point (HTML) — left-sidebar navigation with 6 pages: Overview, Clients, Target Management, Model Costs, Usage Statistics, Audit Logs.
 - Single-file no-build UI embedded via `go:embed`, no external frontend dependencies.
 
 ### `GET /admin/api/me`
@@ -84,7 +89,8 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 - Returns audit log entries with optional pagination (`limit`, `offset`).
 
 ### `GET /admin/healthz`
-- Returns current status for each configured Azure target, including mute windows.
+- Returns current status for each configured target (across all endpoint types), including mute windows.
+- Each target object now includes `endpoint_type`.
 - Example payload:
   ```json
   {
@@ -93,6 +99,7 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
     "targets": [
       {
         "name": "east2",
+        "endpoint_type": "azure_openai",
         "endpoint": "https://example.openai.azure.com",
         "muted": false,
         "last_success": "2024-05-10T11:59:50Z",
@@ -149,9 +156,109 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 
 ### `GET /admin/data/model-costs`
 - Returns model token cost configuration from `config.data_files.model_costs_file`.
+- Each record includes an `endpoint_type` field (defaults to `azure_openai` when not set).
 
-### `PUT /admin/data/model-costs/{model}` / `DELETE /admin/data/model-costs/{model}`
-- Updates or deletes a model cost record.
+### `PUT /admin/data/model-costs/{model}`
+- Inserts or updates a model cost record.
+- Request body accepts an `endpoint_type` field. If omitted, defaults to `azure_openai`.
+- Example body:
+  ```json
+  {
+    "endpoint_type": "openai",
+    "input_per_1k_tokens": 0.005,
+    "output_per_1k_tokens": 0.015,
+    "cached_input_per_1k_tokens": 0.0025
+  }
+  ```
+- Response: `{"ok": true, "model": "<model>", "endpoint_type": "<type>"}`.
+
+### `DELETE /admin/data/model-costs/{model}`
+- Deletes a model cost record.
+- Supports optional query parameter `?endpoint_type=<type>` for endpoint-type-aware deletion. Without the parameter, removes all records matching the model name (legacy behavior).
+- Returns `204 No Content` on success.
+
+### Target Management
+
+### `GET /admin/data/targets`
+- Returns all configured upstream targets.
+- The `api_key` field is **never** returned; instead, each target includes `has_api_key: true|false`.
+- Response example:
+  ```json
+  {
+    "targets": [
+      {
+        "name": "my-openai",
+        "endpoint_type": "openai",
+        "endpoint": "https://api.openai.com",
+        "resource_path_prefix": "",
+        "has_api_key": true,
+        "allow_bearer_passthrough": false,
+        "allowed_models": ["gpt-4o"]
+      }
+    ],
+    "count": 1
+  }
+  ```
+
+### `POST /admin/data/targets`
+- Creates a new upstream target. The new target is appended to `azure_targets` in `config.json` and applied at runtime.
+- Required fields: `name`, `endpoint`. Either `api_key` or `allow_bearer_passthrough: true` must be provided.
+- `resource_path_prefix` is required only for `azure_openai` targets.
+- `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`.
+- Request body example:
+  ```json
+  {
+    "name": "my-openai",
+    "endpoint_type": "openai",
+    "endpoint": "https://api.openai.com",
+    "api_key": "sk-xxx",
+    "allowed_models": ["gpt-4o"]
+  }
+  ```
+- Response: `201 Created` with `{"ok": true, "name": "<name>"}`.
+- Returns `409 Conflict` if a target with the same name already exists.
+
+### `PUT /admin/data/targets/{name}`
+- Updates an existing target identified by `{name}` (case-insensitive match).
+- Only provided fields are updated. `api_key` may be set to `null` to leave it unchanged.
+- Response: `{"ok": true, "name": "<name>"}`.
+- Returns `404 Not Found` if the target does not exist.
+
+### `DELETE /admin/data/targets/{name}`
+- Removes a target from configuration and runtime.
+- Response: `{"ok": true}`.
+- Returns `404 Not Found` if the target does not exist.
+
+### Model Catalog
+
+### `GET /admin/data/catalog`
+- Returns the embedded model metadata catalog.
+- Supports optional query parameter `?endpoint_type=<type>` to filter by endpoint type (e.g., `openai`, `claude`, `azure_openai`).
+- Without the parameter, returns all models across all endpoint types.
+- Response:
+  ```json
+  {
+    "models": [
+      {
+        "endpoint_type": "openai",
+        "model": "gpt-4o",
+        "display_name": "GPT-4o",
+        "aliases": ["gpt-4o-2024-05-13"],
+        "capabilities": ["chat", "vision"],
+        "default_cost": {
+          "input_per_1k_tokens": 0.005,
+          "output_per_1k_tokens": 0.015,
+          "cached_input_per_1k_tokens": 0.0025
+        }
+      }
+    ],
+    "count": 1
+  }
+  ```
+
+### `GET /admin/data/catalog/{endpoint_type}`
+- Returns catalog entries filtered to the specified `endpoint_type` (path parameter).
+- Response format is identical to `GET /admin/data/catalog`.
 
 ### `GET /admin/data/usage/events`
 - Returns usage events from `config.data_files.usage_events_file` with optional filters (`from`, `to`, `client_name`, `model`, `limit`).
@@ -166,21 +273,21 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 
 | Status | Scenario | Notes |
 | ------ | -------- | ----- |
-| `400 Bad Request` | Malformed client request or unknown `target` value. | Returned before contacting Azure. |
+| `400 Bad Request` | Malformed client request or unknown `target` value. | Returned before contacting upstream. |
 | `401 Unauthorized` | Missing/invalid bearer token. | Includes `WWW-Authenticate: Bearer`. |
 | `403 Forbidden` | Authenticated client requested a disallowed target. | Token `allowed_targets` restriction triggered. |
-| `404 Not Found` | Admin router fallback or Azure returned 404. | Proxy passes upstream 404 as-is. |
-| `429 Too Many Requests` | Propagated from Azure. | Proxy does not alter upstream rate-limit semantics. |
+| `404 Not Found` | Admin router fallback or upstream returned 404. | Proxy passes upstream 404 as-is. |
+| `429 Too Many Requests` | Propagated from upstream. | Proxy does not alter upstream rate-limit semantics. |
 | `500 Internal Server Error` | Unhandled panic recovered by middleware. | Logged with `request_id`. |
-| `502 Bad Gateway` | All targets unavailable or upstream returned 5xx. | `X-Azure-Target` still indicates the final attempt. |
+| `502 Bad Gateway` | All targets unavailable or upstream returned 5xx. | `X-Proxy-Target` / `X-Azure-Target` still indicates the final attempt. |
 | `503 Service Unavailable` | Requested target muted/unavailable during selection. | Client can retry later or omit explicit target. |
-| `504 Gateway Timeout` | Transport timeout while contacting Azure. | Triggered by request timeout or network errors. |
+| `504 Gateway Timeout` | Transport timeout while contacting upstream. | Triggered by request timeout or network errors. |
 
 The proxy increments internal metrics for total requests, retries, successes, and failures; these counters are exposed via `/admin/metrics`.
 
 ## Headers of Interest
 - `Authorization: Bearer <token>` (required for authenticated routes)
-- `X-Proxy-Target` / `target` query (optional target hint)
-- `X-Azure-Target` (response header showing chosen backend)
+- `X-Proxy-Target` / `target` query (optional target hint on request; also set as a **response** header identifying the chosen backend)
+- `X-Azure-Target` (response header showing chosen backend — retained for backward compatibility; identical value to `X-Proxy-Target`)
 - `X-Request-ID` (included in every response and log entry)
 - `WWW-Authenticate: Bearer` (sent on `401 Unauthorized`)

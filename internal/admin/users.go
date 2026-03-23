@@ -54,6 +54,29 @@ func (s *UserStore) List() ([]config.AdminUser, error) {
 	return cloned, nil
 }
 
+// SeedDefaultUser writes a default admin user to the store if the file is
+// empty.  It is safe to call on every startup — existing users are never
+// modified.
+func (s *UserStore) SeedDefaultUser(user config.AdminUser) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, err := readAdminUsers(s.path)
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return nil // already has users
+	}
+
+	data, err := json.MarshalIndent([]config.AdminUser{user}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal default admin user: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(s.path, data, 0o644)
+}
+
 // Authenticate verifies credentials and returns the matching user.
 func (s *UserStore) Authenticate(username, password string) (config.AdminUser, error) {
 	users, err := s.List()

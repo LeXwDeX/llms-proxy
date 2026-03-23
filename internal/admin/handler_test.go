@@ -40,7 +40,7 @@ func TestHandlerUIEntry(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, logger)
+	h := NewHandler(manager, store, service, nil, nil, logger)
 
 	for _, route := range []string{"/", "/ui"} {
 		t.Run(route, func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestHandlerUIEntryWhenMountedUnderAuth(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	adminHandler := NewHandler(manager, store, service, nil, logger)
+	adminHandler := NewHandler(manager, store, service, nil, nil, logger)
 	protected := chi.NewRouter()
 	protected.Use(auth.Middleware(store, logger))
 	protected.Mount("/admin", adminHandler)
@@ -122,7 +122,7 @@ func TestHandlerHealthz(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, logger)
+	h := NewHandler(manager, store, service, nil, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/healthz", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -169,7 +169,7 @@ func TestHandlerMetrics(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, logger)
+	h := NewHandler(manager, store, service, nil, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/metrics", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -213,7 +213,7 @@ func TestHandlerReloadConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, logger)
+	h := NewHandler(manager, store, service, nil, nil, logger)
 
 	updated := testConfig(tempDir, 2, []string{"k2"})
 	updatedClients := testClients([]string{"k2"})
@@ -282,7 +282,7 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, logger)
+	h := NewHandler(manager, store, service, nil, nil, logger)
 
 	invalid := testConfig(tempDir, 1, []string{"k2"})
 	invalidClients := testClients([]string{"k2"})
@@ -334,7 +334,7 @@ func TestHandlerDataClientsCRUD(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, logger)
+	h := NewHandler(manager, store, service, nil, nil, logger)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/data/clients", nil))
@@ -398,7 +398,7 @@ func TestHandlerUsageSummary(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, logger)
+	h := NewHandler(manager, store, service, nil, nil, logger)
 
 	body := bytes.NewBufferString(`{"input_per_1k_tokens":0.01,"output_per_1k_tokens":0.02,"cached_input_per_1k_tokens":0}`)
 	rec := httptest.NewRecorder()

@@ -128,7 +128,7 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	manager := config.NewManager("testdata/config.json")
 	manager.Replace(cfg)
 
-	adminHandler := admin.NewHandler(manager, store, proxyService, nil, appLogger)
+	adminHandler := admin.NewHandler(manager, store, proxyService, nil, nil, appLogger)
 
 	t.Run("health endpoint", func(t *testing.T) {
 		rec := httptest.NewRecorder()

@@ -71,7 +71,19 @@ The repository includes a ready-to-use compose file at `docker-compose.yml` and 
    docker compose down
    ```
 
-Ensure the directory referenced by `CONFIG_DIR` contains the `config.json` file so `/etc/azure-proxy/config.json` resolves inside the container. `PROXY_PORT` updates both the published port and the container's `SERVER_BIND`, so startup logs reflect the client-facing port.
+By default, compose maps:
+- `CONFIG_DIR=./config` → `/etc/azure-proxy`
+- `LOG_PATH=./logs` → `/var/log/azure-proxy`
+
+Ensure the directory referenced by `CONFIG_DIR` contains `config.json` so `/etc/azure-proxy/config.json` resolves inside the container. `PROXY_PORT` updates both the published port and the container's `SERVER_BIND`, so startup logs reflect the client-facing port.
+
+Because the container runs as a non-root user (`azureproxy`), both host directories must be writable by the container user from inside the mount. If startup logs show `permission denied`, verify host permissions and mounted content:
+
+```sh
+ls -ld ./config ./logs
+ls -l ./config/config.json
+docker compose exec azure-proxy sh -lc 'id && ls -ld /etc/azure-proxy /var/log/azure-proxy && ls -l /etc/azure-proxy/config.json'
+```
 
 ## 5. Operational Notes
 - The container runs as a non-root user (`azureproxy`) and exposes the `PROXY_PORT` value (default `8000`).
