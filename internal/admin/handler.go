@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"log/slog"
 
 	"github.com/ycgame/azure-proxy/internal/auth"
@@ -489,6 +490,20 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// When the UI edits an existing record and the user changed the endpoint_type
+	// dropdown, the original endpoint_type is passed as a query param so we can
+	// delete the old (model, original_ep) record before writing the new one —
+	// preventing orphaned duplicate entries.
+	originalEpType := strings.TrimSpace(r.URL.Query().Get("endpoint_type"))
+	newEpType := strings.ToLower(strings.TrimSpace(req.EndpointType))
+	if newEpType == "" {
+		newEpType = "azure_openai"
+	}
+	if originalEpType != "" && !strings.EqualFold(originalEpType, newEpType) {
+		// Ignore deletion errors (record may not exist under original key).
+		_ = store.DeleteByKey(originalEpType, model)
+	}
+
 	cost := nosql.ModelCost{
 		EndpointType:          req.EndpointType,
 		Model:                 model,
@@ -780,7 +795,14 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			if body.Endpoint != "" {
 				t.Endpoint = strings.TrimSpace(body.Endpoint)
 			}
-			t.ResourcePathPrefix = strings.TrimSpace(body.ResourcePathPrefix)
+			// Validate RPP requirement for azure_openai before writing.
+			effectiveEpType := config.NormalizeEndpointType(t.EndpointType)
+			rpp := strings.TrimSpace(body.ResourcePathPrefix)
+			if effectiveEpType == config.EndpointTypeAzureOpenAI && rpp == "" {
+				writeJSON(w, http.StatusBadRequest, errorResponse("resource_path_prefix is required for azure_openai targets"))
+				return
+			}
+			t.ResourcePathPrefix = rpp
 			if body.APIKey != nil {
 				t.AzureAPIKey = strings.TrimSpace(*body.APIKey)
 			}
@@ -861,7 +883,7 @@ func (h *Handler) saveConfig(cfg *config.Config) error {
 	payload = append(payload, '\n')
 
 	dir := filepath.Dir(path)
-	tmp := filepath.Join(dir, ".config.tmp")
+	tmp := filepath.Join(dir, fmt.Sprintf(".config.%s.tmp", uuid.NewString()))
 	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
 		return fmt.Errorf("write temp config: %w", err)
 	}
