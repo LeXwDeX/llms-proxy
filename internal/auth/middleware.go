@@ -80,6 +80,9 @@ func extractAccessKey(r *http.Request) string {
 	if apiKey := strings.TrimSpace(r.Header.Get("api-key")); apiKey != "" {
 		return apiKey
 	}
+	if apiKey := strings.TrimSpace(r.Header.Get("x-api-key")); apiKey != "" {
+		return apiKey
+	}
 	if r.URL != nil {
 		if qKey := extractAPIKeyFromQuery(r.URL.RawQuery); qKey != "" {
 			return qKey

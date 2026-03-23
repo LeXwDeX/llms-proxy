@@ -155,9 +155,10 @@ type Service struct {
 	rrCounter atomic.Uint64
 }
 
-// Target represents an Azure endpoint with runtime metadata.
+// Target represents an upstream endpoint with runtime metadata.
 type Target struct {
 	Name               string
+	EndpointType       string // azure_openai | openai | claude
 	Endpoint           *url.URL
 	ResourcePathPrefix string
 	APIKey             string
@@ -187,6 +188,7 @@ type ServiceMetrics struct {
 // TargetStatus summarizes the health of a configured target.
 type TargetStatus struct {
 	Name                 string
+	EndpointType         string
 	Endpoint             string
 	ResourcePathPrefix   string
 	Muted                bool
@@ -288,7 +290,7 @@ func (s *Service) currentUsageRecorder() usage.Recorder {
 
 func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, []*targetState, error) {
 	if len(targets) == 0 {
-		return nil, nil, errors.New("proxy: no azure targets configured")
+		return make(map[string]*targetState), nil, nil
 	}
 
 	normalizeModels := func(list []string) []string {
@@ -325,6 +327,7 @@ func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, [
 
 		info := &Target{
 			Name:               strings.TrimSpace(t.Name),
+			EndpointType:       config.NormalizeEndpointType(t.EndpointType),
 			Endpoint:           endpoint,
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
 			APIKey:             strings.TrimSpace(t.AzureAPIKey),
@@ -372,6 +375,19 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fast-path: if no upstream targets are configured, inform the caller.
+	s.mu.RLock()
+	hasTargets := len(s.targetOrder) > 0
+	s.mu.RUnlock()
+	if !hasTargets {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"no upstream targets configured, add targets via admin UI"}`))
+		requestOutcomeRecorded = true
+		s.metrics.totalFailures.Add(1)
+		return
+	}
+
 	requested := strings.TrimSpace(r.Header.Get(headerProxyTarget))
 	if requested == "" {
 		requested = strings.TrimSpace(r.URL.Query().Get("target"))
@@ -406,7 +422,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyBytes, strippedFields := sanitizeRequestBodyForAzure(r, bodyBytes)
+	// Pre-compute Azure-sanitized body; the original body is preserved for non-Azure targets.
+	sanitizedBody, strippedFields := sanitizeRequestBodyForAzure(r, bodyBytes)
 	if len(strippedFields) > 0 {
 		s.logger.Debug("stripped unsupported request fields",
 			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
@@ -464,7 +481,13 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		targetKey := strings.ToLower(target.Name)
 		attempted[targetKey] = struct{}{}
 
-		resp, cancel, fErr := s.forwardRequestWith503Retry(r, state, bodyBytes)
+		// Use sanitized body only for Azure OpenAI targets; others get the original.
+		forwardBody := bodyBytes
+		if target.EndpointType == config.EndpointTypeAzureOpenAI {
+			forwardBody = sanitizedBody
+		}
+
+		resp, cancel, fErr := s.forwardRequestWith503Retry(r, state, forwardBody)
 		if fErr != nil {
 			deferCancel(cancel)
 
@@ -594,19 +617,30 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	req.Header.Del(headerAzureAuthorization)
 	req.Header.Del("api-key")
 
-	useBearer := target.AllowBearer && azureAuth != ""
-	if useBearer {
-		req.Header.Set("Authorization", azureAuth)
-	} else {
-		if target.APIKey == "" {
-			cancel()
-			return nil, nil, &forwardAttemptError{
-				status:    http.StatusBadRequest,
-				retryable: false,
-				err:       errors.New("proxy: missing azure credential; provide api key or X-Azure-Authorization"),
-			}
+	// Inject upstream credentials based on endpoint type.
+	switch target.EndpointType {
+	case config.EndpointTypeOpenAI:
+		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+	case config.EndpointTypeClaude:
+		req.Header.Set("x-api-key", target.APIKey)
+		if req.Header.Get("anthropic-version") == "" {
+			req.Header.Set("anthropic-version", "2023-06-01")
 		}
-		req.Header.Set("api-key", target.APIKey)
+	default: // azure_openai
+		useBearer := target.AllowBearer && azureAuth != ""
+		if useBearer {
+			req.Header.Set("Authorization", azureAuth)
+		} else {
+			if target.APIKey == "" {
+				cancel()
+				return nil, nil, &forwardAttemptError{
+					status:    http.StatusBadRequest,
+					retryable: false,
+					err:       errors.New("proxy: missing azure credential; provide api key or X-Azure-Authorization"),
+				}
+			}
+			req.Header.Set("api-key", target.APIKey)
+		}
 	}
 	req.Host = target.Endpoint.Host
 
@@ -682,7 +716,8 @@ func (s *Service) writeResponse(
 		}
 	}
 	if target != nil {
-		w.Header().Set("X-Azure-Target", target.Name)
+		w.Header().Set("X-Proxy-Target", target.Name)
+		w.Header().Set("X-Azure-Target", target.Name) // backward compat
 	}
 	w.WriteHeader(resp.StatusCode)
 
@@ -749,9 +784,15 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 		model = parsedModel
 	}
 
+	var endpointType string
+	if target != nil {
+		endpointType = target.EndpointType
+	}
+
 	evt := usage.Event{
 		Timestamp:    time.Now().UTC(),
 		ClientName:   principal.Name,
+		EndpointType: endpointType,
 		Model:        model,
 		InputTokens:  tokens.InputTokens,
 		OutputTokens: tokens.OutputTokens,
@@ -1131,6 +1172,7 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 		}
 		statuses = append(statuses, TargetStatus{
 			Name:                 target.Name,
+			EndpointType:         target.EndpointType,
 			Endpoint:             endpoint,
 			ResourcePathPrefix:   target.ResourcePathPrefix,
 			Muted:                state.IsMuted(now),
@@ -1157,16 +1199,17 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 
 	path := mergePaths(target.ResourcePathPrefix, original.Path)
 
-	endpointCopy := *target.Endpoint
-	endpointCopy.RawQuery = ""
-	endpointCopy.Fragment = ""
+	forward := *target.Endpoint
+	forward.RawQuery = ""
+	forward.Fragment = ""
 
-	forward, err := endpointCopy.Parse(path)
-	if err != nil {
-		return nil, err
-	}
+	// Concatenate paths explicitly instead of using url.URL.Parse, because
+	// url.Parse treats paths starting with "/" as absolute and would discard
+	// any sub-path already present in the endpoint (e.g. a gateway base path
+	// like /v2/gws/<id>/anthropic).
+	forward.Path = strings.TrimRight(forward.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	forward.RawQuery = normalizeForwardQuery(original)
-	return forward, nil
+	return &forward, nil
 }
 
 func normalizeForwardQuery(original *url.URL) string {

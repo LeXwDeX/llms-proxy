@@ -1254,6 +1254,325 @@ func TestExtractModelFromMultipartForm(t *testing.T) {
 	}
 }
 
+func TestServiceOpenAITargetSendsBearerAuth(t *testing.T) {
+	var seenAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:          "openai",
+			EndpointType:  "openai",
+			Endpoint:      upstream.URL,
+			AzureAPIKey:   "sk-test-key",
+			AllowedModels: []string{"gpt-4o"},
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if seenAuth != "Bearer sk-test-key" {
+		t.Fatalf("expected Authorization 'Bearer sk-test-key', got %q", seenAuth)
+	}
+	if got := rr.Header().Get("X-Proxy-Target"); got != "openai" {
+		t.Fatalf("expected X-Proxy-Target 'openai', got %q", got)
+	}
+	// backward-compat header should also be set
+	if got := rr.Header().Get("X-Azure-Target"); got != "openai" {
+		t.Fatalf("expected X-Azure-Target 'openai', got %q", got)
+	}
+}
+
+func TestServiceClaudeTargetSendsXAPIKey(t *testing.T) {
+	var seenAPIKey string
+	var seenVersion string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAPIKey = r.Header.Get("x-api-key")
+		seenVersion = r.Header.Get("anthropic-version")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:          "claude",
+			EndpointType:  "claude",
+			Endpoint:      upstream.URL,
+			AzureAPIKey:   "sk-ant-test",
+			AllowedModels: []string{"claude-sonnet-4-20250514"},
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if seenAPIKey != "sk-ant-test" {
+		t.Fatalf("expected x-api-key 'sk-ant-test', got %q", seenAPIKey)
+	}
+	if seenVersion != "2023-06-01" {
+		t.Fatalf("expected anthropic-version '2023-06-01', got %q", seenVersion)
+	}
+}
+
+func TestServiceOpenAITargetSkipsSanitize(t *testing.T) {
+	var captured map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream body: %v", err)
+		}
+		if err := json.Unmarshal(data, &captured); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:          "openai",
+			EndpointType:  "openai",
+			Endpoint:      upstream.URL,
+			AzureAPIKey:   "sk-test",
+			AllowedModels: []string{"gpt-5.2"},
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	// Send fields that would be stripped for Azure (e.g. "foo" is not whitelisted)
+	body := bytes.NewBufferString(`{"model":"gpt-5.2","messages":[{"role":"user","content":"hi"}],"custom_field":"keep-me","foo":"bar"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	// For OpenAI targets, fields should NOT be stripped
+	if _, ok := captured["custom_field"]; !ok {
+		t.Fatalf("expected custom_field to be preserved for openai target, got body=%v", captured)
+	}
+	if _, ok := captured["foo"]; !ok {
+		t.Fatalf("expected foo to be preserved for openai target, got body=%v", captured)
+	}
+}
+
+func TestServiceClaudeGatewaySubPathPreserved(t *testing.T) {
+	// Verify that when an endpoint has a sub-path (e.g. a Cloudflare AI Gateway
+	// URL like /v2/gws/<id>/anthropic), the client's request path (/v1/messages)
+	// is appended rather than replacing the endpoint path entirely.
+	var seenPath string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/gws/testid/anthropic/v1/messages", func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	upstream := httptest.NewServer(mux)
+	defer upstream.Close()
+
+	// Build endpoint with gateway sub-path (no trailing /v1/messages — just the base).
+	gatewayBase := upstream.URL + "/v2/gws/testid/anthropic"
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:         "claude-gw",
+			EndpointType: "claude",
+			Endpoint:     gatewayBase,
+			AzureAPIKey:  "sk-ant-test",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"claude-opus-4-5","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: body=%s", rr.Code, rr.Body.String())
+	}
+	if seenPath != "/v2/gws/testid/anthropic/v1/messages" {
+		t.Fatalf("expected gateway sub-path preserved, got %q", seenPath)
+	}
+}
+
+func TestServiceAzureTargetDefaultEndpointType(t *testing.T) {
+	// When endpoint_type is empty, it should default to azure_openai and use api-key header.
+	var seenAPIKey string
+	var seenAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAPIKey = r.Header.Get("api-key")
+		seenAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:               "azure-default",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			AzureAPIKey:        "azure-key-123",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"input":"hi"}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if seenAPIKey != "azure-key-123" {
+		t.Fatalf("expected api-key 'azure-key-123', got %q", seenAPIKey)
+	}
+	if seenAuth != "" {
+		t.Fatalf("expected no Authorization header for default azure target, got %q", seenAuth)
+	}
+}
+
 func setUpstream503RetryConfig(maxRetries int, delay time.Duration, jitter time.Duration) func() {
 	oldMaxRetries := upstream503MaxRetries
 	oldDelay := upstream503RetryDelay

@@ -16,6 +16,7 @@ func TestMiddlewareAcceptsAzureStyleAuth(t *testing.T) {
 		{Name: "bearer", AccessKey: "token", AllowedTargets: nil},
 		{Name: "apikey", AccessKey: "apikey-value", AllowedTargets: nil},
 		{Name: "apikey-plus", AccessKey: "abc+def", AllowedTargets: nil},
+		{Name: "claude-client", AccessKey: "x-api-key-value", AllowedTargets: nil},
 	}); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -30,6 +31,7 @@ func TestMiddlewareAcceptsAzureStyleAuth(t *testing.T) {
 	}{
 		{name: "bearer ok", headerKey: "Authorization", headerVal: "Bearer token", wantStatus: http.StatusOK},
 		{name: "api-key header ok", headerKey: "api-key", headerVal: "apikey-value", wantStatus: http.StatusOK},
+		{name: "x-api-key header ok (Anthropic native)", headerKey: "x-api-key", headerVal: "x-api-key-value", wantStatus: http.StatusOK},
 		{name: "api-key query ok", queryValue: "apikey-value", wantStatus: http.StatusOK},
 		{name: "api-key query preserves plus", rawQuery: "api-key=abc+def", wantStatus: http.StatusOK},
 		{name: "missing", wantStatus: http.StatusUnauthorized},
