@@ -551,6 +551,10 @@
           <span class="nav-icon">📊</span>
           <span class="nav-label">总览</span>
         </div>
+        <div class="sidebar-nav-item" data-page="targets">
+          <span class="nav-icon">🎯</span>
+          <span class="nav-label">目标管理</span>
+        </div>
         <div class="sidebar-nav-item" data-page="clients">
           <span class="nav-icon">👥</span>
           <span class="nav-label">客户端管理</span>
@@ -651,6 +655,37 @@
           </div>
         </div>
 
+        <!-- ========== Page: 目标管理 ========== -->
+        <div class="page" id="page-targets">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>目标 (Endpoint) 管理</h3>
+              <div class="btn-group">
+                <button class="btn" id="refreshTargetsBtn">🔄 刷新</button>
+                <button class="btn btn-primary" id="newTargetBtn">➕ 新增目标</button>
+              </div>
+            </div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>类型</th>
+                    <th>Endpoint</th>
+                    <th>路径前缀</th>
+                    <th>密钥状态</th>
+                    <th>允许模型</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="targetsTableBody">
+                  <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <!-- ========== Page: 客户端管理 ========== -->
         <div class="page" id="page-clients">
           <div class="panel">
@@ -693,6 +728,7 @@
               <table>
                 <thead>
                   <tr>
+                    <th>类型</th>
                     <th>模型名</th>
                     <th>输入单价 /1K tokens</th>
                     <th>输出单价 /1K tokens</th>
@@ -701,7 +737,7 @@
                   </tr>
                 </thead>
                 <tbody id="modelCostsTableBody">
-                  <tr class="empty-row"><td colspan="5">加载中...</td></tr>
+                  <tr class="empty-row"><td colspan="6">加载中...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -874,19 +910,28 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>模型名称</label>
-          <input class="form-control" id="mcModel" placeholder="例如：gpt-4o" required>
+          <label>类型</label>
+          <select class="form-control" id="mcEndpointType">
+            <option value="azure_openai">Azure OpenAI</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+          </select>
         </div>
         <div class="form-group">
-          <label>输入单价 /1K tokens</label>
+          <label>模型名称</label>
+          <input class="form-control" id="mcModel" placeholder="例如：gpt-4o" required>
+          <div id="mcModelSuggestions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;max-height:120px;overflow-y:auto;"></div>
+        </div>
+        <div class="form-group">
+          <label>输入单价 /1K tokens <span id="mcInputHint" style="color:var(--text-muted);font-weight:normal;font-size:12px;"></span></label>
           <input class="form-control" id="mcInputPrice" type="number" step="any" min="0" placeholder="0.0025">
         </div>
         <div class="form-group">
-          <label>输出单价 /1K tokens</label>
+          <label>输出单价 /1K tokens <span id="mcOutputHint" style="color:var(--text-muted);font-weight:normal;font-size:12px;"></span></label>
           <input class="form-control" id="mcOutputPrice" type="number" step="any" min="0" placeholder="0.01">
         </div>
         <div class="form-group">
-          <label>缓存输入单价 /1K tokens</label>
+          <label>缓存输入单价 /1K tokens <span id="mcCachedHint" style="color:var(--text-muted);font-weight:normal;font-size:12px;"></span></label>
           <input class="form-control" id="mcCachedPrice" type="number" step="any" min="0" placeholder="0.00125">
         </div>
       </div>
@@ -910,6 +955,56 @@
       <div class="modal-footer">
         <button class="btn" data-close="confirmModal">取消</button>
         <button class="btn btn-danger" id="confirmOkBtn">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Target Modal ===== -->
+  <div class="modal-overlay" id="targetModal">
+    <div class="modal" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="targetModalTitle">新增目标</h3>
+        <button class="modal-close" data-close="targetModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>名称 <span style="color:#ef4444">*</span></label>
+          <input class="form-control" id="tgtName" placeholder="例如: OpenAI Official">
+        </div>
+        <div class="form-group">
+          <label>类型 <span style="color:#ef4444">*</span></label>
+          <select class="form-control" id="tgtType">
+            <option value="azure_openai">Azure OpenAI</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Endpoint URL <span style="color:#ef4444">*</span></label>
+          <input class="form-control" id="tgtEndpoint" placeholder="https://api.openai.com">
+        </div>
+        <div class="form-group" id="tgtRppGroup">
+          <label>资源路径前缀 <span style="color:#ef4444">*</span></label>
+          <input class="form-control" id="tgtRpp" placeholder="/openai" value="/openai">
+        </div>
+        <div class="form-group">
+          <label>API Key <span style="color:#ef4444">*</span></label>
+          <input class="form-control" id="tgtApiKey" type="password" placeholder="sk-...">
+        </div>
+        <div class="form-group" id="tgtBearerGroup">
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="tgtAllowBearer"> 允许 Bearer 透传
+          </label>
+        </div>
+        <div class="form-group">
+          <label>允许模型 (逗号分隔)</label>
+          <input class="form-control" id="tgtModels" placeholder="gpt-4o, gpt-4.5-mini">
+          <div id="tgtModelSuggestions" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="targetModal">取消</button>
+        <button class="btn btn-primary" id="saveTargetBtn">保存</button>
       </div>
     </div>
   </div>
@@ -1005,6 +1100,7 @@
       var currentPage = "overview";
       var pageTitles = {
         overview: "总览",
+        targets: "目标管理",
         clients: "客户端管理",
         "model-costs": "模型费用",
         usage: "消费统计",
@@ -1041,6 +1137,8 @@
 
       /* ===== State ===== */
       var state = {
+        targets: [],
+        editingTarget: null,
         clients: [],
         editingClient: null,
         editingModelCost: null,
@@ -1085,6 +1183,143 @@
           document.getElementById("overviewAuditBody").innerHTML = "<tr class='empty-row'><td colspan='5'>加载失败</td></tr>";
         }
       }
+
+      /* ===== Targets ===== */
+      var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude"};
+      async function loadTargets() {
+        try {
+          var data = await api("/admin/data/targets");
+          state.targets = Array.isArray(data.targets) ? data.targets : [];
+          renderTargets();
+        } catch(e) { toast("加载目标失败: "+e.message, "error"); }
+      }
+      function renderTargets() {
+        var tb = document.getElementById("targetsTableBody");
+        if (!state.targets.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='7'>暂无目标配置</td></tr>";
+          return;
+        }
+        tb.innerHTML = state.targets.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(t) {
+          var models = Array.isArray(t.allowed_models) && t.allowed_models.length > 0
+            ? t.allowed_models.join(", ") : "<span style='color:var(--text-muted)'>不限</span>";
+          var keyStatus = t.has_api_key
+            ? "<span style='color:var(--success)'>✅ 已配置</span>"
+            : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
+          return "<tr><td>"+esc(t.name)+"</td>"
+            +"<td><span class='badge' style='background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:4px;font-size:12px;'>"
+            +esc(epTypeLabels[t.endpoint_type]||t.endpoint_type)+"</span></td>"
+            +"<td style='max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+esc(t.endpoint)+"'>"+esc(t.endpoint)+"</td>"
+            +"<td>"+esc(t.resource_path_prefix||"-")+"</td>"
+            +"<td>"+keyStatus+"</td>"
+            +"<td>"+models+"</td>"
+            +"<td><div class='btn-group'>"
+            +"<button class='btn btn-sm' data-edit-tgt='"+esc(t.name)+"'>编辑</button>"
+            +"<button class='btn btn-danger btn-sm' data-del-tgt='"+esc(t.name)+"'>删除</button>"
+            +"</div></td></tr>";
+        }).join("");
+      }
+      document.getElementById("targetsTableBody").addEventListener("click", function(e) {
+        var t = e.target;
+        if (t.dataset.editTgt) {
+          var tgt = state.targets.find(function(x){return x.name===t.dataset.editTgt;});
+          if (tgt) openTargetModal(tgt);
+        }
+        if (t.dataset.delTgt) {
+          var name = t.dataset.delTgt;
+          showConfirm("确认删除目标「"+name+"」？此操作不可恢复。", async function() {
+            try {
+              await api("/admin/data/targets/"+encodeURIComponent(name), {method:"DELETE"});
+              toast("已删除目标: "+name, "success");
+              await loadTargets();
+            } catch(e) { toast("删除失败: "+e.message, "error"); }
+          });
+        }
+      });
+      function updateTargetFormVisibility() {
+        var epType = document.getElementById("tgtType").value;
+        var isAzure = (epType === "azure_openai");
+        document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
+        document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
+        loadCatalogSuggestions(epType);
+      }
+      async function loadCatalogSuggestions(epType) {
+        var container = document.getElementById("tgtModelSuggestions");
+        container.innerHTML = "";
+        try {
+          var data = await api("/admin/data/catalog/"+encodeURIComponent(epType));
+          var models = Array.isArray(data.models) ? data.models : [];
+          models.slice(0, 30).forEach(function(m) {
+            var tag = document.createElement("span");
+            tag.style.cssText = "display:inline-block;padding:2px 8px;border-radius:4px;background:var(--primary-light);color:var(--primary);font-size:12px;cursor:pointer;";
+            tag.textContent = m.model || m.display_name || "";
+            tag.title = m.display_name || m.model;
+            tag.addEventListener("click", function() {
+              var input = document.getElementById("tgtModels");
+              var current = input.value ? input.value.split(",").map(function(s){return s.trim();}).filter(Boolean) : [];
+              var modelName = m.model;
+              if (current.indexOf(modelName) === -1) {
+                current.push(modelName);
+                input.value = current.join(", ");
+              }
+            });
+            container.appendChild(tag);
+          });
+        } catch(e) { /* ignore catalog load failure */ }
+      }
+      function openTargetModal(t) {
+        state.editingTarget = t || null;
+        document.getElementById("targetModalTitle").textContent = t ? "编辑目标" : "新增目标";
+        document.getElementById("tgtName").value = t ? t.name : "";
+        document.getElementById("tgtName").readOnly = !!t;
+        document.getElementById("tgtType").value = t ? (t.endpoint_type || "azure_openai") : "azure_openai";
+        document.getElementById("tgtEndpoint").value = t ? t.endpoint : "";
+        var epType = t ? (t.endpoint_type || "azure_openai") : "azure_openai";
+        document.getElementById("tgtRpp").value = (epType === "azure_openai") ? (t ? (t.resource_path_prefix || "/openai") : "/openai") : "";
+        document.getElementById("tgtApiKey").value = "";
+        document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
+        document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
+        updateTargetFormVisibility();
+        openModal("targetModal");
+      }
+      document.getElementById("tgtType").addEventListener("change", updateTargetFormVisibility);
+      document.getElementById("newTargetBtn").addEventListener("click", function() { openTargetModal(null); });
+      document.getElementById("refreshTargetsBtn").addEventListener("click", function() { loadTargets(); });
+      document.getElementById("saveTargetBtn").addEventListener("click", async function() {
+        var name = document.getElementById("tgtName").value.trim();
+        var epType = document.getElementById("tgtType").value;
+        var endpoint = document.getElementById("tgtEndpoint").value.trim();
+        var rpp = (epType === "azure_openai") ? document.getElementById("tgtRpp").value.trim() : "";
+        var apiKey = document.getElementById("tgtApiKey").value.trim();
+        var allowBearer = document.getElementById("tgtAllowBearer").checked;
+        var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
+
+        if (!name) { toast("请填写名称", "error"); return; }
+        if (!endpoint) { toast("请填写 Endpoint URL", "error"); return; }
+
+        try {
+          if (state.editingTarget) {
+            var updateBody = {
+              endpoint_type: epType,
+              endpoint: endpoint,
+              resource_path_prefix: rpp,
+              allow_bearer_passthrough: allowBearer,
+              allowed_models: models
+            };
+            if (apiKey) { updateBody.api_key = apiKey; }
+            await api("/admin/data/targets/"+encodeURIComponent(name), { method: "PUT", body: updateBody });
+            toast("目标已更新", "success");
+          } else {
+            await api("/admin/data/targets", { method: "POST", body: {
+              name: name, endpoint_type: epType, endpoint: endpoint,
+              resource_path_prefix: rpp, api_key: apiKey,
+              allow_bearer_passthrough: allowBearer, allowed_models: models
+            }});
+            toast("目标已创建", "success");
+          }
+          closeModal("targetModal");
+          await loadTargets();
+        } catch(e) { toast("保存失败: "+e.message, "error"); }
+      });
 
       /* ===== Clients ===== */
       async function loadClients() {
@@ -1172,52 +1407,144 @@
       function renderModelCosts(models) {
         var tb = document.getElementById("modelCostsTableBody");
         if (!models.length) {
-          tb.innerHTML = "<tr class='empty-row'><td colspan='5'>暂无费用配置</td></tr>";
+          tb.innerHTML = "<tr class='empty-row'><td colspan='6'>暂无费用配置</td></tr>";
           return;
         }
-        tb.innerHTML = models.slice().sort(function(a,b){return String(a.model||"").localeCompare(String(b.model||""));}).map(function(m) {
-          return "<tr><td>"+esc(m.model)+"</td>"
+        tb.innerHTML = models.slice().sort(function(a,b){
+          var cmp = String(a.endpoint_type||"").localeCompare(String(b.endpoint_type||""));
+          return cmp !== 0 ? cmp : String(a.model||"").localeCompare(String(b.model||""));
+        }).map(function(m) {
+          var epLabel = epTypeLabels[m.endpoint_type] || m.endpoint_type || "-";
+          return "<tr><td><span class='badge' style='background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:4px;font-size:12px;'>"+esc(epLabel)+"</span></td>"
+            +"<td>"+esc(m.model)+"</td>"
             +"<td>"+fmtMoney(m.input_per_1k_tokens)+"</td>"
             +"<td>"+fmtMoney(m.output_per_1k_tokens)+"</td>"
             +"<td>"+fmtMoney(m.cached_input_per_1k_tokens)+"</td>"
             +"<td><div class='btn-group'>"
-            +"<button class='btn btn-sm' data-edit-mc='"+esc(m.model)+"'>编辑</button>"
-            +"<button class='btn btn-danger btn-sm' data-del-mc='"+esc(m.model)+"'>删除</button>"
+            +"<button class='btn btn-sm' data-edit-mc='"+esc(m.model)+"' data-edit-mc-ep='"+esc(m.endpoint_type||"")+"'>编辑</button>"
+            +"<button class='btn btn-danger btn-sm' data-del-mc='"+esc(m.model)+"' data-del-mc-ep='"+esc(m.endpoint_type||"")+"'>删除</button>"
             +"</div></td></tr>";
         }).join("");
       }
       document.getElementById("modelCostsTableBody").addEventListener("click", function(e) {
         var t = e.target;
         if (t.dataset.editMc) {
-          openModelCostModal(t.dataset.editMc);
+          openModelCostModal(t.dataset.editMc, t.dataset.editMcEp || "");
         }
         if (t.dataset.delMc) {
           var model = t.dataset.delMc;
+          var ep = t.dataset.delMcEp || "";
           showConfirm("确认删除模型费用配置「"+model+"」？", async function() {
             try {
-              await api("/admin/data/model-costs/"+encodeURIComponent(model), {method:"DELETE"});
+              var delUrl = "/admin/data/model-costs/"+encodeURIComponent(model);
+              if (ep) delUrl += "?endpoint_type="+encodeURIComponent(ep);
+              await api(delUrl, {method:"DELETE"});
               toast("已删除: "+model, "success");
               await loadModelCosts();
             } catch(e) { toast("删除失败: "+e.message, "error"); }
           });
         }
       });
-      function openModelCostModal(modelName) {
+      state.mcCatalogCache = {};
+      async function loadMcCatalog(epType) {
+        if (state.mcCatalogCache[epType]) return state.mcCatalogCache[epType];
+        try {
+          var data = await api("/admin/data/catalog/"+encodeURIComponent(epType));
+          var models = Array.isArray(data.models) ? data.models : [];
+          state.mcCatalogCache[epType] = models;
+          return models;
+        } catch(e) { return []; }
+      }
+      function findCatalogCost(models, modelName) {
+        if (!modelName || !models.length) return null;
+        var lower = modelName.toLowerCase();
+        for (var i = 0; i < models.length; i++) {
+          if ((models[i].model || "").toLowerCase() === lower) return models[i].default_cost;
+          var aliases = models[i].aliases || [];
+          for (var j = 0; j < aliases.length; j++) {
+            if (aliases[j].toLowerCase() === lower) return models[i].default_cost;
+          }
+        }
+        return null;
+      }
+      function applyMcCatalogCost(cost) {
+        if (!cost) {
+          document.getElementById("mcInputHint").textContent = "";
+          document.getElementById("mcOutputHint").textContent = "";
+          document.getElementById("mcCachedHint").textContent = "";
+          return;
+        }
+        var inp = document.getElementById("mcInputPrice");
+        var out = document.getElementById("mcOutputPrice");
+        var cch = document.getElementById("mcCachedPrice");
+        if (!inp.value && cost.input_per_1k_tokens != null) inp.value = cost.input_per_1k_tokens;
+        if (!out.value && cost.output_per_1k_tokens != null) out.value = cost.output_per_1k_tokens;
+        if (!cch.value && cost.cached_input_per_1k_tokens != null) cch.value = cost.cached_input_per_1k_tokens;
+        document.getElementById("mcInputHint").textContent = cost.input_per_1k_tokens != null ? "(参考: "+cost.input_per_1k_tokens+")" : "";
+        document.getElementById("mcOutputHint").textContent = cost.output_per_1k_tokens != null ? "(参考: "+cost.output_per_1k_tokens+")" : "";
+        document.getElementById("mcCachedHint").textContent = cost.cached_input_per_1k_tokens != null ? "(参考: "+cost.cached_input_per_1k_tokens+")" : "";
+      }
+      async function renderMcModelSuggestions(epType) {
+        var container = document.getElementById("mcModelSuggestions");
+        container.innerHTML = "";
+        var models = await loadMcCatalog(epType);
+        models.slice(0, 50).forEach(function(m) {
+          var tag = document.createElement("span");
+          tag.style.cssText = "display:inline-block;padding:2px 8px;border-radius:4px;background:var(--primary-light);color:var(--primary);font-size:12px;cursor:pointer;";
+          tag.textContent = m.model || m.display_name || "";
+          tag.title = (m.display_name || m.model) + (m.default_cost ? " | 输入:"+m.default_cost.input_per_1k_tokens+" 输出:"+m.default_cost.output_per_1k_tokens : "");
+          tag.addEventListener("click", function() {
+            document.getElementById("mcModel").value = m.model;
+            applyMcCatalogCost(m.default_cost);
+          });
+          container.appendChild(tag);
+        });
+      }
+      async function mcTryFillCost() {
+        var epType = document.getElementById("mcEndpointType").value;
+        var modelName = document.getElementById("mcModel").value.trim();
+        if (!modelName) { applyMcCatalogCost(null); return; }
+        var models = await loadMcCatalog(epType);
+        var cost = findCatalogCost(models, modelName);
+        applyMcCatalogCost(cost);
+      }
+      function openModelCostModal(modelName, endpointType) {
         state.editingModelCost = modelName || null;
         document.getElementById("modelCostModalTitle").textContent = modelName ? "编辑模型费用" : "新增模型费用";
+        document.getElementById("mcEndpointType").value = endpointType || "azure_openai";
         document.getElementById("mcModel").value = modelName || "";
         document.getElementById("mcModel").readOnly = !!modelName;
         document.getElementById("mcInputPrice").value = "";
         document.getElementById("mcOutputPrice").value = "";
         document.getElementById("mcCachedPrice").value = "";
+        document.getElementById("mcInputHint").textContent = "";
+        document.getElementById("mcOutputHint").textContent = "";
+        document.getElementById("mcCachedHint").textContent = "";
+        var epType = endpointType || "azure_openai";
+        if (modelName) {
+          // 编辑模式：先尝试从 catalog 填充默认参考值
+          mcTryFillCost();
+        }
+        renderMcModelSuggestions(epType);
         openModal("modelCostModal");
       }
-      document.getElementById("newModelCostBtn").addEventListener("click", function() { openModelCostModal(null); });
+      document.getElementById("mcEndpointType").addEventListener("change", function() {
+        var epType = this.value;
+        renderMcModelSuggestions(epType);
+        mcTryFillCost();
+      });
+      var mcModelDebounce = null;
+      document.getElementById("mcModel").addEventListener("input", function() {
+        clearTimeout(mcModelDebounce);
+        mcModelDebounce = setTimeout(mcTryFillCost, 300);
+      });
+      document.getElementById("newModelCostBtn").addEventListener("click", function() { openModelCostModal(null, ""); });
       document.getElementById("refreshModelCostsBtn").addEventListener("click", function() { loadModelCosts(); });
       document.getElementById("saveModelCostBtn").addEventListener("click", async function() {
         var model = document.getElementById("mcModel").value.trim();
         if (!model) { toast("请填写模型名称", "error"); return; }
         var payload = {
+          endpoint_type: document.getElementById("mcEndpointType").value,
           input_per_1k_tokens: parseFloat(document.getElementById("mcInputPrice").value) || 0,
           output_per_1k_tokens: parseFloat(document.getElementById("mcOutputPrice").value) || 0,
           cached_input_per_1k_tokens: parseFloat(document.getElementById("mcCachedPrice").value) || 0
@@ -1404,6 +1731,7 @@
       function loadPageData(page) {
         switch(page) {
           case "overview": loadOverview(); break;
+          case "targets": loadTargets(); break;
           case "clients": loadClients(); break;
           case "model-costs": loadModelCosts(); break;
           case "usage": loadUsage(); break;
