@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/ycgame/llms-proxy/internal/config"
 )
 
@@ -76,7 +77,7 @@ func (s *UserStore) SeedDefaultUser(user config.AdminUser) error {
 		return fmt.Errorf("marshal default admin user: %w", err)
 	}
 	data = append(data, '\n')
-	return os.WriteFile(s.path, data, 0o644)
+	return writeAtomicFile(s.path, data)
 }
 
 // Authenticate verifies credentials and returns the matching user.
@@ -164,7 +165,7 @@ func ensureJSONListFile(path string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := os.WriteFile(path, []byte("[]\n"), 0o644); err != nil {
+	if err := writeAtomicFile(path, []byte("[]\n")); err != nil {
 		return err
 	}
 	return nil
@@ -203,7 +204,26 @@ func (s *UserStore) UpdatePasswordHash(username, newHash string) error {
 		return fmt.Errorf("marshal admin users: %w", err)
 	}
 	data = append(data, '\n')
-	return os.WriteFile(s.path, data, 0o644)
+	return writeAtomicFile(s.path, data)
+}
+
+// writeAtomicFile writes data to a temp file then renames it to the target
+// path. This only requires write permission on the parent directory, not on the
+// target file itself.
+func writeAtomicFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create parent dir: %w", err)
+	}
+	tmp := filepath.Join(dir, fmt.Sprintf(".%s.%s.tmp", filepath.Base(path), uuid.NewString()))
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // HashPasswordWithRandomSalt generates a random 16-byte salt and hashes the password.
