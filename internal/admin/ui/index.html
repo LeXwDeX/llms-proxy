@@ -1401,6 +1401,7 @@
         try {
           var data = await api("/admin/data/model-costs");
           var models = Array.isArray(data.models) ? data.models : [];
+          state.modelCosts = models;
           renderModelCosts(models);
         } catch(e) { toast("加载模型费用失败: "+e.message, "error"); }
       }
@@ -1510,20 +1511,37 @@
       }
       function openModelCostModal(modelName, endpointType) {
         state.editingModelCost = modelName || null;
+        state.editingModelCostEp = endpointType || "azure_openai";
         document.getElementById("modelCostModalTitle").textContent = modelName ? "编辑模型费用" : "新增模型费用";
         document.getElementById("mcEndpointType").value = endpointType || "azure_openai";
         document.getElementById("mcModel").value = modelName || "";
         document.getElementById("mcModel").readOnly = !!modelName;
-        document.getElementById("mcInputPrice").value = "";
-        document.getElementById("mcOutputPrice").value = "";
-        document.getElementById("mcCachedPrice").value = "";
         document.getElementById("mcInputHint").textContent = "";
         document.getElementById("mcOutputHint").textContent = "";
         document.getElementById("mcCachedHint").textContent = "";
         var epType = endpointType || "azure_openai";
         if (modelName) {
-          // 编辑模式：先尝试从 catalog 填充默认参考值
-          mcTryFillCost();
+          // 编辑模式：从已加载的 state 预填现有价格，catalog 仅作为旁注参考
+          var existing = (state.modelCosts || []).find(function(m) {
+            return m.model === modelName && (m.endpoint_type || "azure_openai") === epType;
+          });
+          document.getElementById("mcInputPrice").value = existing ? (existing.input_per_1k_tokens != null ? existing.input_per_1k_tokens : "") : "";
+          document.getElementById("mcOutputPrice").value = existing ? (existing.output_per_1k_tokens != null ? existing.output_per_1k_tokens : "") : "";
+          document.getElementById("mcCachedPrice").value = existing ? (existing.cached_input_per_1k_tokens != null ? existing.cached_input_per_1k_tokens : "") : "";
+          // 异步加载 catalog 参考值（仅更新 hint，不覆盖输入框）
+          loadMcCatalog(epType).then(function(models) {
+            var cost = findCatalogCost(models, modelName);
+            if (cost) {
+              document.getElementById("mcInputHint").textContent = cost.input_per_1k_tokens != null ? "(参考: "+cost.input_per_1k_tokens+")" : "";
+              document.getElementById("mcOutputHint").textContent = cost.output_per_1k_tokens != null ? "(参考: "+cost.output_per_1k_tokens+")" : "";
+              document.getElementById("mcCachedHint").textContent = cost.cached_input_per_1k_tokens != null ? "(参考: "+cost.cached_input_per_1k_tokens+")" : "";
+            }
+          });
+        } else {
+          // 新增模式：清空输入框，等用户输入模型名或点击建议后自动填充
+          document.getElementById("mcInputPrice").value = "";
+          document.getElementById("mcOutputPrice").value = "";
+          document.getElementById("mcCachedPrice").value = "";
         }
         renderMcModelSuggestions(epType);
         openModal("modelCostModal");
@@ -1550,7 +1568,11 @@
           cached_input_per_1k_tokens: parseFloat(document.getElementById("mcCachedPrice").value) || 0
         };
         try {
-          await api("/admin/data/model-costs/"+encodeURIComponent(model), { method: "PUT", body: payload });
+          var putUrl = "/admin/data/model-costs/"+encodeURIComponent(model);
+          // 编辑模式：用打开弹窗时记录的原始 endpoint_type 定位记录，避免改了下拉框后错位
+          var originalEp = state.editingModelCostEp || payload.endpoint_type;
+          if (state.editingModelCost && originalEp) putUrl += "?endpoint_type="+encodeURIComponent(originalEp);
+          await api(putUrl, { method: "PUT", body: payload });
           toast("模型费用已保存", "success");
           closeModal("modelCostModal");
           await loadModelCosts();
