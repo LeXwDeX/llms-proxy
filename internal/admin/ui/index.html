@@ -1120,9 +1120,7 @@
         btn.addEventListener("click", function() { closeModal(btn.dataset.close); });
       });
       document.querySelectorAll(".modal-overlay").forEach(function(overlay) {
-        overlay.addEventListener("click", function(e) {
-          if (e.target === overlay) closeModal(overlay.id);
-        });
+        // Only close on overlay click for confirm dialogs, not for form modals
       });
 
       var confirmCallback = null;
@@ -1256,7 +1254,7 @@
         }
         tb.innerHTML = state.targets.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(t) {
           var models = Array.isArray(t.allowed_models) && t.allowed_models.length > 0
-            ? t.allowed_models.join(", ") : "<span style='color:var(--text-muted)'>不限</span>";
+            ? esc(t.allowed_models.join(", ")) : "<span style='color:var(--text-muted)'>不限</span>";
           var keyStatus = t.has_api_key
             ? "<span style='color:var(--success)'>✅ 已配置</span>"
             : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
@@ -1711,6 +1709,14 @@
       document.getElementById("usageClientFilter").addEventListener("change", function() { loadUsage(); });
 
       async function loadUsage() {
+        // Ensure client filter dropdown is populated
+        if (!state.clients || !state.clients.length) {
+          try {
+            var cData = await api("/admin/data/clients");
+            state.clients = Array.isArray(cData.clients) ? cData.clients : [];
+            populateUsageClientFilter();
+          } catch(e) { /* ignore, filter will just show "全部客户端" */ }
+        }
         var range;
         if (activeRange === "custom") {
           try {
@@ -1728,14 +1734,10 @@
         try {
           var results = await Promise.all([
             api("/admin/data/usage/aggregate?group_by=day&" + qs.toString()),
-            api("/admin/data/usage/aggregate?group_by=day&" + qs.toString()),
-            api("/admin/data/usage/aggregate?group_by=day&" + qs.toString()),
             api("/admin/data/usage/aggregate?group_by=day&" + chartQs.toString())
           ]);
           var mainAgg = results[0];
-          var byClient = results[1];
-          var byModel = results[2];
-          var byDay = results[3];
+          var byDay = results[1];
 
           /* Summary cards from aggregate totals (respects client filter) */
           var sp = mainAgg.totals || {};
@@ -1745,8 +1747,8 @@
           document.getElementById("usCached").textContent = fmtNum(sp.cached_tokens);
           document.getElementById("usCost").textContent = fmtMoney(sp.estimated_cost);
 
-          renderAggregateTable("usageByClientBody", byClient.by_client || [], "key");
-          renderAggregateTable("usageByModelBody", byModel.by_model || [], "key");
+          renderAggregateTable("usageByClientBody", mainAgg.by_client || [], "key");
+          renderAggregateTable("usageByModelBody", mainAgg.by_model || [], "key");
           renderDailyChart(byDay.buckets || []);
         } catch(e) { toast("加载统计失败: "+e.message, "error"); }
       }

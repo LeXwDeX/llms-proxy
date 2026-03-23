@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -150,7 +151,8 @@ func main() {
 			clientName = principal.Name
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"message":"pong","client":"%s"}`, clientName)))
+		resp := map[string]string{"message": "pong", "client": clientName}
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	protected.NotFound(proxyService.ServeHTTP)
 

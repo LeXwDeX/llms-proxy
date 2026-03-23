@@ -418,7 +418,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if handled := s.maybeHandleLocalList(w, r); handled {
 		requestOutcomeRecorded = true
 		s.metrics.totalSuccess.Add(1)
-		s.metrics.activeRequests.Add(-1)
 		return
 	}
 

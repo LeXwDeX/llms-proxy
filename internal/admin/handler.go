@@ -423,7 +423,7 @@ func (h *Handler) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
 	}
-	h.recordAudit(r, "client_create", req.Name, "success", req.AccessKey)
+	h.recordAudit(r, "client_create", req.Name, "success", maskKey(req.AccessKey))
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
 }
@@ -462,7 +462,7 @@ func (h *Handler) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
 	}
-	h.recordAudit(r, "client_update", name, "success", req.AccessKey)
+	h.recordAudit(r, "client_update", name, "success", maskKey(req.AccessKey))
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -859,6 +859,12 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			t.AllowBearer = body.AllowBearer
 			t.AllowedModels = body.AllowedModels
+
+			// Validate: api_key must be non-empty when allow_bearer is false.
+			if t.AzureAPIKey == "" && !t.AllowBearer {
+				writeJSON(w, http.StatusBadRequest, errorResponse("api_key must not be empty when allow_bearer_passthrough is false"))
+				return
+			}
 			found = true
 			break
 		}
@@ -1170,4 +1176,12 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func errorResponse(message string) map[string]string {
 	return map[string]string{"error": message}
+}
+
+// maskKey returns a masked version of a key for safe logging.
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
 }
