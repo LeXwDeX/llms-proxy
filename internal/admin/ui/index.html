@@ -707,11 +707,13 @@
                     <th>名称</th>
                     <th>Access Key</th>
                     <th>允许目标</th>
+                    <th>近30天 Token</th>
+                    <th>近30天费用</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="clientsTableBody">
-                  <tr class="empty-row"><td colspan="4">加载中...</td></tr>
+                  <tr class="empty-row"><td colspan="6">加载中...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -766,6 +768,12 @@
                 <input type="datetime-local" class="form-control" id="usageTo">
               </div>
               <button class="btn btn-primary btn-sm" id="applyCustomRange">确定</button>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+              <label style="font-size:12px;color:var(--text-muted);white-space:nowrap;">客户端筛选</label>
+              <select class="form-control" id="usageClientFilter" style="width:160px;font-size:12px;padding:4px 8px;">
+                <option value="">全部客户端</option>
+              </select>
             </div>
           </div>
 
@@ -1371,9 +1379,20 @@
       /* ===== Clients ===== */
       async function loadClients() {
         try {
-          var data = await api("/admin/data/clients");
-          state.clients = Array.isArray(data.clients) ? data.clients : [];
+          var results = await Promise.all([
+            api("/admin/data/clients"),
+            api("/admin/data/usage/aggregate?group_by=day&from=" + encodeURIComponent(new Date(Date.now()-30*24*3600*1000).toISOString()) + "&to=" + encodeURIComponent(new Date().toISOString()))
+          ]);
+          state.clients = Array.isArray(results[0].clients) ? results[0].clients : [];
+          // Build per-client usage map from by_client breakdown
+          state.clientUsage = {};
+          var byClient = (results[1] && results[1].by_client) || [];
+          byClient.forEach(function(item) {
+            state.clientUsage[item.key] = item;
+          });
           renderClients();
+          // Also populate usage page client filter dropdown
+          populateUsageClientFilter();
         } catch(e) {
           toast("加载客户端失败: " + e.message, "error");
         }
@@ -1381,15 +1400,20 @@
       function renderClients() {
         var tb = document.getElementById("clientsTableBody");
         if (!state.clients.length) {
-          tb.innerHTML = "<tr class='empty-row'><td colspan='4'>暂无客户端</td></tr>";
+          tb.innerHTML = "<tr class='empty-row'><td colspan='6'>暂无客户端</td></tr>";
           return;
         }
         tb.innerHTML = state.clients.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(c) {
           var targets = Array.isArray(c.allowed_targets) && c.allowed_targets.length > 0
             ? c.allowed_targets.join(", ") : "全部目标";
+          var usage = state.clientUsage[c.name] || {};
+          var tok = totalTok(usage);
+          var cost = Number(usage.estimated_cost || 0);
           return "<tr><td>"+esc(c.name)+"</td>"
             + "<td><span class='key-mask'>"+esc(maskKey(c.access_key))+"</span></td>"
             + "<td>"+esc(targets)+"</td>"
+            + "<td>"+fmtNum(tok)+"</td>"
+            + "<td>"+fmtMoney(cost)+"</td>"
             + "<td><div class='btn-group'>"
             + "<button class='btn btn-sm' data-edit-client='"+esc(c.name)+"'>编辑</button>"
             + "<button class='btn btn-danger btn-sm' data-del-client='"+esc(c.name)+"'>删除</button>"
@@ -1672,6 +1696,20 @@
       });
       document.getElementById("applyCustomRange").addEventListener("click", function() { loadUsage(); });
 
+      function populateUsageClientFilter() {
+        var sel = document.getElementById("usageClientFilter");
+        var current = sel.value;
+        sel.innerHTML = "<option value=\"\">全部客户端</option>";
+        (state.clients || []).slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).forEach(function(c) {
+          var opt = document.createElement("option");
+          opt.value = c.name;
+          opt.textContent = c.name;
+          sel.appendChild(opt);
+        });
+        sel.value = current;
+      }
+      document.getElementById("usageClientFilter").addEventListener("change", function() { loadUsage(); });
+
       async function loadUsage() {
         var range;
         if (activeRange === "custom") {
@@ -1683,35 +1721,32 @@
         }
         state.usageRange = range;
         var qs = new URLSearchParams({ from: range.from, to: range.to });
+        var clientFilter = document.getElementById("usageClientFilter").value;
+        if (clientFilter) qs.set("client_name", clientFilter);
+        var chartQs = new URLSearchParams({ from: new Date(Date.now()-30*24*3600*1000).toISOString(), to: new Date().toISOString() });
+        if (clientFilter) chartQs.set("client_name", clientFilter);
         try {
           var results = await Promise.all([
-            api("/admin/data/usage/summary"),
-            api("/admin/data/usage/aggregate?group_by=client_name&" + qs.toString()),
-            api("/admin/data/usage/aggregate?group_by=model&" + qs.toString()),
-            api("/admin/data/usage/aggregate?group_by=day&from=" + encodeURIComponent(new Date(Date.now()-30*24*3600*1000).toISOString()) + "&to=" + encodeURIComponent(new Date().toISOString()))
+            api("/admin/data/usage/aggregate?group_by=day&" + qs.toString()),
+            api("/admin/data/usage/aggregate?group_by=day&" + qs.toString()),
+            api("/admin/data/usage/aggregate?group_by=day&" + qs.toString()),
+            api("/admin/data/usage/aggregate?group_by=day&" + chartQs.toString())
           ]);
-          var summary = results[0];
+          var mainAgg = results[0];
           var byClient = results[1];
           var byModel = results[2];
           var byDay = results[3];
 
-          /* Pick the right summary period */
-          var sp;
-          switch(activeRange) {
-            case "1h": sp = summary.last_hour; break;
-            case "yesterday": sp = summary.yesterday; break;
-            case "30d": sp = summary.last_30_days; break;
-            default: sp = summary.last_30_days;
-          }
-          sp = sp || {};
+          /* Summary cards from aggregate totals (respects client filter) */
+          var sp = mainAgg.totals || {};
           document.getElementById("usReqs").textContent = fmtNum(sp.requests);
           document.getElementById("usInput").textContent = fmtNum(sp.input_tokens);
           document.getElementById("usOutput").textContent = fmtNum(sp.output_tokens);
           document.getElementById("usCached").textContent = fmtNum(sp.cached_tokens);
           document.getElementById("usCost").textContent = fmtMoney(sp.estimated_cost);
 
-          renderAggregateTable("usageByClientBody", byClient.buckets || [], "client_name");
-          renderAggregateTable("usageByModelBody", byModel.buckets || [], "model");
+          renderAggregateTable("usageByClientBody", byClient.by_client || [], "key");
+          renderAggregateTable("usageByModelBody", byModel.by_model || [], "key");
           renderDailyChart(byDay.buckets || []);
         } catch(e) { toast("加载统计失败: "+e.message, "error"); }
       }
