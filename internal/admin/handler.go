@@ -29,6 +29,7 @@ type Handler struct {
 	authStore     *auth.Store
 	proxyService  *proxy.Service
 	auditStore    *AuditStore
+	userStore     *UserStore
 	modelCatalog  *catalog.Catalog
 	logger        *slog.Logger
 }
@@ -39,6 +40,7 @@ func NewHandler(
 	store *auth.Store,
 	service *proxy.Service,
 	auditStore *AuditStore,
+	userStore *UserStore,
 	modelCatalog *catalog.Catalog,
 	logger *slog.Logger,
 ) http.Handler {
@@ -47,6 +49,7 @@ func NewHandler(
 		authStore:     store,
 		proxyService:  service,
 		auditStore:    auditStore,
+		userStore:     userStore,
 		modelCatalog:  modelCatalog,
 		logger:        logger,
 	}
@@ -58,6 +61,7 @@ func NewHandler(
 	r.Get("/metrics", h.handleMetrics)
 	r.Get("/api/me", h.handleMe)
 	r.Get("/api/overview", h.handleOverview)
+	r.Post("/api/change-password", h.handleChangePassword)
 	r.Post("/config/reload", h.handleReloadConfig)
 	r.Route("/data", func(r chi.Router) {
 		r.Get("/clients", h.handleListClients)
@@ -159,6 +163,53 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusUnauthorized, map[string]any{"authenticated": false})
+}
+
+func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok || session == nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse("not authenticated"))
+		return
+	}
+
+	var req struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
+		return
+	}
+
+	if strings.TrimSpace(req.OldPassword) == "" || strings.TrimSpace(req.NewPassword) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("旧密码和新密码均不能为空"))
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		writeJSON(w, http.StatusBadRequest, errorResponse("新密码至少需要 6 个字符"))
+		return
+	}
+
+	// Verify old password.
+	if _, err := h.userStore.Authenticate(session.Username, req.OldPassword); err != nil {
+		writeJSON(w, http.StatusForbidden, errorResponse("原密码验证失败"))
+		return
+	}
+
+	// Generate new hash with random salt.
+	newHash, err := HashPasswordWithRandomSalt(req.NewPassword)
+	if err != nil {
+		h.writeInternalError(w, "failed to hash password", err)
+		return
+	}
+
+	if err := h.userStore.UpdatePasswordHash(session.Username, newHash); err != nil {
+		h.writeInternalError(w, "failed to update password", err)
+		return
+	}
+
+	h.recordAudit(r, "change_password", session.Username, "success", "")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "密码已修改"})
 }
 
 func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {

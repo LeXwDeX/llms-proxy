@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ycgame/azure-proxy/internal/config"
 )
@@ -166,6 +168,51 @@ func ensureJSONListFile(path string) error {
 		return err
 	}
 	return nil
+}
+
+// UpdatePasswordHash changes the password hash for the given username.
+func (s *UserStore) UpdatePasswordHash(username, newHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return errors.New("username must not be empty")
+	}
+
+	users, err := readAdminUsers(s.path)
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for i := range users {
+		if strings.EqualFold(strings.TrimSpace(users[i].Username), username) {
+			users[i].PasswordHash = newHash
+			users[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("user %q not found", username)
+	}
+
+	data, err := json.MarshalIndent(users, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal admin users: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(s.path, data, 0o644)
+}
+
+// HashPasswordWithRandomSalt generates a random 16-byte salt and hashes the password.
+func HashPasswordWithRandomSalt(password string) (string, error) {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return "", fmt.Errorf("generate salt: %w", err)
+	}
+	return HashPassword(password, hex.EncodeToString(salt)), nil
 }
 
 // HashPassword returns a deterministic SHA-256 based password hash string.

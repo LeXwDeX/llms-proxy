@@ -592,6 +592,7 @@
         </div>
         <div class="topbar-right">
           <span class="user-badge" id="userBadge">👤 管理员</span>
+          <button class="btn btn-sm" id="changePasswordBtn" title="修改密码" style="font-size:12px;padding:4px 10px;">🔑 改密</button>
         </div>
       </header>
 
@@ -1008,6 +1009,34 @@
       <div class="modal-footer">
         <button class="btn" data-close="targetModal">取消</button>
         <button class="btn btn-primary" id="saveTargetBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Change Password Modal ===== -->
+  <div class="modal-overlay" id="changePasswordModal">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-header">
+        <h3>修改密码</h3>
+        <button class="modal-close" data-close="changePasswordModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>当前密码</label>
+          <input class="form-control" id="cpOldPassword" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="form-group">
+          <label>新密码 <span style="color:var(--text-muted);font-size:12px;">(至少6位)</span></label>
+          <input class="form-control" id="cpNewPassword" type="password" autocomplete="new-password" required>
+        </div>
+        <div class="form-group">
+          <label>确认新密码</label>
+          <input class="form-control" id="cpConfirmPassword" type="password" autocomplete="new-password" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="changePasswordModal">取消</button>
+        <button class="btn btn-primary" id="savePasswordBtn">确认修改</button>
       </div>
     </div>
   </div>
@@ -1766,6 +1795,28 @@
           }
         } catch(e) { /* ignore - may not be logged in via session */ }
       }
+
+      /* ===== Change Password ===== */
+      document.getElementById("changePasswordBtn").addEventListener("click", function() {
+        document.getElementById("cpOldPassword").value = "";
+        document.getElementById("cpNewPassword").value = "";
+        document.getElementById("cpConfirmPassword").value = "";
+        openModal("changePasswordModal");
+      });
+      document.getElementById("savePasswordBtn").addEventListener("click", async function() {
+        var oldPw = document.getElementById("cpOldPassword").value;
+        var newPw = document.getElementById("cpNewPassword").value;
+        var confirmPw = document.getElementById("cpConfirmPassword").value;
+        if (!oldPw) { toast("请输入当前密码", "error"); return; }
+        if (!newPw) { toast("请输入新密码", "error"); return; }
+        if (newPw.length < 6) { toast("新密码至少需要 6 个字符", "error"); return; }
+        if (newPw !== confirmPw) { toast("两次输入的新密码不一致", "error"); return; }
+        try {
+          await api("/admin/api/change-password", { method: "POST", body: { old_password: oldPw, new_password: newPw } });
+          toast("密码修改成功", "success");
+          closeModal("changePasswordModal");
+        } catch(e) { toast("修改失败: " + e.message, "error"); }
+      });
 
       /* ===== Page Data Loader ===== */
       function loadPageData(page) {

@@ -138,7 +138,7 @@ func main() {
 
 	adminRouter := chi.NewRouter()
 	adminRouter.Use(sessionManager.Middleware)
-	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, modelCatalog, appLogger))
+	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, adminUsers, modelCatalog, appLogger))
 	router.Mount("/admin", adminRouter)
 
 	protected := chi.NewRouter()

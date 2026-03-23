@@ -35,3 +35,5 @@
 {"id":"1d1cf0a1-e0a5-4157-9e88-e12326842b46","timestamp":"2026-03-23T05:17:54.653982751Z","actor":"admin","action":"update_target","object":"Claude","result":"success"}
 {"id":"d6f1adea-a48c-4142-b4f9-860fc3108716","timestamp":"2026-03-23T05:38:56.598357508Z","actor":"admin","action":"login","result":"success","detail":"session created"}
 {"id":"75915aa5-18e0-45a2-b6c8-73df9699e59f","timestamp":"2026-03-23T05:39:28.606365567Z","actor":"admin","action":"logout","result":"success","detail":"session destroyed"}
+{"id":"b9e3cb45-27f7-46df-b3a9-35ecfd3be2e2","timestamp":"2026-03-23T05:45:14.436970762Z","actor":"admimn","action":"login","result":"failure","detail":"invalid credentials"}
+{"id":"b0989d06-10b5-4244-a405-8dc8cc97b9df","timestamp":"2026-03-23T05:45:16.570039999Z","actor":"admin","action":"login","result":"success","detail":"session created"}
