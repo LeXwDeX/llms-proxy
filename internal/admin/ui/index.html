@@ -600,6 +600,9 @@
 
         <!-- ========== Page: 总览 ========== -->
         <div class="page active" id="page-overview">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+            <button class="btn" id="refreshOverviewBtn" title="刷新总览">🔄 刷新</button>
+          </div>
           <div class="stats-grid" id="overviewStats">
             <div class="stat-card">
               <div class="stat-label">请求总量</div>
@@ -1118,6 +1121,8 @@
         /* Close sidebar on mobile */
         document.getElementById("sidebar").classList.remove("open");
         document.getElementById("sidebarOverlay").classList.remove("open");
+        /* Manage overview auto-refresh */
+        if (page === "overview") { startOverviewAutoRefresh(); } else { stopOverviewAutoRefresh(); }
         /* Load data */
         loadPageData(page);
       }
@@ -1183,6 +1188,19 @@
           document.getElementById("overviewAuditBody").innerHTML = "<tr class='empty-row'><td colspan='5'>加载失败</td></tr>";
         }
       }
+
+      /* Overview auto-refresh: poll every 15s while on overview page */
+      var overviewTimer = null;
+      function startOverviewAutoRefresh() {
+        stopOverviewAutoRefresh();
+        overviewTimer = setInterval(function() {
+          if (currentPage === "overview") loadOverview();
+        }, 15000);
+      }
+      function stopOverviewAutoRefresh() {
+        if (overviewTimer) { clearInterval(overviewTimer); overviewTimer = null; }
+      }
+      document.getElementById("refreshOverviewBtn").addEventListener("click", function() { loadOverview(); });
 
       /* ===== Targets ===== */
       var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude"};
@@ -1765,6 +1783,7 @@
       (async function boot() {
         loadUserInfo();
         loadPageData("overview");
+        startOverviewAutoRefresh();
       })();
     })();
   </script>

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"log/slog"
 
 	"github.com/ycgame/azure-proxy/internal/auth"
+	"github.com/ycgame/azure-proxy/internal/catalog"
 	"github.com/ycgame/azure-proxy/internal/config"
 	"github.com/ycgame/azure-proxy/internal/nosql"
 	"github.com/ycgame/azure-proxy/internal/proxy"
@@ -25,6 +28,7 @@ type Handler struct {
 	authStore     *auth.Store
 	proxyService  *proxy.Service
 	auditStore    *AuditStore
+	modelCatalog  *catalog.Catalog
 	logger        *slog.Logger
 }
 
@@ -34,6 +38,7 @@ func NewHandler(
 	store *auth.Store,
 	service *proxy.Service,
 	auditStore *AuditStore,
+	modelCatalog *catalog.Catalog,
 	logger *slog.Logger,
 ) http.Handler {
 	h := &Handler{
@@ -41,6 +46,7 @@ func NewHandler(
 		authStore:     store,
 		proxyService:  service,
 		auditStore:    auditStore,
+		modelCatalog:  modelCatalog,
 		logger:        logger,
 	}
 
@@ -66,6 +72,16 @@ func NewHandler(
 		r.Get("/usage/aggregate", h.handleAggregateUsage)
 		r.Get("/usage/summary", h.handleUsageSummary)
 		r.Get("/audit", h.handleListAudit)
+
+		// Target management
+		r.Get("/targets", h.handleListTargets)
+		r.Post("/targets", h.handleCreateTarget)
+		r.Put("/targets/{name}", h.handleUpdateTarget)
+		r.Delete("/targets/{name}", h.handleDeleteTarget)
+
+		// Model catalog
+		r.Get("/catalog", h.handleListCatalog)
+		r.Get("/catalog/{endpoint_type}", h.handleListCatalogByType)
 	})
 	return r
 }
@@ -185,20 +201,35 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	activeTargets := 0
+	for _, t := range health {
+		if !t.Muted {
+			activeTargets++
+		}
+	}
+
+	var successRate float64
+	if metrics.TotalRequests > 0 {
+		successRate = float64(metrics.TotalSuccess) / float64(metrics.TotalRequests) * 100
+	}
+
 	response := map[string]any{
-		"generated_at":    now,
-		"targets":         health,
-		"target_count":    len(health),
-		"active_requests": metrics.ActiveRequests,
+		"generated_at":     now,
+		"targets":          health,
+		"target_count":     len(health),
+		"active_targets":   activeTargets,
+		"active_requests":  metrics.ActiveRequests,
+		"total_requests":   metrics.TotalRequests,
+		"success_rate":     successRate,
+		"client_count":     len(clients),
+		"model_cost_count": len(models),
 		"requests": map[string]int64{
 			"total":    metrics.TotalRequests,
 			"success":  metrics.TotalSuccess,
 			"failures": metrics.TotalFailures,
 			"retries":  metrics.TotalRetries,
 		},
-		"clients":     len(clients),
-		"model_costs": len(models),
-		"usage":       summary,
+		"usage_summary": summary,
 	}
 	if events, err := h.listAuditEvents(10); err == nil {
 		response["recent_audit"] = events
@@ -448,6 +479,7 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
+		EndpointType          string  `json:"endpoint_type"`
 		InputPer1KTokens      float64 `json:"input_per_1k_tokens"`
 		OutputPer1KTokens     float64 `json:"output_per_1k_tokens"`
 		CachedInputPer1KToken float64 `json:"cached_input_per_1k_tokens"`
@@ -457,18 +489,24 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := store.Upsert(nosql.ModelCost{
+	cost := nosql.ModelCost{
+		EndpointType:          req.EndpointType,
 		Model:                 model,
 		InputPer1KTokens:      req.InputPer1KTokens,
 		OutputPer1KTokens:     req.OutputPer1KTokens,
 		CachedInputPer1KToken: req.CachedInputPer1KToken,
-	}); err != nil {
+	}
+	if err := store.Upsert(cost); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
 	h.recordAudit(r, "model_cost_upsert", model, "success", "")
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"model":         model,
+		"endpoint_type": cost.EndpointType,
+	})
 }
 
 func (h *Handler) handleDeleteModelCost(w http.ResponseWriter, r *http.Request) {
@@ -484,12 +522,19 @@ func (h *Handler) handleDeleteModelCost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := store.Delete(model); err != nil {
+	endpointType := r.URL.Query().Get("endpoint_type")
+	var deleteErr error
+	if endpointType != "" {
+		deleteErr = store.DeleteByKey(endpointType, model)
+	} else {
+		deleteErr = store.Delete(model)
+	}
+	if deleteErr != nil {
 		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not found") {
+		if strings.Contains(deleteErr.Error(), "not found") {
 			status = http.StatusNotFound
 		}
-		writeJSON(w, status, errorResponse(err.Error()))
+		writeJSON(w, status, errorResponse(deleteErr.Error()))
 		return
 	}
 	h.recordAudit(r, "model_cost_delete", model, "success", "")
@@ -584,6 +629,303 @@ func (h *Handler) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(adminUIHTML))
+}
+
+// ===== Target CRUD =====
+
+func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.currentConfig()
+	if err != nil {
+		h.writeInternalError(w, "failed to load config", err)
+		return
+	}
+
+	targets := make([]map[string]any, len(cfg.AzureTargets))
+	for i, t := range cfg.AzureTargets {
+		epType := config.NormalizeEndpointType(t.EndpointType)
+		targets[i] = map[string]any{
+			"name":                     t.Name,
+			"endpoint_type":            epType,
+			"endpoint":                 t.Endpoint,
+			"resource_path_prefix":     t.ResourcePathPrefix,
+			"has_api_key":              t.AzureAPIKey != "",
+			"allow_bearer_passthrough": t.AllowBearer,
+			"allowed_models":           t.AllowedModels,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"targets": targets,
+		"count":   len(targets),
+	})
+}
+
+func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name               string   `json:"name"`
+		EndpointType       string   `json:"endpoint_type"`
+		Endpoint           string   `json:"endpoint"`
+		ResourcePathPrefix string   `json:"resource_path_prefix"`
+		APIKey             string   `json:"api_key"`
+		AllowBearer        bool     `json:"allow_bearer_passthrough"`
+		AllowedModels      []string `json:"allowed_models"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
+		return
+	}
+
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+	epType := config.NormalizeEndpointType(body.EndpointType)
+	if !config.IsValidEndpointType(epType) {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid endpoint_type"))
+		return
+	}
+	endpoint := strings.TrimSpace(body.Endpoint)
+	if endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("endpoint must not be empty"))
+		return
+	}
+	apiKey := strings.TrimSpace(body.APIKey)
+	if apiKey == "" && !body.AllowBearer {
+		writeJSON(w, http.StatusBadRequest, errorResponse("api_key must not be empty when allow_bearer_passthrough is false"))
+		return
+	}
+
+	rpp := strings.TrimSpace(body.ResourcePathPrefix)
+	if epType == config.EndpointTypeAzureOpenAI && rpp == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("resource_path_prefix is required for azure_openai targets"))
+		return
+	}
+
+	cfg, err := h.currentConfig()
+	if err != nil {
+		h.writeInternalError(w, "failed to load config", err)
+		return
+	}
+
+	for _, t := range cfg.AzureTargets {
+		if strings.EqualFold(t.Name, name) {
+			writeJSON(w, http.StatusConflict, errorResponse(fmt.Sprintf("target %q already exists", name)))
+			return
+		}
+	}
+
+	newTarget := config.AzureTarget{
+		Name:               name,
+		EndpointType:       epType,
+		Endpoint:           endpoint,
+		ResourcePathPrefix: rpp,
+		AzureAPIKey:        apiKey,
+		AllowBearer:        body.AllowBearer,
+		AllowedModels:      body.AllowedModels,
+	}
+	cfg.AzureTargets = append(cfg.AzureTargets, newTarget)
+
+	if err := h.saveConfig(cfg); err != nil {
+		h.writeInternalError(w, "failed to save config", err)
+		return
+	}
+
+	if err := h.applyConfigRuntime(cfg); err != nil {
+		h.logger.Warn("target created but runtime apply failed", "error", err)
+	}
+
+	h.recordAudit(r, "create_target", name, "success", "")
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "name": name})
+}
+
+func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+
+	var body struct {
+		EndpointType       string   `json:"endpoint_type"`
+		Endpoint           string   `json:"endpoint"`
+		ResourcePathPrefix string   `json:"resource_path_prefix"`
+		APIKey             *string  `json:"api_key"`
+		AllowBearer        bool     `json:"allow_bearer_passthrough"`
+		AllowedModels      []string `json:"allowed_models"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
+		return
+	}
+
+	cfg, err := h.currentConfig()
+	if err != nil {
+		h.writeInternalError(w, "failed to load config", err)
+		return
+	}
+
+	found := false
+	for i := range cfg.AzureTargets {
+		if strings.EqualFold(cfg.AzureTargets[i].Name, name) {
+			t := &cfg.AzureTargets[i]
+			if body.EndpointType != "" {
+				epType := config.NormalizeEndpointType(body.EndpointType)
+				if !config.IsValidEndpointType(epType) {
+					writeJSON(w, http.StatusBadRequest, errorResponse("invalid endpoint_type"))
+					return
+				}
+				t.EndpointType = epType
+			}
+			if body.Endpoint != "" {
+				t.Endpoint = strings.TrimSpace(body.Endpoint)
+			}
+			t.ResourcePathPrefix = strings.TrimSpace(body.ResourcePathPrefix)
+			if body.APIKey != nil {
+				t.AzureAPIKey = strings.TrimSpace(*body.APIKey)
+			}
+			t.AllowBearer = body.AllowBearer
+			t.AllowedModels = body.AllowedModels
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		writeJSON(w, http.StatusNotFound, errorResponse(fmt.Sprintf("target %q not found", name)))
+		return
+	}
+
+	if err := h.saveConfig(cfg); err != nil {
+		h.writeInternalError(w, "failed to save config", err)
+		return
+	}
+
+	if err := h.applyConfigRuntime(cfg); err != nil {
+		h.logger.Warn("target updated but runtime apply failed", "error", err)
+	}
+
+	h.recordAudit(r, "update_target", name, "success", "")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+
+	cfg, err := h.currentConfig()
+	if err != nil {
+		h.writeInternalError(w, "failed to load config", err)
+		return
+	}
+
+	next := make([]config.AzureTarget, 0, len(cfg.AzureTargets))
+	found := false
+	for _, t := range cfg.AzureTargets {
+		if strings.EqualFold(t.Name, name) {
+			found = true
+			continue
+		}
+		next = append(next, t)
+	}
+
+	if !found {
+		writeJSON(w, http.StatusNotFound, errorResponse(fmt.Sprintf("target %q not found", name)))
+		return
+	}
+
+	cfg.AzureTargets = next
+
+	if err := h.saveConfig(cfg); err != nil {
+		h.writeInternalError(w, "failed to save config", err)
+		return
+	}
+
+	if err := h.applyConfigRuntime(cfg); err != nil {
+		h.logger.Warn("target deleted but runtime apply failed", "error", err)
+	}
+
+	h.recordAudit(r, "delete_target", name, "success", "")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) saveConfig(cfg *config.Config) error {
+	path := h.configManager.Path()
+	payload, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	payload = append(payload, '\n')
+
+	dir := filepath.Dir(path)
+	tmp := filepath.Join(dir, ".config.tmp")
+	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
+		return fmt.Errorf("write temp config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename config: %w", err)
+	}
+
+	h.configManager.Replace(cfg)
+	return nil
+}
+
+func (h *Handler) applyConfigRuntime(cfg *config.Config) error {
+	clientStore := nosql.NewClientStore(cfg.DataFiles.ClientsFile)
+	clients, err := clientStore.List()
+	if err != nil {
+		return fmt.Errorf("load clients: %w", err)
+	}
+
+	if err := h.proxyService.ApplyConfig(cfg); err != nil {
+		return fmt.Errorf("apply proxy config: %w", err)
+	}
+
+	if err := h.authStore.LoadFromConfig(clients); err != nil {
+		return fmt.Errorf("apply auth config: %w", err)
+	}
+
+	return nil
+}
+
+// ===== Catalog API =====
+
+func (h *Handler) handleListCatalog(w http.ResponseWriter, r *http.Request) {
+	if h.modelCatalog == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"models": []any{}, "count": 0})
+		return
+	}
+
+	epType := r.URL.Query().Get("endpoint_type")
+	var models []catalog.ModelEntry
+	if epType != "" {
+		models = h.modelCatalog.ListByEndpointType(epType)
+	} else {
+		models = h.modelCatalog.ListAll()
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"models": models,
+		"count":  len(models),
+	})
+}
+
+func (h *Handler) handleListCatalogByType(w http.ResponseWriter, r *http.Request) {
+	if h.modelCatalog == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"models": []any{}, "count": 0})
+		return
+	}
+
+	epType := chi.URLParam(r, "endpoint_type")
+	models := h.modelCatalog.ListByEndpointType(epType)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"models": models,
+		"count":  len(models),
+	})
 }
 
 func (h *Handler) currentConfig() (*config.Config, error) {
@@ -719,17 +1061,24 @@ func parseTimeValue(raw string) (*time.Time, error) {
 }
 
 func toUsageCostTable(costs []nosql.ModelCost) usage.CostTable {
-	table := make(usage.CostTable, len(costs))
+	table := make(usage.CostTable, len(costs)*2)
 	for _, cost := range costs {
-		key := strings.ToLower(strings.TrimSpace(cost.Model))
-		if key == "" {
+		model := strings.ToLower(strings.TrimSpace(cost.Model))
+		epType := strings.ToLower(strings.TrimSpace(cost.EndpointType))
+		if model == "" {
 			continue
 		}
-		table[key] = usage.CostRates{
+		rates := usage.CostRates{
 			InputPer1KTokens:      cost.InputPer1KTokens,
 			OutputPer1KTokens:     cost.OutputPer1KTokens,
 			CachedInputPer1KToken: cost.CachedInputPer1KToken,
 		}
+		// Exact key: endpoint_type:model
+		if epType != "" {
+			table[epType+":"+model] = rates
+		}
+		// Fallback key: model (backward compat, last-write-wins)
+		table[model] = rates
 	}
 	return table
 }
