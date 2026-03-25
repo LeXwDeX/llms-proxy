@@ -39,11 +39,11 @@ type Filter struct {
 	Limit      int
 }
 
-// CostRates maps model to token prices (per 1k tokens).
+// CostRates maps model to token prices (per 1M tokens).
 type CostRates struct {
-	InputPer1KTokens      float64
-	OutputPer1KTokens     float64
-	CachedInputPer1KToken float64
+	InputPer1MTokens      float64
+	OutputPer1MTokens     float64
+	CachedInputPer1MToken float64
 }
 
 // CostTable holds rates by "endpoint_type:model" key, falling back to "model" for backward compat.
@@ -455,7 +455,7 @@ func estimateEventCost(evt Event, costs CostTable) float64 {
 	if !ok {
 		return 0
 	}
-	return float64(evt.InputTokens)/1000*rate.InputPer1KTokens +
-		float64(evt.OutputTokens)/1000*rate.OutputPer1KTokens +
-		float64(evt.CachedTokens)/1000*rate.CachedInputPer1KToken
+	return float64(evt.InputTokens)/1_000_000*rate.InputPer1MTokens +
+		float64(evt.OutputTokens)/1_000_000*rate.OutputPer1MTokens +
+		float64(evt.CachedTokens)/1_000_000*rate.CachedInputPer1MToken
 }

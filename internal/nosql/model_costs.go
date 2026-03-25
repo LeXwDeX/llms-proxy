@@ -12,13 +12,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// ModelCost defines token pricing (per 1k tokens).
+// ModelCost defines token pricing (per 1M tokens).
 type ModelCost struct {
 	EndpointType          string  `json:"endpoint_type,omitempty"`
 	Model                 string  `json:"model"`
-	InputPer1KTokens      float64 `json:"input_per_1k_tokens"`
-	OutputPer1KTokens     float64 `json:"output_per_1k_tokens"`
-	CachedInputPer1KToken float64 `json:"cached_input_per_1k_tokens"`
+	InputPer1MTokens      float64 `json:"input_per_1m_tokens"`
+	OutputPer1MTokens     float64 `json:"output_per_1m_tokens"`
+	CachedInputPer1MToken float64 `json:"cached_input_per_1m_tokens"`
 }
 
 // ModelCostStore manages model costs backed by JSON file.
@@ -222,7 +222,7 @@ func validateCost(cost ModelCost) error {
 	if strings.TrimSpace(cost.Model) == "" {
 		return errors.New("model must not be empty")
 	}
-	if cost.InputPer1KTokens < 0 || cost.OutputPer1KTokens < 0 || cost.CachedInputPer1KToken < 0 {
+	if cost.InputPer1MTokens < 0 || cost.OutputPer1MTokens < 0 || cost.CachedInputPer1MToken < 0 {
 		return errors.New("token costs must be non-negative")
 	}
 	return nil

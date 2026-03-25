@@ -9,10 +9,10 @@ func TestModelCostStoreUpsertAndDelete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "model_costs.json")
 	store := NewModelCostStore(path)
 
-	if err := store.Upsert(ModelCost{Model: "gpt-4o", InputPer1KTokens: 0.1, OutputPer1KTokens: 0.2}); err != nil {
+	if err := store.Upsert(ModelCost{Model: "gpt-4o", InputPer1MTokens: 0.1, OutputPer1MTokens: 0.2}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if err := store.Upsert(ModelCost{Model: "gpt-4o", InputPer1KTokens: 0.3, OutputPer1KTokens: 0.4}); err != nil {
+	if err := store.Upsert(ModelCost{Model: "gpt-4o", InputPer1MTokens: 0.3, OutputPer1MTokens: 0.4}); err != nil {
 		t.Fatalf("upsert replace: %v", err)
 	}
 
@@ -20,7 +20,7 @@ func TestModelCostStoreUpsertAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(items) != 1 || items[0].InputPer1KTokens != 0.3 {
+	if len(items) != 1 || items[0].InputPer1MTokens != 0.3 {
 		t.Fatalf("unexpected costs: %+v", items)
 	}
 
@@ -42,10 +42,10 @@ func TestModelCostStoreEndpointTypeDimension(t *testing.T) {
 	store := NewModelCostStore(path)
 
 	// Upsert same model with different endpoint types
-	if err := store.Upsert(ModelCost{EndpointType: "azure_openai", Model: "gpt-4o", InputPer1KTokens: 0.1}); err != nil {
+	if err := store.Upsert(ModelCost{EndpointType: "azure_openai", Model: "gpt-4o", InputPer1MTokens: 0.1}); err != nil {
 		t.Fatalf("upsert azure: %v", err)
 	}
-	if err := store.Upsert(ModelCost{EndpointType: "openai", Model: "gpt-4o", InputPer1KTokens: 0.5}); err != nil {
+	if err := store.Upsert(ModelCost{EndpointType: "openai", Model: "gpt-4o", InputPer1MTokens: 0.5}); err != nil {
 		t.Fatalf("upsert openai: %v", err)
 	}
 
@@ -58,7 +58,7 @@ func TestModelCostStoreEndpointTypeDimension(t *testing.T) {
 	}
 
 	// Upsert should replace only the matching endpoint_type + model
-	if err := store.Upsert(ModelCost{EndpointType: "openai", Model: "gpt-4o", InputPer1KTokens: 0.9}); err != nil {
+	if err := store.Upsert(ModelCost{EndpointType: "openai", Model: "gpt-4o", InputPer1MTokens: 0.9}); err != nil {
 		t.Fatalf("upsert replace openai: %v", err)
 	}
 	items, err = store.List()
@@ -69,8 +69,8 @@ func TestModelCostStoreEndpointTypeDimension(t *testing.T) {
 		t.Fatalf("expected 2 costs after replace, got %d", len(items))
 	}
 	for _, item := range items {
-		if item.EndpointType == "openai" && item.InputPer1KTokens != 0.9 {
-			t.Fatalf("expected openai cost to be updated to 0.9, got %f", item.InputPer1KTokens)
+		if item.EndpointType == "openai" && item.InputPer1MTokens != 0.9 {
+			t.Fatalf("expected openai cost to be updated to 0.9, got %f", item.InputPer1MTokens)
 		}
 	}
 
@@ -95,7 +95,7 @@ func TestModelCostStoreEmptyEndpointTypeDefaultsToAzureOpenAI(t *testing.T) {
 	store := NewModelCostStore(path)
 
 	// Empty endpoint_type should default to azure_openai
-	if err := store.Upsert(ModelCost{Model: "gpt-4o", InputPer1KTokens: 0.1}); err != nil {
+	if err := store.Upsert(ModelCost{Model: "gpt-4o", InputPer1MTokens: 0.1}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 

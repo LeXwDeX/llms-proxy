@@ -165,9 +165,9 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
   ```json
   {
     "endpoint_type": "openai",
-    "input_per_1k_tokens": 0.005,
-    "output_per_1k_tokens": 0.015,
-    "cached_input_per_1k_tokens": 0.0025
+    "input_per_1m_tokens": 5,
+    "output_per_1m_tokens": 15,
+    "cached_input_per_1m_tokens": 2.5
   }
   ```
 - Response: `{"ok": true, "model": "<model>", "endpoint_type": "<type>"}`.
@@ -246,9 +246,9 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
         "aliases": ["gpt-4o-2024-05-13"],
         "capabilities": ["chat", "vision"],
         "default_cost": {
-          "input_per_1k_tokens": 0.005,
-          "output_per_1k_tokens": 0.015,
-          "cached_input_per_1k_tokens": 0.0025
+          "input_per_1m_tokens": 5,
+          "output_per_1m_tokens": 15,
+          "cached_input_per_1m_tokens": 2.5
         }
       }
     ],

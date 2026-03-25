@@ -34,12 +34,12 @@ type ModelEntry struct {
 	DefaultCost  *Cost    `json:"default_cost,omitempty"`
 }
 
-// Cost 表示模型默认费用（每 1K tokens，单位 USD）。
+// Cost 表示模型默认费用（每 1M tokens，单位 USD）。
 // 数据为估算参考值，来源于公开定价信息。
 type Cost struct {
-	InputPer1KTokens      float64 `json:"input_per_1k_tokens"`
-	OutputPer1KTokens     float64 `json:"output_per_1k_tokens"`
-	CachedInputPer1KToken float64 `json:"cached_input_per_1k_tokens"`
+	InputPer1MTokens      float64 `json:"input_per_1m_tokens"`
+	OutputPer1MTokens     float64 `json:"output_per_1m_tokens"`
+	CachedInputPer1MToken float64 `json:"cached_input_per_1m_tokens"`
 }
 
 // Catalog 是内存中的模型目录，支持按 endpoint_type + model 精确查找和别名查找。

@@ -4,9 +4,9 @@
     "model": "claude-haiku-4-5",
     "display_name": "Claude Haiku 4.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.001,
-      "output_per_1k_tokens": 0.005,
-      "cached_input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 1.0,
+      "output_per_1m_tokens": 5.0,
+      "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
       "vision",
@@ -20,9 +20,9 @@
     "model": "claude-opus-4-1",
     "display_name": "Claude Opus 4.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.075,
-      "cached_input_per_1k_tokens": 0.0015
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 75.0,
+      "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
       "vision",
@@ -36,9 +36,9 @@
     "model": "claude-opus-4-5",
     "display_name": "Claude Opus 4.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.025,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 25.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -51,9 +51,9 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.025,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 25.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -66,9 +66,9 @@
     "model": "claude-sonnet-4-5",
     "display_name": "Claude Sonnet 4.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -82,8 +82,8 @@
     "model": "codestral-2501",
     "display_name": "Codestral 25.01",
     "default_cost": {
-      "input_per_1k_tokens": 0.0003,
-      "output_per_1k_tokens": 0.0009
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 0.9
     },
     "capabilities": [
       "function_calling"
@@ -94,9 +94,9 @@
     "model": "codex-mini",
     "display_name": "Codex Mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0015,
-      "output_per_1k_tokens": 0.006,
-      "cached_input_per_1k_tokens": 0.000375
+      "input_per_1m_tokens": 1.5,
+      "output_per_1m_tokens": 6.0,
+      "cached_input_per_1m_tokens": 0.375
     },
     "capabilities": [
       "function_calling",
@@ -108,8 +108,8 @@
     "model": "cohere-command-a",
     "display_name": "Command A",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.01
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 10.0
     },
     "capabilities": [
       "function_calling",
@@ -121,8 +121,8 @@
     "model": "cohere-command-r-08-2024",
     "display_name": "Command R",
     "default_cost": {
-      "input_per_1k_tokens": 0.00015,
-      "output_per_1k_tokens": 0.0006
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.6
     },
     "capabilities": [
       "function_calling"
@@ -133,8 +133,8 @@
     "model": "cohere-command-r-plus-08-2024",
     "display_name": "Command R+",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.01
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 10.0
     },
     "capabilities": [
       "function_calling"
@@ -145,7 +145,7 @@
     "model": "cohere-embed-v-4-0",
     "display_name": "Embed v4",
     "default_cost": {
-      "input_per_1k_tokens": 0.00012
+      "input_per_1m_tokens": 0.12
     },
     "capabilities": [
       "vision"
@@ -156,7 +156,7 @@
     "model": "cohere-embed-v3-english",
     "display_name": "Embed v3 English",
     "default_cost": {
-      "input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 0.1
     }
   },
   {
@@ -164,7 +164,7 @@
     "model": "cohere-embed-v3-multilingual",
     "display_name": "Embed v3 Multilingual",
     "default_cost": {
-      "input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 0.1
     }
   },
   {
@@ -172,8 +172,8 @@
     "model": "dall-e-2",
     "display_name": "DALL·E 2",
     "default_cost": {
-      "input_per_1k_tokens": 0.02,
-      "output_per_1k_tokens": 0.02
+      "input_per_1m_tokens": 20.0,
+      "output_per_1m_tokens": 20.0
     },
     "capabilities": [
       "image_generation"
@@ -184,8 +184,8 @@
     "model": "dall-e-3",
     "display_name": "DALL·E 3",
     "default_cost": {
-      "input_per_1k_tokens": 0.04,
-      "output_per_1k_tokens": 0.08
+      "input_per_1m_tokens": 40.0,
+      "output_per_1m_tokens": 80.0
     },
     "capabilities": [
       "image_generation"
@@ -195,8 +195,8 @@
     "endpoint_type": "azure_openai",
     "model": "deepseek-r1",
     "default_cost": {
-      "input_per_1k_tokens": 0.00135,
-      "output_per_1k_tokens": 0.0054
+      "input_per_1m_tokens": 1.35,
+      "output_per_1m_tokens": 5.4
     },
     "capabilities": [
       "reasoning"
@@ -206,8 +206,8 @@
     "endpoint_type": "azure_openai",
     "model": "deepseek-r1-0528",
     "default_cost": {
-      "input_per_1k_tokens": 0.00135,
-      "output_per_1k_tokens": 0.0054
+      "input_per_1m_tokens": 1.35,
+      "output_per_1m_tokens": 5.4
     },
     "capabilities": [
       "function_calling",
@@ -218,8 +218,8 @@
     "endpoint_type": "azure_openai",
     "model": "deepseek-v3-0324",
     "default_cost": {
-      "input_per_1k_tokens": 0.00114,
-      "output_per_1k_tokens": 0.00456
+      "input_per_1m_tokens": 1.14,
+      "output_per_1m_tokens": 4.56
     },
     "capabilities": [
       "function_calling"
@@ -229,8 +229,8 @@
     "endpoint_type": "azure_openai",
     "model": "deepseek-v3.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.00056,
-      "output_per_1k_tokens": 0.00168
+      "input_per_1m_tokens": 0.56,
+      "output_per_1m_tokens": 1.68
     },
     "capabilities": [
       "function_calling",
@@ -241,8 +241,8 @@
     "endpoint_type": "azure_openai",
     "model": "deepseek-v3.2",
     "default_cost": {
-      "input_per_1k_tokens": 0.00058,
-      "output_per_1k_tokens": 0.00168
+      "input_per_1m_tokens": 0.58,
+      "output_per_1m_tokens": 1.68
     },
     "capabilities": [
       "function_calling",
@@ -253,8 +253,8 @@
     "endpoint_type": "azure_openai",
     "model": "deepseek-v3.2-speciale",
     "default_cost": {
-      "input_per_1k_tokens": 0.00058,
-      "output_per_1k_tokens": 0.00168
+      "input_per_1m_tokens": 0.58,
+      "output_per_1m_tokens": 1.68
     },
     "capabilities": [
       "reasoning"
@@ -265,8 +265,8 @@
     "model": "gpt-3.5-turbo-0125",
     "display_name": "GPT-3.5 Turbo 0125",
     "default_cost": {
-      "input_per_1k_tokens": 0.0005,
-      "output_per_1k_tokens": 0.0015
+      "input_per_1m_tokens": 0.5,
+      "output_per_1m_tokens": 1.5
     }
   },
   {
@@ -274,8 +274,8 @@
     "model": "gpt-3.5-turbo-0301",
     "display_name": "GPT-3.5 Turbo 0301",
     "default_cost": {
-      "input_per_1k_tokens": 0.0015,
-      "output_per_1k_tokens": 0.002
+      "input_per_1m_tokens": 1.5,
+      "output_per_1m_tokens": 2.0
     }
   },
   {
@@ -283,8 +283,8 @@
     "model": "gpt-3.5-turbo-0613",
     "display_name": "GPT-3.5 Turbo 0613",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.004
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 4.0
     }
   },
   {
@@ -292,8 +292,8 @@
     "model": "gpt-3.5-turbo-1106",
     "display_name": "GPT-3.5 Turbo 1106",
     "default_cost": {
-      "input_per_1k_tokens": 0.001,
-      "output_per_1k_tokens": 0.002
+      "input_per_1m_tokens": 1.0,
+      "output_per_1m_tokens": 2.0
     }
   },
   {
@@ -301,16 +301,16 @@
     "model": "gpt-3.5-turbo-instruct",
     "display_name": "GPT-3.5 Turbo Instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.0015,
-      "output_per_1k_tokens": 0.002
+      "input_per_1m_tokens": 1.5,
+      "output_per_1m_tokens": 2.0
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "gpt-4",
     "default_cost": {
-      "input_per_1k_tokens": 0.06,
-      "output_per_1k_tokens": 0.12
+      "input_per_1m_tokens": 60.0,
+      "output_per_1m_tokens": 120.0
     },
     "capabilities": [
       "function_calling"
@@ -321,8 +321,8 @@
     "model": "gpt-4-32k",
     "display_name": "GPT-4 32K",
     "default_cost": {
-      "input_per_1k_tokens": 0.06,
-      "output_per_1k_tokens": 0.12
+      "input_per_1m_tokens": 60.0,
+      "output_per_1m_tokens": 120.0
     },
     "capabilities": [
       "function_calling"
@@ -333,8 +333,8 @@
     "model": "gpt-4-turbo",
     "display_name": "GPT-4 Turbo",
     "default_cost": {
-      "input_per_1k_tokens": 0.01,
-      "output_per_1k_tokens": 0.03
+      "input_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 30.0
     },
     "capabilities": [
       "vision",
@@ -346,8 +346,8 @@
     "model": "gpt-4-turbo-vision",
     "display_name": "GPT-4 Turbo Vision",
     "default_cost": {
-      "input_per_1k_tokens": 0.01,
-      "output_per_1k_tokens": 0.03
+      "input_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 30.0
     },
     "capabilities": [
       "vision",
@@ -358,9 +358,9 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-4.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.002,
-      "output_per_1k_tokens": 0.008,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 8.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -372,9 +372,9 @@
     "model": "gpt-4.1-mini",
     "display_name": "GPT-4.1 mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0004,
-      "output_per_1k_tokens": 0.0016,
-      "cached_input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 0.4,
+      "output_per_1m_tokens": 1.6,
+      "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
       "vision",
@@ -386,9 +386,9 @@
     "model": "gpt-4.1-nano",
     "display_name": "GPT-4.1 nano",
     "default_cost": {
-      "input_per_1k_tokens": 0.0001,
-      "output_per_1k_tokens": 0.0004,
-      "cached_input_per_1k_tokens": 3e-05
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.03
     },
     "capabilities": [
       "vision",
@@ -399,9 +399,9 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-4o",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00125
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
       "vision",
@@ -413,9 +413,9 @@
     "model": "gpt-4o-mini",
     "display_name": "GPT-4o mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00015,
-      "output_per_1k_tokens": 0.0006,
-      "cached_input_per_1k_tokens": 8e-05
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.6,
+      "cached_input_per_1m_tokens": 0.08
     },
     "capabilities": [
       "vision",
@@ -426,9 +426,9 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-5",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00013
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
       "vision",
@@ -441,9 +441,9 @@
     "model": "gpt-5-chat",
     "display_name": "GPT-5 Chat",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00013
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
       "vision",
@@ -454,9 +454,9 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-5-codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00013
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
       "vision",
@@ -469,9 +469,9 @@
     "model": "gpt-5-mini",
     "display_name": "GPT-5 Mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00025,
-      "output_per_1k_tokens": 0.002,
-      "cached_input_per_1k_tokens": 3e-05
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 2.0,
+      "cached_input_per_1m_tokens": 0.03
     },
     "capabilities": [
       "vision",
@@ -484,9 +484,9 @@
     "model": "gpt-5-nano",
     "display_name": "GPT-5 Nano",
     "default_cost": {
-      "input_per_1k_tokens": 5e-05,
-      "output_per_1k_tokens": 0.0004,
-      "cached_input_per_1k_tokens": 1e-05
+      "input_per_1m_tokens": 0.05,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.01
     },
     "capabilities": [
       "vision",
@@ -499,8 +499,8 @@
     "model": "gpt-5-pro",
     "display_name": "GPT-5 Pro",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.12
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 120.0
     },
     "capabilities": [
       "vision",
@@ -513,9 +513,9 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-5.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -532,9 +532,9 @@
     "model": "gpt-5.1-chat",
     "display_name": "GPT-5.1 Chat",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -551,9 +551,9 @@
     "model": "gpt-5.1-codex",
     "display_name": "GPT-5.1 Codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -570,9 +570,9 @@
     "model": "gpt-5.1-codex-max",
     "display_name": "GPT-5.1 Codex Max",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -586,9 +586,9 @@
     "model": "gpt-5.1-codex-mini",
     "display_name": "GPT-5.1 Codex Mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00025,
-      "output_per_1k_tokens": 0.002,
-      "cached_input_per_1k_tokens": 2.5e-05
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 2.0,
+      "cached_input_per_1m_tokens": 0.025
     },
     "capabilities": [
       "vision",
@@ -601,9 +601,9 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-5.2",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -617,9 +617,9 @@
     "model": "gpt-5.2-chat",
     "display_name": "GPT-5.2 Chat",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -633,9 +633,9 @@
     "model": "gpt-5.2-codex",
     "display_name": "GPT-5.2 Codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -649,9 +649,9 @@
     "model": "gpt-5.3-chat",
     "display_name": "GPT-5.3 Chat",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -665,9 +665,9 @@
     "model": "gpt-5.3-codex",
     "display_name": "GPT-5.3 Codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -680,9 +680,9 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-5.4",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.00025
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.25
     },
     "capabilities": [
       "vision",
@@ -696,9 +696,9 @@
     "model": "gpt-5.4-mini",
     "display_name": "GPT-5.4 Mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00075,
-      "output_per_1k_tokens": 0.0045,
-      "cached_input_per_1k_tokens": 7.5e-05
+      "input_per_1m_tokens": 0.75,
+      "output_per_1m_tokens": 4.5,
+      "cached_input_per_1m_tokens": 0.075
     },
     "capabilities": [
       "vision",
@@ -712,9 +712,9 @@
     "model": "gpt-5.4-nano",
     "display_name": "GPT-5.4 Nano",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.00125,
-      "cached_input_per_1k_tokens": 2e-05
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 1.25,
+      "cached_input_per_1m_tokens": 0.02
     },
     "capabilities": [
       "vision",
@@ -728,8 +728,8 @@
     "model": "gpt-5.4-pro",
     "display_name": "GPT-5.4 Pro",
     "default_cost": {
-      "input_per_1k_tokens": 0.03,
-      "output_per_1k_tokens": 0.18
+      "input_per_1m_tokens": 30.0,
+      "output_per_1m_tokens": 180.0
     },
     "capabilities": [
       "vision",
@@ -742,8 +742,8 @@
     "model": "gpt-image-1",
     "display_name": "GPT Image 1",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.04
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 40.0
     },
     "capabilities": [
       "image_generation"
@@ -754,8 +754,8 @@
     "model": "gpt-image-1.5",
     "display_name": "GPT Image 1.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.04
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 40.0
     },
     "capabilities": [
       "image_generation"
@@ -766,9 +766,9 @@
     "model": "grok-3",
     "display_name": "Grok 3",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.00075
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.75
     },
     "capabilities": [
       "function_calling"
@@ -779,9 +779,9 @@
     "model": "grok-3-mini",
     "display_name": "Grok 3 Mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0003,
-      "output_per_1k_tokens": 0.0005,
-      "cached_input_per_1k_tokens": 7.5e-05
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 0.5,
+      "cached_input_per_1m_tokens": 0.075
     },
     "capabilities": [
       "function_calling",
@@ -793,9 +793,9 @@
     "model": "grok-4",
     "display_name": "Grok 4",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.00075
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.75
     },
     "capabilities": [
       "function_calling",
@@ -807,9 +807,9 @@
     "model": "grok-4-1-fast-non-reasoning",
     "display_name": "Grok 4.1 Fast (Non-Reasoning)",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.0005,
-      "cached_input_per_1k_tokens": 5e-05
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 0.5,
+      "cached_input_per_1m_tokens": 0.05
     },
     "capabilities": [
       "vision",
@@ -821,9 +821,9 @@
     "model": "grok-4-1-fast-reasoning",
     "display_name": "Grok 4.1 Fast (Reasoning)",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.0005,
-      "cached_input_per_1k_tokens": 5e-05
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 0.5,
+      "cached_input_per_1m_tokens": 0.05
     },
     "capabilities": [
       "vision",
@@ -836,9 +836,9 @@
     "model": "grok-4-fast-non-reasoning",
     "display_name": "Grok 4 Fast (Non-Reasoning)",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.0005,
-      "cached_input_per_1k_tokens": 5e-05
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 0.5,
+      "cached_input_per_1m_tokens": 0.05
     },
     "capabilities": [
       "vision",
@@ -850,9 +850,9 @@
     "model": "grok-4-fast-reasoning",
     "display_name": "Grok 4 Fast (Reasoning)",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.0005,
-      "cached_input_per_1k_tokens": 5e-05
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 0.5,
+      "cached_input_per_1m_tokens": 0.05
     },
     "capabilities": [
       "vision",
@@ -865,9 +865,9 @@
     "model": "grok-code-fast-1",
     "display_name": "Grok Code Fast 1",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.0015,
-      "cached_input_per_1k_tokens": 2e-05
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 1.5,
+      "cached_input_per_1m_tokens": 0.02
     },
     "capabilities": [
       "function_calling",
@@ -879,9 +879,9 @@
     "model": "kimi-k2-thinking",
     "display_name": "Kimi K2 Thinking",
     "default_cost": {
-      "input_per_1k_tokens": 0.0006,
-      "output_per_1k_tokens": 0.0025,
-      "cached_input_per_1k_tokens": 0.00015
+      "input_per_1m_tokens": 0.6,
+      "output_per_1m_tokens": 2.5,
+      "cached_input_per_1m_tokens": 0.15
     },
     "capabilities": [
       "function_calling",
@@ -893,8 +893,8 @@
     "model": "kimi-k2.5",
     "display_name": "Kimi K2.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.0006,
-      "output_per_1k_tokens": 0.003
+      "input_per_1m_tokens": 0.6,
+      "output_per_1m_tokens": 3.0
     },
     "capabilities": [
       "vision",
@@ -907,8 +907,8 @@
     "endpoint_type": "azure_openai",
     "model": "llama-3.2-11b-vision-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00037,
-      "output_per_1k_tokens": 0.00037
+      "input_per_1m_tokens": 0.37,
+      "output_per_1m_tokens": 0.37
     },
     "capabilities": [
       "vision",
@@ -919,8 +919,8 @@
     "endpoint_type": "azure_openai",
     "model": "llama-3.2-90b-vision-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00204,
-      "output_per_1k_tokens": 0.00204
+      "input_per_1m_tokens": 2.04,
+      "output_per_1m_tokens": 2.04
     },
     "capabilities": [
       "vision",
@@ -931,8 +931,8 @@
     "endpoint_type": "azure_openai",
     "model": "llama-3.3-70b-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00071,
-      "output_per_1k_tokens": 0.00071
+      "input_per_1m_tokens": 0.71,
+      "output_per_1m_tokens": 0.71
     },
     "capabilities": [
       "function_calling"
@@ -943,8 +943,8 @@
     "model": "llama-4-maverick-17b-128e-instruct-fp8",
     "display_name": "Llama 4 Maverick 17B 128E Instruct FP8",
     "default_cost": {
-      "input_per_1k_tokens": 0.00025,
-      "output_per_1k_tokens": 0.001
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 1.0
     },
     "capabilities": [
       "vision",
@@ -956,8 +956,8 @@
     "model": "llama-4-scout-17b-16e-instruct",
     "display_name": "Llama 4 Scout 17B 16E Instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.00078
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 0.78
     },
     "capabilities": [
       "vision",
@@ -968,8 +968,8 @@
     "endpoint_type": "azure_openai",
     "model": "mai-ds-r1",
     "default_cost": {
-      "input_per_1k_tokens": 0.00135,
-      "output_per_1k_tokens": 0.0054
+      "input_per_1m_tokens": 1.35,
+      "output_per_1m_tokens": 5.4
     },
     "capabilities": [
       "reasoning"
@@ -979,24 +979,24 @@
     "endpoint_type": "azure_openai",
     "model": "meta-llama-3-70b-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00268,
-      "output_per_1k_tokens": 0.00354
+      "input_per_1m_tokens": 2.68,
+      "output_per_1m_tokens": 3.54
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "meta-llama-3-8b-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.0003,
-      "output_per_1k_tokens": 0.00061
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 0.61
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "meta-llama-3.1-405b-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00533,
-      "output_per_1k_tokens": 0.016
+      "input_per_1m_tokens": 5.33,
+      "output_per_1m_tokens": 16.0
     },
     "capabilities": [
       "function_calling"
@@ -1006,8 +1006,8 @@
     "endpoint_type": "azure_openai",
     "model": "meta-llama-3.1-70b-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00268,
-      "output_per_1k_tokens": 0.00354
+      "input_per_1m_tokens": 2.68,
+      "output_per_1m_tokens": 3.54
     },
     "capabilities": [
       "function_calling"
@@ -1017,8 +1017,8 @@
     "endpoint_type": "azure_openai",
     "model": "meta-llama-3.1-8b-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.0003,
-      "output_per_1k_tokens": 0.00061
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 0.61
     },
     "capabilities": [
       "function_calling"
@@ -1029,8 +1029,8 @@
     "model": "ministral-3b",
     "display_name": "Ministral 3B",
     "default_cost": {
-      "input_per_1k_tokens": 4e-05,
-      "output_per_1k_tokens": 4e-05
+      "input_per_1m_tokens": 0.04,
+      "output_per_1m_tokens": 0.04
     },
     "capabilities": [
       "function_calling"
@@ -1041,8 +1041,8 @@
     "model": "mistral-large-2411",
     "display_name": "Mistral Large 24.11",
     "default_cost": {
-      "input_per_1k_tokens": 0.002,
-      "output_per_1k_tokens": 0.006
+      "input_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 6.0
     },
     "capabilities": [
       "function_calling"
@@ -1053,8 +1053,8 @@
     "model": "mistral-medium-2505",
     "display_name": "Mistral Medium 3",
     "default_cost": {
-      "input_per_1k_tokens": 0.0004,
-      "output_per_1k_tokens": 0.002
+      "input_per_1m_tokens": 0.4,
+      "output_per_1m_tokens": 2.0
     },
     "capabilities": [
       "vision",
@@ -1066,8 +1066,8 @@
     "model": "mistral-nemo",
     "display_name": "Mistral Nemo",
     "default_cost": {
-      "input_per_1k_tokens": 0.00015,
-      "output_per_1k_tokens": 0.00015
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.15
     },
     "capabilities": [
       "function_calling"
@@ -1078,8 +1078,8 @@
     "model": "mistral-small-2503",
     "display_name": "Mistral Small 3.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.0001,
-      "output_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1091,7 +1091,7 @@
     "model": "model-router",
     "display_name": "Model Router",
     "default_cost": {
-      "input_per_1k_tokens": 0.00014
+      "input_per_1m_tokens": 0.14
     },
     "capabilities": [
       "vision",
@@ -1102,9 +1102,9 @@
     "endpoint_type": "azure_openai",
     "model": "o1",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.06,
-      "cached_input_per_1k_tokens": 0.0075
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 60.0,
+      "cached_input_per_1m_tokens": 7.5
     },
     "capabilities": [
       "vision",
@@ -1116,9 +1116,9 @@
     "endpoint_type": "azure_openai",
     "model": "o1-mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0011,
-      "output_per_1k_tokens": 0.0044,
-      "cached_input_per_1k_tokens": 0.00055
+      "input_per_1m_tokens": 1.1,
+      "output_per_1m_tokens": 4.4,
+      "cached_input_per_1m_tokens": 0.55
     },
     "capabilities": [
       "function_calling",
@@ -1129,9 +1129,9 @@
     "endpoint_type": "azure_openai",
     "model": "o1-preview",
     "default_cost": {
-      "input_per_1k_tokens": 0.0165,
-      "output_per_1k_tokens": 0.066,
-      "cached_input_per_1k_tokens": 0.00825
+      "input_per_1m_tokens": 16.5,
+      "output_per_1m_tokens": 66.0,
+      "cached_input_per_1m_tokens": 8.25
     },
     "capabilities": [
       "function_calling",
@@ -1142,9 +1142,9 @@
     "endpoint_type": "azure_openai",
     "model": "o3",
     "default_cost": {
-      "input_per_1k_tokens": 0.002,
-      "output_per_1k_tokens": 0.008,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 8.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -1156,9 +1156,9 @@
     "endpoint_type": "azure_openai",
     "model": "o3-mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0011,
-      "output_per_1k_tokens": 0.0044,
-      "cached_input_per_1k_tokens": 0.00055
+      "input_per_1m_tokens": 1.1,
+      "output_per_1m_tokens": 4.4,
+      "cached_input_per_1m_tokens": 0.55
     },
     "capabilities": [
       "function_calling",
@@ -1169,9 +1169,9 @@
     "endpoint_type": "azure_openai",
     "model": "o4-mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0011,
-      "output_per_1k_tokens": 0.0044,
-      "cached_input_per_1k_tokens": 0.00028
+      "input_per_1m_tokens": 1.1,
+      "output_per_1m_tokens": 4.4,
+      "cached_input_per_1m_tokens": 0.28
     },
     "capabilities": [
       "vision",
@@ -1184,8 +1184,8 @@
     "model": "phi-3-medium-128k-instruct",
     "display_name": "Phi-3-medium-instruct (128k)",
     "default_cost": {
-      "input_per_1k_tokens": 0.00017,
-      "output_per_1k_tokens": 0.00068
+      "input_per_1m_tokens": 0.17,
+      "output_per_1m_tokens": 0.68
     }
   },
   {
@@ -1193,8 +1193,8 @@
     "model": "phi-3-medium-4k-instruct",
     "display_name": "Phi-3-medium-instruct (4k)",
     "default_cost": {
-      "input_per_1k_tokens": 0.00017,
-      "output_per_1k_tokens": 0.00068
+      "input_per_1m_tokens": 0.17,
+      "output_per_1m_tokens": 0.68
     }
   },
   {
@@ -1202,8 +1202,8 @@
     "model": "phi-3-mini-128k-instruct",
     "display_name": "Phi-3-mini-instruct (128k)",
     "default_cost": {
-      "input_per_1k_tokens": 0.00013,
-      "output_per_1k_tokens": 0.00052
+      "input_per_1m_tokens": 0.13,
+      "output_per_1m_tokens": 0.52
     }
   },
   {
@@ -1211,8 +1211,8 @@
     "model": "phi-3-mini-4k-instruct",
     "display_name": "Phi-3-mini-instruct (4k)",
     "default_cost": {
-      "input_per_1k_tokens": 0.00013,
-      "output_per_1k_tokens": 0.00052
+      "input_per_1m_tokens": 0.13,
+      "output_per_1m_tokens": 0.52
     }
   },
   {
@@ -1220,8 +1220,8 @@
     "model": "phi-3-small-128k-instruct",
     "display_name": "Phi-3-small-instruct (128k)",
     "default_cost": {
-      "input_per_1k_tokens": 0.00015,
-      "output_per_1k_tokens": 0.0006
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.6
     }
   },
   {
@@ -1229,40 +1229,40 @@
     "model": "phi-3-small-8k-instruct",
     "display_name": "Phi-3-small-instruct (8k)",
     "default_cost": {
-      "input_per_1k_tokens": 0.00015,
-      "output_per_1k_tokens": 0.0006
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.6
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "phi-3.5-mini-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00013,
-      "output_per_1k_tokens": 0.00052
+      "input_per_1m_tokens": 0.13,
+      "output_per_1m_tokens": 0.52
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "phi-3.5-moe-instruct",
     "default_cost": {
-      "input_per_1k_tokens": 0.00016,
-      "output_per_1k_tokens": 0.00064
+      "input_per_1m_tokens": 0.16,
+      "output_per_1m_tokens": 0.64
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "phi-4",
     "default_cost": {
-      "input_per_1k_tokens": 0.000125,
-      "output_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 0.125,
+      "output_per_1m_tokens": 0.5
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "phi-4-mini",
     "default_cost": {
-      "input_per_1k_tokens": 7.5e-05,
-      "output_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 0.075,
+      "output_per_1m_tokens": 0.3
     },
     "capabilities": [
       "function_calling"
@@ -1272,8 +1272,8 @@
     "endpoint_type": "azure_openai",
     "model": "phi-4-mini-reasoning",
     "default_cost": {
-      "input_per_1k_tokens": 7.5e-05,
-      "output_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 0.075,
+      "output_per_1m_tokens": 0.3
     },
     "capabilities": [
       "function_calling",
@@ -1284,8 +1284,8 @@
     "endpoint_type": "azure_openai",
     "model": "phi-4-multimodal",
     "default_cost": {
-      "input_per_1k_tokens": 8e-05,
-      "output_per_1k_tokens": 0.00032
+      "input_per_1m_tokens": 0.08,
+      "output_per_1m_tokens": 0.32
     },
     "capabilities": [
       "vision",
@@ -1296,8 +1296,8 @@
     "endpoint_type": "azure_openai",
     "model": "phi-4-reasoning",
     "default_cost": {
-      "input_per_1k_tokens": 0.000125,
-      "output_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 0.125,
+      "output_per_1m_tokens": 0.5
     },
     "capabilities": [
       "reasoning"
@@ -1307,8 +1307,8 @@
     "endpoint_type": "azure_openai",
     "model": "phi-4-reasoning-plus",
     "default_cost": {
-      "input_per_1k_tokens": 0.000125,
-      "output_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 0.125,
+      "output_per_1m_tokens": 0.5
     },
     "capabilities": [
       "reasoning"
@@ -1318,21 +1318,21 @@
     "endpoint_type": "azure_openai",
     "model": "text-embedding-3-large",
     "default_cost": {
-      "input_per_1k_tokens": 0.00013
+      "input_per_1m_tokens": 0.13
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "text-embedding-3-small",
     "default_cost": {
-      "input_per_1k_tokens": 2e-05
+      "input_per_1m_tokens": 0.02
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "text-embedding-ada-002",
     "default_cost": {
-      "input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 0.1
     }
   },
   {
@@ -1340,7 +1340,7 @@
     "model": "tts-1",
     "display_name": "TTS 1",
     "default_cost": {
-      "input_per_1k_tokens": 0.015
+      "input_per_1m_tokens": 15.0
     },
     "capabilities": [
       "audio_output"
@@ -1351,7 +1351,7 @@
     "model": "tts-1-hd",
     "display_name": "TTS 1 HD",
     "default_cost": {
-      "input_per_1k_tokens": 0.03
+      "input_per_1m_tokens": 30.0
     },
     "capabilities": [
       "audio_output"
@@ -1362,7 +1362,7 @@
     "model": "whisper-1",
     "display_name": "Whisper 1",
     "default_cost": {
-      "input_per_1k_tokens": 0.006
+      "input_per_1m_tokens": 6.0
     },
     "capabilities": [
       "audio_input"
@@ -1373,9 +1373,9 @@
     "model": "claude-3-5-haiku-20241022",
     "display_name": "Claude Haiku 3.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.0008,
-      "output_per_1k_tokens": 0.004,
-      "cached_input_per_1k_tokens": 8e-05
+      "input_per_1m_tokens": 0.8,
+      "output_per_1m_tokens": 4.0,
+      "cached_input_per_1m_tokens": 0.08
     },
     "capabilities": [
       "vision",
@@ -1390,9 +1390,9 @@
     "model": "claude-3-5-haiku-latest",
     "display_name": "Claude Haiku 3.5 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.0008,
-      "output_per_1k_tokens": 0.004,
-      "cached_input_per_1k_tokens": 8e-05
+      "input_per_1m_tokens": 0.8,
+      "output_per_1m_tokens": 4.0,
+      "cached_input_per_1m_tokens": 0.08
     },
     "capabilities": [
       "vision",
@@ -1407,9 +1407,9 @@
     "model": "claude-3-5-sonnet-20240620",
     "display_name": "Claude Sonnet 3.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1424,9 +1424,9 @@
     "model": "claude-3-5-sonnet-20241022",
     "display_name": "Claude Sonnet 3.5 v2",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1441,9 +1441,9 @@
     "model": "claude-3-7-sonnet-20250219",
     "display_name": "Claude Sonnet 3.7",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1459,9 +1459,9 @@
     "model": "claude-3-7-sonnet-latest",
     "display_name": "Claude Sonnet 3.7 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1477,9 +1477,9 @@
     "model": "claude-3-haiku-20240307",
     "display_name": "Claude Haiku 3",
     "default_cost": {
-      "input_per_1k_tokens": 0.00025,
-      "output_per_1k_tokens": 0.00125,
-      "cached_input_per_1k_tokens": 3e-05
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 1.25,
+      "cached_input_per_1m_tokens": 0.03
     },
     "capabilities": [
       "vision",
@@ -1491,9 +1491,9 @@
     "model": "claude-3-opus-20240229",
     "display_name": "Claude Opus 3",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.075,
-      "cached_input_per_1k_tokens": 0.0015
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 75.0,
+      "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
       "vision",
@@ -1505,9 +1505,9 @@
     "model": "claude-3-sonnet-20240229",
     "display_name": "Claude Sonnet 3",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1519,9 +1519,9 @@
     "model": "claude-haiku-4-5",
     "display_name": "Claude Haiku 4.5 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.001,
-      "output_per_1k_tokens": 0.005,
-      "cached_input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 1.0,
+      "output_per_1m_tokens": 5.0,
+      "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
       "vision",
@@ -1534,9 +1534,9 @@
     "model": "claude-haiku-4-5-20251001",
     "display_name": "Claude Haiku 4.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.001,
-      "output_per_1k_tokens": 0.005,
-      "cached_input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 1.0,
+      "output_per_1m_tokens": 5.0,
+      "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
       "vision",
@@ -1549,9 +1549,9 @@
     "model": "claude-opus-4-0",
     "display_name": "Claude Opus 4 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.075,
-      "cached_input_per_1k_tokens": 0.0015
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 75.0,
+      "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
       "vision",
@@ -1564,9 +1564,9 @@
     "model": "claude-opus-4-1",
     "display_name": "Claude Opus 4.1 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.075,
-      "cached_input_per_1k_tokens": 0.0015
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 75.0,
+      "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
       "vision",
@@ -1579,9 +1579,9 @@
     "model": "claude-opus-4-1-20250805",
     "display_name": "Claude Opus 4.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.075,
-      "cached_input_per_1k_tokens": 0.0015
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 75.0,
+      "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
       "vision",
@@ -1594,9 +1594,9 @@
     "model": "claude-opus-4-20250514",
     "display_name": "Claude Opus 4",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.075,
-      "cached_input_per_1k_tokens": 0.0015
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 75.0,
+      "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
       "vision",
@@ -1613,9 +1613,9 @@
     "model": "claude-opus-4-5",
     "display_name": "Claude Opus 4.5 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.025,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 25.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -1628,9 +1628,9 @@
     "model": "claude-opus-4-5-20251101",
     "display_name": "Claude Opus 4.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.025,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 25.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -1643,9 +1643,9 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.025,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 25.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -1658,9 +1658,9 @@
     "model": "claude-sonnet-4-0",
     "display_name": "Claude Sonnet 4 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1673,9 +1673,9 @@
     "model": "claude-sonnet-4-20250514",
     "display_name": "Claude Sonnet 4",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1692,9 +1692,9 @@
     "model": "claude-sonnet-4-5",
     "display_name": "Claude Sonnet 4.5 (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1707,9 +1707,9 @@
     "model": "claude-sonnet-4-5-20250929",
     "display_name": "Claude Sonnet 4.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1725,9 +1725,9 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6",
     "default_cost": {
-      "input_per_1k_tokens": 0.003,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.0003
+      "input_per_1m_tokens": 3.0,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
       "vision",
@@ -1740,9 +1740,9 @@
     "model": "codex-mini-latest",
     "display_name": "Codex Mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0015,
-      "output_per_1k_tokens": 0.006,
-      "cached_input_per_1k_tokens": 0.000375
+      "input_per_1m_tokens": 1.5,
+      "output_per_1m_tokens": 6.0,
+      "cached_input_per_1m_tokens": 0.375
     },
     "capabilities": [
       "function_calling",
@@ -1754,8 +1754,8 @@
     "model": "dall-e-2",
     "display_name": "DALL·E 2",
     "default_cost": {
-      "input_per_1k_tokens": 0.02,
-      "output_per_1k_tokens": 0.02
+      "input_per_1m_tokens": 20.0,
+      "output_per_1m_tokens": 20.0
     },
     "capabilities": [
       "image_generation"
@@ -1766,8 +1766,8 @@
     "model": "dall-e-3",
     "display_name": "DALL·E 3",
     "default_cost": {
-      "input_per_1k_tokens": 0.04,
-      "output_per_1k_tokens": 0.08
+      "input_per_1m_tokens": 40.0,
+      "output_per_1m_tokens": 80.0
     },
     "capabilities": [
       "image_generation"
@@ -1777,17 +1777,17 @@
     "endpoint_type": "openai",
     "model": "gpt-3.5-turbo",
     "default_cost": {
-      "input_per_1k_tokens": 0.0005,
-      "output_per_1k_tokens": 0.0015,
-      "cached_input_per_1k_tokens": 0.00125
+      "input_per_1m_tokens": 0.5,
+      "output_per_1m_tokens": 1.5,
+      "cached_input_per_1m_tokens": 1.25
     }
   },
   {
     "endpoint_type": "openai",
     "model": "gpt-4",
     "default_cost": {
-      "input_per_1k_tokens": 0.03,
-      "output_per_1k_tokens": 0.06
+      "input_per_1m_tokens": 30.0,
+      "output_per_1m_tokens": 60.0
     },
     "capabilities": [
       "function_calling"
@@ -1798,8 +1798,8 @@
     "model": "gpt-4-turbo",
     "display_name": "GPT-4 Turbo",
     "default_cost": {
-      "input_per_1k_tokens": 0.01,
-      "output_per_1k_tokens": 0.03
+      "input_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 30.0
     },
     "capabilities": [
       "vision",
@@ -1810,9 +1810,9 @@
     "endpoint_type": "openai",
     "model": "gpt-4.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.002,
-      "output_per_1k_tokens": 0.008,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 8.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -1825,9 +1825,9 @@
     "model": "gpt-4.1-mini",
     "display_name": "GPT-4.1 mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0004,
-      "output_per_1k_tokens": 0.0016,
-      "cached_input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 0.4,
+      "output_per_1m_tokens": 1.6,
+      "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
       "vision",
@@ -1840,9 +1840,9 @@
     "model": "gpt-4.1-nano",
     "display_name": "GPT-4.1 nano",
     "default_cost": {
-      "input_per_1k_tokens": 0.0001,
-      "output_per_1k_tokens": 0.0004,
-      "cached_input_per_1k_tokens": 3e-05
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.03
     },
     "capabilities": [
       "vision",
@@ -1854,9 +1854,9 @@
     "endpoint_type": "openai",
     "model": "gpt-4o",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00125
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
       "vision",
@@ -1869,8 +1869,8 @@
     "model": "gpt-4o-2024-05-13",
     "display_name": "GPT-4o (2024-05-13)",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.015
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 15.0
     },
     "capabilities": [
       "vision",
@@ -1883,9 +1883,9 @@
     "model": "gpt-4o-2024-08-06",
     "display_name": "GPT-4o (2024-08-06)",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00125
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
       "vision",
@@ -1898,9 +1898,9 @@
     "model": "gpt-4o-2024-11-20",
     "display_name": "GPT-4o (2024-11-20)",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00125
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
       "vision",
@@ -1913,9 +1913,9 @@
     "model": "gpt-4o-mini",
     "display_name": "GPT-4o mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00015,
-      "output_per_1k_tokens": 0.0006,
-      "cached_input_per_1k_tokens": 8e-05
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.6,
+      "cached_input_per_1m_tokens": 0.08
     },
     "capabilities": [
       "vision",
@@ -1927,9 +1927,9 @@
     "endpoint_type": "openai",
     "model": "gpt-5",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -1943,8 +1943,8 @@
     "model": "gpt-5-chat-latest",
     "display_name": "GPT-5 Chat (latest)",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0
     },
     "capabilities": [
       "vision",
@@ -1956,9 +1956,9 @@
     "endpoint_type": "openai",
     "model": "gpt-5-codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -1972,9 +1972,9 @@
     "model": "gpt-5-mini",
     "display_name": "GPT-5 Mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00025,
-      "output_per_1k_tokens": 0.002,
-      "cached_input_per_1k_tokens": 2.5e-05
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 2.0,
+      "cached_input_per_1m_tokens": 0.025
     },
     "capabilities": [
       "vision",
@@ -1988,9 +1988,9 @@
     "model": "gpt-5-nano",
     "display_name": "GPT-5 Nano",
     "default_cost": {
-      "input_per_1k_tokens": 5e-05,
-      "output_per_1k_tokens": 0.0004,
-      "cached_input_per_1k_tokens": 5e-06
+      "input_per_1m_tokens": 0.05,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.005
     },
     "capabilities": [
       "vision",
@@ -2004,8 +2004,8 @@
     "model": "gpt-5-pro",
     "display_name": "GPT-5 Pro",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.12
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 120.0
     },
     "capabilities": [
       "vision",
@@ -2018,9 +2018,9 @@
     "endpoint_type": "openai",
     "model": "gpt-5.1",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.00013
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
       "vision",
@@ -2034,9 +2034,9 @@
     "model": "gpt-5.1-chat-latest",
     "display_name": "GPT-5.1 Chat",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -2050,9 +2050,9 @@
     "model": "gpt-5.1-codex",
     "display_name": "GPT-5.1 Codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -2066,9 +2066,9 @@
     "model": "gpt-5.1-codex-max",
     "display_name": "GPT-5.1 Codex Max",
     "default_cost": {
-      "input_per_1k_tokens": 0.00125,
-      "output_per_1k_tokens": 0.01,
-      "cached_input_per_1k_tokens": 0.000125
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10.0,
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -2082,9 +2082,9 @@
     "model": "gpt-5.1-codex-mini",
     "display_name": "GPT-5.1 Codex mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00025,
-      "output_per_1k_tokens": 0.002,
-      "cached_input_per_1k_tokens": 2.5e-05
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 2.0,
+      "cached_input_per_1m_tokens": 0.025
     },
     "capabilities": [
       "vision",
@@ -2097,9 +2097,9 @@
     "endpoint_type": "openai",
     "model": "gpt-5.2",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -2113,9 +2113,9 @@
     "model": "gpt-5.2-chat",
     "display_name": "GPT-5.2 Chat",
     "default_cost": {
-      "input_per_1k_tokens": 0.002,
-      "output_per_1k_tokens": 0.008,
-      "cached_input_per_1k_tokens": 0.0002
+      "input_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 8.0,
+      "cached_input_per_1m_tokens": 0.2
     },
     "capabilities": [
       "vision",
@@ -2128,9 +2128,9 @@
     "model": "gpt-5.2-chat-latest",
     "display_name": "GPT-5.2 Chat",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -2144,9 +2144,9 @@
     "model": "gpt-5.2-codex",
     "display_name": "GPT-5.2 Codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -2160,8 +2160,8 @@
     "model": "gpt-5.2-pro",
     "display_name": "GPT-5.2 Pro",
     "default_cost": {
-      "input_per_1k_tokens": 0.021,
-      "output_per_1k_tokens": 0.168
+      "input_per_1m_tokens": 21.0,
+      "output_per_1m_tokens": 168.0
     },
     "capabilities": [
       "vision",
@@ -2174,9 +2174,9 @@
     "model": "gpt-5.3-codex",
     "display_name": "GPT-5.3 Codex",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -2190,9 +2190,9 @@
     "model": "gpt-5.3-codex-spark",
     "display_name": "GPT-5.3 Codex Spark",
     "default_cost": {
-      "input_per_1k_tokens": 0.00175,
-      "output_per_1k_tokens": 0.014,
-      "cached_input_per_1k_tokens": 0.000175
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14.0,
+      "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
       "vision",
@@ -2205,9 +2205,9 @@
     "endpoint_type": "openai",
     "model": "gpt-5.4",
     "default_cost": {
-      "input_per_1k_tokens": 0.0025,
-      "output_per_1k_tokens": 0.015,
-      "cached_input_per_1k_tokens": 0.00025
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 15.0,
+      "cached_input_per_1m_tokens": 0.25
     },
     "capabilities": [
       "vision",
@@ -2221,9 +2221,9 @@
     "model": "gpt-5.4-mini",
     "display_name": "GPT-5.4 mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.00075,
-      "output_per_1k_tokens": 0.0045,
-      "cached_input_per_1k_tokens": 7.5e-05
+      "input_per_1m_tokens": 0.75,
+      "output_per_1m_tokens": 4.5,
+      "cached_input_per_1m_tokens": 0.075
     },
     "capabilities": [
       "vision",
@@ -2237,9 +2237,9 @@
     "model": "gpt-5.4-nano",
     "display_name": "GPT-5.4 nano",
     "default_cost": {
-      "input_per_1k_tokens": 0.0002,
-      "output_per_1k_tokens": 0.00125,
-      "cached_input_per_1k_tokens": 2e-05
+      "input_per_1m_tokens": 0.2,
+      "output_per_1m_tokens": 1.25,
+      "cached_input_per_1m_tokens": 0.02
     },
     "capabilities": [
       "vision",
@@ -2253,8 +2253,8 @@
     "model": "gpt-5.4-pro",
     "display_name": "GPT-5.4 Pro",
     "default_cost": {
-      "input_per_1k_tokens": 0.03,
-      "output_per_1k_tokens": 0.18
+      "input_per_1m_tokens": 30.0,
+      "output_per_1m_tokens": 180.0
     },
     "capabilities": [
       "vision",
@@ -2267,8 +2267,8 @@
     "model": "gpt-image-1",
     "display_name": "GPT Image 1",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.04
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 40.0
     },
     "capabilities": [
       "image_generation"
@@ -2279,8 +2279,8 @@
     "model": "gpt-image-1.5",
     "display_name": "GPT Image 1.5",
     "default_cost": {
-      "input_per_1k_tokens": 0.005,
-      "output_per_1k_tokens": 0.04
+      "input_per_1m_tokens": 5.0,
+      "output_per_1m_tokens": 40.0
     },
     "capabilities": [
       "image_generation"
@@ -2290,9 +2290,9 @@
     "endpoint_type": "openai",
     "model": "o1",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.06,
-      "cached_input_per_1k_tokens": 0.0075
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 60.0,
+      "cached_input_per_1m_tokens": 7.5
     },
     "capabilities": [
       "vision",
@@ -2305,9 +2305,9 @@
     "endpoint_type": "openai",
     "model": "o1-mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0011,
-      "output_per_1k_tokens": 0.0044,
-      "cached_input_per_1k_tokens": 0.00055
+      "input_per_1m_tokens": 1.1,
+      "output_per_1m_tokens": 4.4,
+      "cached_input_per_1m_tokens": 0.55
     },
     "capabilities": [
       "structured_output",
@@ -2318,9 +2318,9 @@
     "endpoint_type": "openai",
     "model": "o1-preview",
     "default_cost": {
-      "input_per_1k_tokens": 0.015,
-      "output_per_1k_tokens": 0.06,
-      "cached_input_per_1k_tokens": 0.0075
+      "input_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 60.0,
+      "cached_input_per_1m_tokens": 7.5
     },
     "capabilities": [
       "reasoning"
@@ -2330,8 +2330,8 @@
     "endpoint_type": "openai",
     "model": "o1-pro",
     "default_cost": {
-      "input_per_1k_tokens": 0.15,
-      "output_per_1k_tokens": 0.6
+      "input_per_1m_tokens": 150.0,
+      "output_per_1m_tokens": 600.0
     },
     "capabilities": [
       "vision",
@@ -2344,9 +2344,9 @@
     "endpoint_type": "openai",
     "model": "o3",
     "default_cost": {
-      "input_per_1k_tokens": 0.002,
-      "output_per_1k_tokens": 0.008,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 8.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -2359,9 +2359,9 @@
     "endpoint_type": "openai",
     "model": "o3-deep-research",
     "default_cost": {
-      "input_per_1k_tokens": 0.01,
-      "output_per_1k_tokens": 0.04,
-      "cached_input_per_1k_tokens": 0.0025
+      "input_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 40.0,
+      "cached_input_per_1m_tokens": 2.5
     },
     "capabilities": [
       "vision",
@@ -2373,9 +2373,9 @@
     "endpoint_type": "openai",
     "model": "o3-mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0011,
-      "output_per_1k_tokens": 0.0044,
-      "cached_input_per_1k_tokens": 0.00055
+      "input_per_1m_tokens": 1.1,
+      "output_per_1m_tokens": 4.4,
+      "cached_input_per_1m_tokens": 0.55
     },
     "capabilities": [
       "function_calling",
@@ -2387,8 +2387,8 @@
     "endpoint_type": "openai",
     "model": "o3-pro",
     "default_cost": {
-      "input_per_1k_tokens": 0.02,
-      "output_per_1k_tokens": 0.08
+      "input_per_1m_tokens": 20.0,
+      "output_per_1m_tokens": 80.0
     },
     "capabilities": [
       "vision",
@@ -2401,9 +2401,9 @@
     "endpoint_type": "openai",
     "model": "o4-mini",
     "default_cost": {
-      "input_per_1k_tokens": 0.0011,
-      "output_per_1k_tokens": 0.0044,
-      "cached_input_per_1k_tokens": 0.00028
+      "input_per_1m_tokens": 1.1,
+      "output_per_1m_tokens": 4.4,
+      "cached_input_per_1m_tokens": 0.28
     },
     "capabilities": [
       "vision",
@@ -2416,9 +2416,9 @@
     "endpoint_type": "openai",
     "model": "o4-mini-deep-research",
     "default_cost": {
-      "input_per_1k_tokens": 0.002,
-      "output_per_1k_tokens": 0.008,
-      "cached_input_per_1k_tokens": 0.0005
+      "input_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 8.0,
+      "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
       "vision",
@@ -2430,21 +2430,21 @@
     "endpoint_type": "openai",
     "model": "text-embedding-3-large",
     "default_cost": {
-      "input_per_1k_tokens": 0.00013
+      "input_per_1m_tokens": 0.13
     }
   },
   {
     "endpoint_type": "openai",
     "model": "text-embedding-3-small",
     "default_cost": {
-      "input_per_1k_tokens": 2e-05
+      "input_per_1m_tokens": 0.02
     }
   },
   {
     "endpoint_type": "openai",
     "model": "text-embedding-ada-002",
     "default_cost": {
-      "input_per_1k_tokens": 0.0001
+      "input_per_1m_tokens": 0.1
     }
   },
   {
@@ -2452,7 +2452,7 @@
     "model": "tts-1",
     "display_name": "TTS 1",
     "default_cost": {
-      "input_per_1k_tokens": 0.015
+      "input_per_1m_tokens": 15.0
     },
     "capabilities": [
       "audio_output"
@@ -2463,7 +2463,7 @@
     "model": "tts-1-hd",
     "display_name": "TTS 1 HD",
     "default_cost": {
-      "input_per_1k_tokens": 0.03
+      "input_per_1m_tokens": 30.0
     },
     "capabilities": [
       "audio_output"
@@ -2474,7 +2474,7 @@
     "model": "whisper-1",
     "display_name": "Whisper 1",
     "default_cost": {
-      "input_per_1k_tokens": 0.006
+      "input_per_1m_tokens": 6.0
     },
     "capabilities": [
       "audio_input"

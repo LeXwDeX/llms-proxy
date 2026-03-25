@@ -1,9 +1,0 @@
-[
-  {
-    "username": "admin",
-    "password_hash": "sha256$dev-salt$8ea0edfb4c23744d77d5cbe6211f32c67602b3d240eaef2495e9200b37e5a128",
-    "role": "admin",
-    "disabled": false,
-    "updated_at": "2026-03-20T00:00:00Z"
-  }
-]

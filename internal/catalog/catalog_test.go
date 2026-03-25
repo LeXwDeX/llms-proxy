@@ -95,10 +95,10 @@ func TestLookupDefaultCost(t *testing.T) {
 	if cost == nil {
 		t.Fatal("gpt-4o should have default cost")
 	}
-	if cost.InputPer1KTokens <= 0 {
+	if cost.InputPer1MTokens <= 0 {
 		t.Error("expected positive input cost")
 	}
-	if cost.OutputPer1KTokens <= 0 {
+	if cost.OutputPer1MTokens <= 0 {
 		t.Error("expected positive output cost")
 	}
 }
@@ -159,8 +159,8 @@ func TestNewFromData(t *testing.T) {
 			DisplayName:  "Test Model",
 			Aliases:      []string{"tm-alias"},
 			DefaultCost: &Cost{
-				InputPer1KTokens:  0.001,
-				OutputPer1KTokens: 0.002,
+				InputPer1MTokens:  1.0,
+				OutputPer1MTokens: 2.0,
 			},
 		},
 	}
@@ -198,8 +198,8 @@ func TestNewFromData(t *testing.T) {
 	if cost == nil {
 		t.Fatal("expected non-nil cost")
 	}
-	if cost.InputPer1KTokens != 0.001 {
-		t.Errorf("expected input cost 0.001, got %f", cost.InputPer1KTokens)
+	if cost.InputPer1MTokens != 1.0 {
+		t.Errorf("expected input cost 1.0, got %f", cost.InputPer1MTokens)
 	}
 
 	// ListAll

@@ -16,7 +16,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/catalog"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/proxy"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
@@ -400,7 +402,7 @@ func TestHandlerUsageSummary(t *testing.T) {
 
 	h := NewHandler(manager, store, service, nil, nil, nil, logger)
 
-	body := bytes.NewBufferString(`{"input_per_1k_tokens":0.01,"output_per_1k_tokens":0.02,"cached_input_per_1k_tokens":0}`)
+	body := bytes.NewBufferString(`{"input_per_1m_tokens":10,"output_per_1m_tokens":20,"cached_input_per_1m_tokens":0}`)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "http://example.com/data/model-costs/gpt-4o", body))
 	if rec.Code != http.StatusOK {
@@ -485,6 +487,63 @@ func testClients(clientKeys []string) []config.Client {
 		})
 	}
 	return clients
+}
+
+func TestToUsageCostTableCatalogFallback(t *testing.T) {
+	// 构建一个小型 catalog 用于测试
+	cat, err := catalog.New()
+	if err != nil {
+		t.Fatalf("catalog.New() error: %v", err)
+	}
+
+	// 场景 1: 仅 catalog（无自定义费用）——应使用 catalog default_cost
+	table := toUsageCostTable(nil, cat)
+	rate, ok := table.LookupCost("openai", "gpt-4o")
+	if !ok {
+		t.Fatal("expected catalog default cost for openai:gpt-4o, got not found")
+	}
+	if rate.InputPer1MTokens <= 0 || rate.OutputPer1MTokens <= 0 {
+		t.Fatalf("expected positive catalog default rates, got %+v", rate)
+	}
+	catalogInput := rate.InputPer1MTokens
+
+	// 场景 2: 自定义覆盖——应覆盖 catalog 默认值
+	customCosts := []nosql.ModelCost{
+		{EndpointType: "openai", Model: "gpt-4o", InputPer1MTokens: 999, OutputPer1MTokens: 888},
+	}
+	table = toUsageCostTable(customCosts, cat)
+	rate, ok = table.LookupCost("openai", "gpt-4o")
+	if !ok {
+		t.Fatal("expected cost for openai:gpt-4o after custom override")
+	}
+	if rate.InputPer1MTokens != 999 || rate.OutputPer1MTokens != 888 {
+		t.Fatalf("expected custom rates (999, 888), got %+v", rate)
+	}
+
+	// 场景 3: catalog 无自定义——其他模型仍用 catalog 默认值
+	rate2, ok := table.LookupCost("openai", "gpt-4o-mini")
+	if !ok {
+		t.Fatal("expected catalog default cost for openai:gpt-4o-mini (not overridden)")
+	}
+	if rate2.InputPer1MTokens <= 0 {
+		t.Fatalf("expected positive catalog default for gpt-4o-mini, got %+v", rate2)
+	}
+
+	// 场景 4: nil catalog——仅自定义费用
+	table = toUsageCostTable(customCosts, nil)
+	rate, ok = table.LookupCost("openai", "gpt-4o")
+	if !ok || rate.InputPer1MTokens != 999 {
+		t.Fatalf("expected custom rate with nil catalog, got ok=%v rate=%+v", ok, rate)
+	}
+	_, ok = table.LookupCost("openai", "gpt-4o-mini")
+	if ok {
+		t.Fatal("expected no cost for gpt-4o-mini with nil catalog and no custom entry")
+	}
+
+	// 确认 catalog 默认值确实不同于自定义值（说明覆盖是真正生效的）
+	if catalogInput == 999 {
+		t.Fatal("test setup issue: catalog default same as custom override value")
+	}
 }
 
 func writeClientsFile(t *testing.T, path string, clients []config.Client) {

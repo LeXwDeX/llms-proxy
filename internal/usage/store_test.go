@@ -32,9 +32,9 @@ func TestStoreRecordListAggregateAndSummary(t *testing.T) {
 
 	costs := CostTable{
 		"gpt-4o": {
-			InputPer1KTokens:      0.01,
-			OutputPer1KTokens:     0.02,
-			CachedInputPer1KToken: 0.001,
+			InputPer1MTokens:      10,
+			OutputPer1MTokens:     20,
+			CachedInputPer1MToken: 1,
 		},
 	}
 	from := now.Add(-24 * time.Hour)
@@ -64,32 +64,32 @@ func TestStoreRecordListAggregateAndSummary(t *testing.T) {
 
 func TestCostTableLookupCost(t *testing.T) {
 	costs := CostTable{
-		"azure_openai:gpt-4o": {InputPer1KTokens: 0.01, OutputPer1KTokens: 0.02},
-		"openai:gpt-4o":       {InputPer1KTokens: 0.05, OutputPer1KTokens: 0.10},
-		"gpt-4o":              {InputPer1KTokens: 0.03, OutputPer1KTokens: 0.06},
+		"azure_openai:gpt-4o": {InputPer1MTokens: 0.01, OutputPer1MTokens: 0.02},
+		"openai:gpt-4o":       {InputPer1MTokens: 0.05, OutputPer1MTokens: 0.10},
+		"gpt-4o":              {InputPer1MTokens: 0.03, OutputPer1MTokens: 0.06},
 	}
 
 	// Exact match: azure_openai:gpt-4o
 	rate, ok := costs.LookupCost("azure_openai", "gpt-4o")
-	if !ok || rate.InputPer1KTokens != 0.01 {
+	if !ok || rate.InputPer1MTokens != 0.01 {
 		t.Fatalf("expected exact match for azure_openai:gpt-4o, got ok=%v rate=%+v", ok, rate)
 	}
 
 	// Exact match: openai:gpt-4o
 	rate, ok = costs.LookupCost("openai", "gpt-4o")
-	if !ok || rate.InputPer1KTokens != 0.05 {
+	if !ok || rate.InputPer1MTokens != 0.05 {
 		t.Fatalf("expected exact match for openai:gpt-4o, got ok=%v rate=%+v", ok, rate)
 	}
 
 	// Fallback to model-only when endpoint_type doesn't have exact match
 	rate, ok = costs.LookupCost("claude", "gpt-4o")
-	if !ok || rate.InputPer1KTokens != 0.03 {
+	if !ok || rate.InputPer1MTokens != 0.03 {
 		t.Fatalf("expected fallback match for claude:gpt-4o to model-only, got ok=%v rate=%+v", ok, rate)
 	}
 
 	// Fallback when endpoint_type is empty
 	rate, ok = costs.LookupCost("", "gpt-4o")
-	if !ok || rate.InputPer1KTokens != 0.03 {
+	if !ok || rate.InputPer1MTokens != 0.03 {
 		t.Fatalf("expected fallback match for empty endpoint_type, got ok=%v rate=%+v", ok, rate)
 	}
 
@@ -130,17 +130,17 @@ func TestStoreRecordWithEndpointType(t *testing.T) {
 
 	// Test cost calculation with endpoint_type-aware cost table
 	costs := CostTable{
-		"openai:gpt-4o":       {InputPer1KTokens: 0.10, OutputPer1KTokens: 0.20},
-		"azure_openai:gpt-4o": {InputPer1KTokens: 0.01, OutputPer1KTokens: 0.02},
-		"gpt-4o":              {InputPer1KTokens: 0.05, OutputPer1KTokens: 0.10},
+		"openai:gpt-4o":       {InputPer1MTokens: 100, OutputPer1MTokens: 200},
+		"azure_openai:gpt-4o": {InputPer1MTokens: 10, OutputPer1MTokens: 20},
+		"gpt-4o":              {InputPer1MTokens: 50, OutputPer1MTokens: 100},
 	}
 
 	summary, err := store.Summary(now.Add(time.Hour), costs)
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	// Should use openai:gpt-4o rates (0.10 input, 0.20 output)
-	// Expected cost: 100/1000 * 0.10 + 50/1000 * 0.20 = 0.01 + 0.01 = 0.02
+	// Should use openai:gpt-4o rates (100 input, 200 output per 1M)
+	// Expected cost: 100/1_000_000 * 100 + 50/1_000_000 * 200 = 0.01 + 0.01 = 0.02
 	expectedCost := 0.02
 	diff := summary.LastHour.EstimatedCost - expectedCost
 	if diff < -1e-9 || diff > 1e-9 {

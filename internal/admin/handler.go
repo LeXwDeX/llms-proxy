@@ -247,7 +247,7 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		h.writeInternalError(w, "failed to list model costs", err)
 		return
 	}
-	summary, err := usageStore.Summary(now, toUsageCostTable(costs))
+	summary, err := usageStore.Summary(now, toUsageCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to summarize usage", err)
 		return
@@ -532,9 +532,9 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 
 	var req struct {
 		EndpointType          string  `json:"endpoint_type"`
-		InputPer1KTokens      float64 `json:"input_per_1k_tokens"`
-		OutputPer1KTokens     float64 `json:"output_per_1k_tokens"`
-		CachedInputPer1KToken float64 `json:"cached_input_per_1k_tokens"`
+		InputPer1MTokens      float64 `json:"input_per_1m_tokens"`
+		OutputPer1MTokens     float64 `json:"output_per_1m_tokens"`
+		CachedInputPer1MToken float64 `json:"cached_input_per_1m_tokens"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid json body"))
@@ -558,9 +558,9 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 	cost := nosql.ModelCost{
 		EndpointType:          req.EndpointType,
 		Model:                 model,
-		InputPer1KTokens:      req.InputPer1KTokens,
-		OutputPer1KTokens:     req.OutputPer1KTokens,
-		CachedInputPer1KToken: req.CachedInputPer1KToken,
+		InputPer1MTokens:      req.InputPer1MTokens,
+		OutputPer1MTokens:     req.OutputPer1MTokens,
+		CachedInputPer1MToken: req.CachedInputPer1MToken,
 	}
 	if err := store.Upsert(cost); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
@@ -656,7 +656,7 @@ func (h *Handler) handleAggregateUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := usageStore.Aggregate(filter, r.URL.Query().Get("group_by"), toUsageCostTable(costs))
+	result, err := usageStore.Aggregate(filter, r.URL.Query().Get("group_by"), toUsageCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to aggregate usage", err)
 		return
@@ -683,7 +683,7 @@ func (h *Handler) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := usageStore.Summary(time.Now().UTC(), toUsageCostTable(costs))
+	result, err := usageStore.Summary(time.Now().UTC(), toUsageCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to summarize usage", err)
 		return
@@ -1139,8 +1139,32 @@ func parseTimeValue(raw string) (*time.Time, error) {
 	return &t, nil
 }
 
-func toUsageCostTable(costs []nosql.ModelCost) usage.CostTable {
-	table := make(usage.CostTable, len(costs)*2)
+// toUsageCostTable 构建费用查找表。
+// 优先级：自定义 model_costs 覆盖 > catalog 内嵌默认价格。
+func toUsageCostTable(costs []nosql.ModelCost, cat *catalog.Catalog) usage.CostTable {
+	table := make(usage.CostTable)
+
+	// 第一层：从 catalog 填充默认价格作为基线
+	if cat != nil {
+		for _, entry := range cat.ListAll() {
+			if entry.DefaultCost == nil || entry.Model == "" {
+				continue
+			}
+			model := strings.ToLower(strings.TrimSpace(entry.Model))
+			epType := strings.ToLower(strings.TrimSpace(entry.EndpointType))
+			rates := usage.CostRates{
+				InputPer1MTokens:      entry.DefaultCost.InputPer1MTokens,
+				OutputPer1MTokens:     entry.DefaultCost.OutputPer1MTokens,
+				CachedInputPer1MToken: entry.DefaultCost.CachedInputPer1MToken,
+			}
+			if epType != "" {
+				table[epType+":"+model] = rates
+			}
+			table[model] = rates
+		}
+	}
+
+	// 第二层：自定义 model_costs 覆盖（优先级更高）
 	for _, cost := range costs {
 		model := strings.ToLower(strings.TrimSpace(cost.Model))
 		epType := strings.ToLower(strings.TrimSpace(cost.EndpointType))
@@ -1148,17 +1172,16 @@ func toUsageCostTable(costs []nosql.ModelCost) usage.CostTable {
 			continue
 		}
 		rates := usage.CostRates{
-			InputPer1KTokens:      cost.InputPer1KTokens,
-			OutputPer1KTokens:     cost.OutputPer1KTokens,
-			CachedInputPer1KToken: cost.CachedInputPer1KToken,
+			InputPer1MTokens:      cost.InputPer1MTokens,
+			OutputPer1MTokens:     cost.OutputPer1MTokens,
+			CachedInputPer1MToken: cost.CachedInputPer1MToken,
 		}
-		// Exact key: endpoint_type:model
 		if epType != "" {
 			table[epType+":"+model] = rates
 		}
-		// Fallback key: model (backward compat, last-write-wins)
 		table[model] = rates
 	}
+
 	return table
 }
 

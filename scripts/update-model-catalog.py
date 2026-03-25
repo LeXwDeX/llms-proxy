@@ -37,11 +37,11 @@ def convert_cost(cost_obj: dict) -> Optional[dict]:
     cached_price = cost_obj.get("cache_read")
 
     if isinstance(input_price, (int, float)) and input_price > 0:
-        result["input_per_1k_tokens"] = round(input_price / 1000, 10)
+        result["input_per_1m_tokens"] = round(input_price, 10)
     if isinstance(output_price, (int, float)) and output_price > 0:
-        result["output_per_1k_tokens"] = round(output_price / 1000, 10)
+        result["output_per_1m_tokens"] = round(output_price, 10)
     if isinstance(cached_price, (int, float)) and cached_price > 0:
-        result["cached_input_per_1k_tokens"] = round(cached_price / 1000, 10)
+        result["cached_input_per_1m_tokens"] = round(cached_price, 10)
 
     return result if result else None
 
@@ -105,10 +105,10 @@ def _supplementary_models() -> list[dict]:
 
     # --- OpenAI: 图像、音频类模型 ---
     image_models = [
-        ("dall-e-3", "DALL·E 3", {"input_per_1k_tokens": 0.04, "output_per_1k_tokens": 0.08}),
-        ("dall-e-2", "DALL·E 2", {"input_per_1k_tokens": 0.02, "output_per_1k_tokens": 0.02}),
-        ("gpt-image-1", "GPT Image 1", {"input_per_1k_tokens": 0.005, "output_per_1k_tokens": 0.04}),
-        ("gpt-image-1.5", "GPT Image 1.5", {"input_per_1k_tokens": 0.005, "output_per_1k_tokens": 0.04}),
+        ("dall-e-3", "DALL·E 3", {"input_per_1m_tokens": 40, "output_per_1m_tokens": 80}),
+        ("dall-e-2", "DALL·E 2", {"input_per_1m_tokens": 20, "output_per_1m_tokens": 20}),
+        ("gpt-image-1", "GPT Image 1", {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40}),
+        ("gpt-image-1.5", "GPT Image 1.5", {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40}),
     ]
     for model_id, name, cost in image_models:
         extras.append({
@@ -120,9 +120,9 @@ def _supplementary_models() -> list[dict]:
         })
 
     audio_models = [
-        ("tts-1", "TTS 1", {"input_per_1k_tokens": 0.015}),
-        ("tts-1-hd", "TTS 1 HD", {"input_per_1k_tokens": 0.03}),
-        ("whisper-1", "Whisper 1", {"input_per_1k_tokens": 0.006}),
+        ("tts-1", "TTS 1", {"input_per_1m_tokens": 15}),
+        ("tts-1-hd", "TTS 1 HD", {"input_per_1m_tokens": 30}),
+        ("whisper-1", "Whisper 1", {"input_per_1m_tokens": 6}),
     ]
     for model_id, name, cost in audio_models:
         extras.append({
@@ -139,9 +139,9 @@ def _supplementary_models() -> list[dict]:
         "model": "gpt-5.2-chat",
         "display_name": "GPT-5.2 Chat",
         "default_cost": {
-            "input_per_1k_tokens": 0.002,
-            "output_per_1k_tokens": 0.008,
-            "cached_input_per_1k_tokens": 0.0002,
+            "input_per_1m_tokens": 2,
+            "output_per_1m_tokens": 8,
+            "cached_input_per_1m_tokens": 0.2,
         },
         "capabilities": ["vision", "function_calling", "structured_output"],
     })
