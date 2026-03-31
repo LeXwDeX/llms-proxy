@@ -37,3 +37,21 @@ go.work.sum
 # Runtime logs
 logs/
 !logs/.gitkeep
+
+# Vibe-coding / AI assistant artifacts
+AGENTS.md
+CLAUDE.md
+COPILOT.md
+GEMINI.md
+CURSOR.md
+WINDSURF.md
+.github/copilot-instructions.md
+.aider*
+.claude/
+.copilot/
+.cursor/
+.gemini/
+.continue/
+.roo/
+.codex/
+.codex_plan/
