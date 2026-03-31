@@ -10,6 +10,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY . .
+
+# Auto-update model catalog (best-effort: failure keeps existing data)
+RUN pip install --no-cache-dir --break-system-packages requests 2>/dev/null; \
+    if curl -sSf --connect-timeout 10 --max-time 30 https://models.dev/api.json -o /tmp/models_dev_raw.json 2>/dev/null; then \
+      python3 scripts/update-model-catalog.py /tmp/models_dev_raw.json internal/catalog/data/models.json \
+      && echo ">> catalog updated" \
+      || echo ">> catalog transform failed, keeping existing"; \
+      rm -f /tmp/models_dev_raw.json; \
+    else \
+      echo ">> catalog download failed, keeping existing data"; \
+    fi
+
 RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -o /workspace/bin/llms-proxy ./cmd/proxy

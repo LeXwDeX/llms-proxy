@@ -38,6 +38,10 @@ go.work.sum
 logs/
 !logs/.gitkeep
 
+# Runtime data (config/ only tracks .gitkeep; all data files are generated at runtime)
+config/*
+!config/.gitkeep
+
 # Vibe-coding / AI assistant artifacts
 AGENTS.md
 CLAUDE.md

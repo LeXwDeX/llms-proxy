@@ -9,8 +9,12 @@ all: test build
 
 catalog:
 	@echo ">> updating model catalog from models.dev"
-	@curl -sSf https://models.dev/api.json -o $(CATALOG_RAW)
-	@python3 scripts/update-model-catalog.py $(CATALOG_RAW) $(CATALOG_OUT)
+	@if curl -sSf --connect-timeout 10 --max-time 30 https://models.dev/api.json -o $(CATALOG_RAW) 2>/dev/null; then \
+		python3 scripts/update-model-catalog.py $(CATALOG_RAW) $(CATALOG_OUT) && \
+		echo ">> catalog updated successfully"; \
+	else \
+		echo ">> catalog download failed, keeping existing data"; \
+	fi
 
 build: catalog
 	@echo ">> building $(BINARY)"
