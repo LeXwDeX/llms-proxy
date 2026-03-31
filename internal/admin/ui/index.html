@@ -902,8 +902,8 @@
           <input class="form-control" id="clientAccessKey" placeholder="例如：sk-xxxxx" required>
         </div>
         <div class="form-group">
-          <label>允许目标（逗号分隔，留空表示全部）</label>
-          <input class="form-control" id="clientAllowedTargets" placeholder="例如：target-1, target-2">
+          <label>允许目标（点击选择，不选则允许全部）</label>
+          <div id="clientTargetTags" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;max-height:180px;overflow-y:auto;"></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -927,6 +927,7 @@
             <option value="azure_openai">Azure OpenAI</option>
             <option value="openai">OpenAI</option>
             <option value="claude">Claude</option>
+            <option value="gemini">Gemini</option>
           </select>
         </div>
         <div class="form-group">
@@ -989,6 +990,7 @@
             <option value="azure_openai">Azure OpenAI</option>
             <option value="openai">OpenAI</option>
             <option value="claude">Claude</option>
+            <option value="gemini">Gemini</option>
           </select>
         </div>
         <div class="form-group">
@@ -1182,8 +1184,34 @@
         clients: [],
         editingClient: null,
         editingModelCost: null,
-        usageRange: { from: null, to: null }
+        usageRange: { from: null, to: null },
+        catalogCache: {}
       };
+
+      /* ===== Shared catalog helpers ===== */
+      async function loadCatalog(epType) {
+        if (state.catalogCache[epType]) return state.catalogCache[epType];
+        try {
+          var data = await api("/admin/data/catalog/"+encodeURIComponent(epType));
+          var models = Array.isArray(data.models) ? data.models : [];
+          state.catalogCache[epType] = models;
+          return models;
+        } catch(e) { return []; }
+      }
+      function catalogFilterModels(models, keyword) {
+        if (!keyword) return models;
+        var kw = keyword.toLowerCase().trim();
+        if (!kw) return models;
+        return models.filter(function(m) {
+          if ((m.model || "").toLowerCase().indexOf(kw) >= 0) return true;
+          if ((m.display_name || "").toLowerCase().indexOf(kw) >= 0) return true;
+          var aliases = m.aliases || [];
+          for (var i = 0; i < aliases.length; i++) {
+            if (aliases[i].toLowerCase().indexOf(kw) >= 0) return true;
+          }
+          return false;
+        });
+      }
 
       /* ===== Overview ===== */
       async function loadOverview() {
@@ -1238,7 +1266,7 @@
       document.getElementById("refreshOverviewBtn").addEventListener("click", function() { loadOverview(); });
 
       /* ===== Targets ===== */
-      var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude"};
+      var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude","gemini":"Gemini"};
       async function loadTargets() {
         try {
           var data = await api("/admin/data/targets");
@@ -1293,31 +1321,32 @@
         var isAzure = (epType === "azure_openai");
         document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
-        loadCatalogSuggestions(epType);
+        renderTgtModelSuggestions(epType);
       }
-      async function loadCatalogSuggestions(epType) {
+      async function renderTgtModelSuggestions(epType, filterText) {
         var container = document.getElementById("tgtModelSuggestions");
         container.innerHTML = "";
-        try {
-          var data = await api("/admin/data/catalog/"+encodeURIComponent(epType));
-          var models = Array.isArray(data.models) ? data.models : [];
-          models.slice(0, 30).forEach(function(m) {
-            var tag = document.createElement("span");
-            tag.style.cssText = "display:inline-block;padding:2px 8px;border-radius:4px;background:var(--primary-light);color:var(--primary);font-size:12px;cursor:pointer;";
-            tag.textContent = m.model || m.display_name || "";
-            tag.title = m.display_name || m.model;
-            tag.addEventListener("click", function() {
-              var input = document.getElementById("tgtModels");
-              var current = input.value ? input.value.split(",").map(function(s){return s.trim();}).filter(Boolean) : [];
-              var modelName = m.model;
-              if (current.indexOf(modelName) === -1) {
-                current.push(modelName);
-                input.value = current.join(", ");
-              }
-            });
-            container.appendChild(tag);
+        var models = await loadCatalog(epType);
+        var filtered = catalogFilterModels(models, filterText);
+        filtered.slice(0, 50).forEach(function(m) {
+          var tag = document.createElement("span");
+          tag.style.cssText = "display:inline-block;padding:2px 8px;border-radius:4px;background:var(--primary-light);color:var(--primary);font-size:12px;cursor:pointer;";
+          tag.textContent = m.model || m.display_name || "";
+          tag.title = m.display_name || m.model;
+          tag.addEventListener("click", function() {
+            var input = document.getElementById("tgtModels");
+            var current = input.value ? input.value.split(",").map(function(s){return s.trim();}).filter(Boolean) : [];
+            var modelName = m.model;
+            if (current.indexOf(modelName) === -1) {
+              current.push(modelName);
+              input.value = current.join(", ");
+            }
           });
-        } catch(e) { /* ignore catalog load failure */ }
+          container.appendChild(tag);
+        });
+        if (filterText && filterText.trim() && filtered.length === 0) {
+          container.innerHTML = "<span style='color:var(--text-muted);font-size:12px;'>无匹配模型</span>";
+        }
       }
       function openTargetModal(t) {
         state.editingTarget = t || null;
@@ -1335,6 +1364,19 @@
         openModal("targetModal");
       }
       document.getElementById("tgtType").addEventListener("change", updateTargetFormVisibility);
+      var tgtModelDebounce = null;
+      document.getElementById("tgtModels").addEventListener("input", function() {
+        clearTimeout(tgtModelDebounce);
+        var self = this;
+        tgtModelDebounce = setTimeout(function() {
+          var epType = document.getElementById("tgtType").value;
+          // extract the last segment after the last comma as the search keyword
+          var raw = self.value;
+          var parts = raw.split(",");
+          var lastPart = parts.length > 0 ? parts[parts.length - 1].trim() : "";
+          renderTgtModelSuggestions(epType, lastPart);
+        }, 250);
+      });
       document.getElementById("newTargetBtn").addEventListener("click", function() { openTargetModal(null); });
       document.getElementById("refreshTargetsBtn").addEventListener("click", function() { loadTargets(); });
       document.getElementById("saveTargetBtn").addEventListener("click", async function() {
@@ -1377,10 +1419,14 @@
       /* ===== Clients ===== */
       async function loadClients() {
         try {
-          var results = await Promise.all([
+          var fetches = [
             api("/admin/data/clients"),
             api("/admin/data/usage/aggregate?group_by=day&from=" + encodeURIComponent(new Date(Date.now()-30*24*3600*1000).toISOString()) + "&to=" + encodeURIComponent(new Date().toISOString()))
-          ]);
+          ];
+          if (!state.targets || !state.targets.length) {
+            fetches.push(api("/admin/data/targets"));
+          }
+          var results = await Promise.all(fetches);
           state.clients = Array.isArray(results[0].clients) ? results[0].clients : [];
           // Build per-client usage map from by_client breakdown
           state.clientUsage = {};
@@ -1388,6 +1434,9 @@
           byClient.forEach(function(item) {
             state.clientUsage[item.key] = item;
           });
+          if (results[2]) {
+            state.targets = Array.isArray(results[2].targets) ? results[2].targets : [];
+          }
           renderClients();
           // Also populate usage page client filter dropdown
           populateUsageClientFilter();
@@ -1441,15 +1490,55 @@
         document.getElementById("clientName").value = c ? c.name : "";
         document.getElementById("clientName").readOnly = !!c;
         document.getElementById("clientAccessKey").value = c ? c.access_key : "";
-        document.getElementById("clientAllowedTargets").value = c && c.allowed_targets ? c.allowed_targets.join(", ") : "";
+        renderClientTargetTags(c && c.allowed_targets ? c.allowed_targets : []);
         openModal("clientModal");
+      }
+      function renderClientTargetTags(selected) {
+        var container = document.getElementById("clientTargetTags");
+        container.innerHTML = "";
+        var selectedSet = {};
+        (selected || []).forEach(function(t) { selectedSet[t.toLowerCase()] = true; });
+        var targets = (state.targets || []).slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));});
+        if (!targets.length) {
+          container.innerHTML = "<span style='color:var(--text-muted);font-size:12px;'>暂无目标，请先添加目标</span>";
+          return;
+        }
+        targets.forEach(function(t) {
+          var tag = document.createElement("span");
+          var isSelected = !!selectedSet[t.name.toLowerCase()];
+          var epLabel = ({"azure_openai":"Azure","openai":"OpenAI","claude":"Claude","gemini":"Gemini"})[t.endpoint_type || "azure_openai"] || t.endpoint_type || "";
+          tag.textContent = t.name;
+          tag.title = epLabel + " — " + (t.endpoint || "");
+          tag.dataset.target = t.name;
+          applyTagStyle(tag, isSelected);
+          tag.addEventListener("click", function() {
+            var cur = this.dataset.selected === "1";
+            applyTagStyle(this, !cur);
+          });
+          container.appendChild(tag);
+        });
+      }
+      function applyTagStyle(tag, selected) {
+        tag.dataset.selected = selected ? "1" : "0";
+        tag.style.cssText = "display:inline-block;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;transition:all 0.15s ease;user-select:none;"
+          + (selected
+            ? "background:var(--primary);color:#fff;border:1px solid var(--primary);"
+            : "background:var(--bg);color:var(--text-secondary);border:1px solid var(--card-border);");
+      }
+      function getSelectedClientTargets() {
+        var tags = document.getElementById("clientTargetTags").querySelectorAll("span[data-target]");
+        var result = [];
+        tags.forEach(function(tag) {
+          if (tag.dataset.selected === "1") result.push(tag.dataset.target);
+        });
+        return result;
       }
       document.getElementById("newClientBtn").addEventListener("click", function() { openClientModal(null); });
       document.getElementById("refreshClientsBtn").addEventListener("click", function() { loadClients(); });
       document.getElementById("saveClientBtn").addEventListener("click", async function() {
         var name = document.getElementById("clientName").value.trim();
         var key = document.getElementById("clientAccessKey").value.trim();
-        var targets = document.getElementById("clientAllowedTargets").value.split(",").map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+        var targets = getSelectedClientTargets();
         if (!name || !key) { toast("请填写名称和 Access Key", "error"); return; }
         var payload = { name: name, access_key: key, allowed_targets: targets };
         try {
@@ -1515,16 +1604,6 @@
           });
         }
       });
-      state.mcCatalogCache = {};
-      async function loadMcCatalog(epType) {
-        if (state.mcCatalogCache[epType]) return state.mcCatalogCache[epType];
-        try {
-          var data = await api("/admin/data/catalog/"+encodeURIComponent(epType));
-          var models = Array.isArray(data.models) ? data.models : [];
-          state.mcCatalogCache[epType] = models;
-          return models;
-        } catch(e) { return []; }
-      }
       function findCatalogCost(models, modelName) {
         if (!modelName || !models.length) return null;
         var lower = modelName.toLowerCase();
@@ -1557,17 +1636,8 @@
       async function renderMcModelSuggestions(epType, filterText) {
         var container = document.getElementById("mcModelSuggestions");
         container.innerHTML = "";
-        var models = await loadMcCatalog(epType);
-        var keyword = (filterText || "").toLowerCase().trim();
-        var filtered = keyword ? models.filter(function(m) {
-          if ((m.model || "").toLowerCase().indexOf(keyword) >= 0) return true;
-          if ((m.display_name || "").toLowerCase().indexOf(keyword) >= 0) return true;
-          var aliases = m.aliases || [];
-          for (var i = 0; i < aliases.length; i++) {
-            if (aliases[i].toLowerCase().indexOf(keyword) >= 0) return true;
-          }
-          return false;
-        }) : models;
+        var models = await loadCatalog(epType);
+        var filtered = catalogFilterModels(models, filterText);
         filtered.slice(0, 50).forEach(function(m) {
           var tag = document.createElement("span");
           tag.style.cssText = "display:inline-block;padding:2px 8px;border-radius:4px;background:var(--primary-light);color:var(--primary);font-size:12px;cursor:pointer;";
@@ -1580,7 +1650,7 @@
           });
           container.appendChild(tag);
         });
-        if (keyword && filtered.length === 0) {
+        if (filterText && filterText.trim() && filtered.length === 0) {
           container.innerHTML = "<span style='color:var(--text-muted);font-size:12px;'>无匹配模型</span>";
         }
       }
@@ -1588,7 +1658,7 @@
         var epType = document.getElementById("mcEndpointType").value;
         var modelName = document.getElementById("mcModel").value.trim();
         if (!modelName) { applyMcCatalogCost(null); return; }
-        var models = await loadMcCatalog(epType);
+        var models = await loadCatalog(epType);
         var cost = findCatalogCost(models, modelName);
         applyMcCatalogCost(cost);
       }
@@ -1612,7 +1682,7 @@
           document.getElementById("mcOutputPrice").value = existing ? (existing.output_per_1m_tokens != null ? existing.output_per_1m_tokens : "") : "";
           document.getElementById("mcCachedPrice").value = existing ? (existing.cached_input_per_1m_tokens != null ? existing.cached_input_per_1m_tokens : "") : "";
           // 异步加载 catalog 参考值（仅更新 hint，不覆盖输入框）
-          loadMcCatalog(epType).then(function(models) {
+          loadCatalog(epType).then(function(models) {
             var cost = findCatalogCost(models, modelName);
             if (cost) {
               document.getElementById("mcInputHint").textContent = cost.input_per_1m_tokens != null ? "(参考: "+cost.input_per_1m_tokens+")" : "";
