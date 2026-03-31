@@ -158,7 +158,7 @@ type Service struct {
 // Target represents an upstream endpoint with runtime metadata.
 type Target struct {
 	Name               string
-	EndpointType       string // azure_openai | openai | claude
+	EndpointType       string // azure_openai | openai | claude | gemini
 	Endpoint           *url.URL
 	ResourcePathPrefix string
 	APIKey             string
@@ -625,6 +625,8 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		if req.Header.Get("anthropic-version") == "" {
 			req.Header.Set("anthropic-version", "2023-06-01")
 		}
+	case config.EndpointTypeGemini:
+		req.Header.Set("x-goog-api-key", target.APIKey)
 	default: // azure_openai
 		useBearer := target.AllowBearer && azureAuth != ""
 		if useBearer {

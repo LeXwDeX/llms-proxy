@@ -22,6 +22,7 @@ PROVIDER_MAP = {
     "openai": "openai",
     "azure": "azure_openai",
     "anthropic": "claude",
+    "google": "gemini",
 }
 
 

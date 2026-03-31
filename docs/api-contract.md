@@ -42,7 +42,8 @@ This document describes the externally visible HTTP contract that the proxy expo
   - `azure_openai` — injects `api-key: <key>` header (or forwards `X-Azure-Authorization` when `allow_bearer_passthrough` is enabled).
   - `openai` — injects `Authorization: Bearer <key>`.
   - `claude` — injects `x-api-key: <key>` and sets `anthropic-version: 2023-06-01` if not already present.
-- **Azure parameter whitelist filtering** (stripping unsupported request body fields) is applied **only** to `azure_openai` targets. Requests to `openai` and `claude` targets forward the original body unmodified.
+  - `gemini` — injects `x-goog-api-key: <key>`.
+- **Azure parameter whitelist filtering** (stripping unsupported request body fields) is applied **only** to `azure_openai` targets. Requests to `openai`, `claude`, and `gemini` targets forward the original body unmodified.
 - The proxy removes internal/legacy query params before forwarding: `target`, `api-version`, `api_version`, `api-key`.
 - Successful responses set **both** `X-Proxy-Target: <target-name>` and `X-Azure-Target: <target-name>` so callers can identify the chosen backend. (`X-Azure-Target` is retained for backward compatibility with older clients.)
 - Streaming responses are relayed chunk-by-chunk (`io.Copy`), preserving status codes and headers except for hop-by-hop headers.
@@ -204,7 +205,7 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 - Creates a new upstream target. The new target is appended to `azure_targets` in `config.json` and applied at runtime.
 - Required fields: `name`, `endpoint`. Either `api_key` or `allow_bearer_passthrough: true` must be provided.
 - `resource_path_prefix` is required only for `azure_openai` targets.
-- `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`.
+- `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`, `gemini`.
 - Request body example:
   ```json
   {

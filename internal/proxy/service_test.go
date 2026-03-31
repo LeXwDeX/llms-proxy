@@ -1448,6 +1448,63 @@ func TestServiceOpenAITargetSkipsSanitize(t *testing.T) {
 	}
 }
 
+func TestServiceGeminiTargetSendsGoogAPIKey(t *testing.T) {
+	var seenGoogKey string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenGoogKey = r.Header.Get("x-goog-api-key")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		AzureTargets: []config.AzureTarget{{
+			Name:          "gemini",
+			EndpointType:  "gemini",
+			Endpoint:      upstream.URL,
+			AzureAPIKey:   "AIza-test-key",
+			AllowedModels: []string{"gemini-2.5-pro"},
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gemini-2.5-pro","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if seenGoogKey != "AIza-test-key" {
+		t.Fatalf("expected x-goog-api-key 'AIza-test-key', got %q", seenGoogKey)
+	}
+}
+
 func TestServiceClaudeGatewaySubPathPreserved(t *testing.T) {
 	// Verify that when an endpoint has a sub-path (e.g. a Cloudflare AI Gateway
 	// URL like /v2/gws/<id>/anthropic), the client's request path (/v1/messages)

@@ -22,6 +22,7 @@ const (
 	EndpointTypeAzureOpenAI = "azure_openai"
 	EndpointTypeOpenAI      = "openai"
 	EndpointTypeClaude      = "claude"
+	EndpointTypeGemini      = "gemini"
 )
 
 // ModelEntry 是模型目录中的一条记录。

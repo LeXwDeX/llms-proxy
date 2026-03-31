@@ -15,10 +15,11 @@ const (
 	EndpointTypeAzureOpenAI = "azure_openai"
 	EndpointTypeOpenAI      = "openai"
 	EndpointTypeClaude      = "claude"
+	EndpointTypeGemini      = "gemini"
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
-var ValidEndpointTypes = []string{EndpointTypeAzureOpenAI, EndpointTypeOpenAI, EndpointTypeClaude}
+var ValidEndpointTypes = []string{EndpointTypeAzureOpenAI, EndpointTypeOpenAI, EndpointTypeClaude, EndpointTypeGemini}
 
 // NormalizeEndpointType returns a canonical endpoint type; empty defaults to azure_openai.
 func NormalizeEndpointType(t string) string {
@@ -81,10 +82,10 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
-// AzureTarget represents one upstream endpoint (Azure OpenAI, OpenAI, or Claude).
+// AzureTarget represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, or Gemini).
 type AzureTarget struct {
 	Name               string   `json:"name"`
-	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude; default azure_openai
+	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini; default azure_openai
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	AzureAPIKey        string   `json:"azure_api_key"`

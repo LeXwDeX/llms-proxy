@@ -244,6 +244,8 @@ func TestNormalizeEndpointType(t *testing.T) {
 		{"OpenAI", EndpointTypeOpenAI},
 		{"claude", EndpointTypeClaude},
 		{"CLAUDE", EndpointTypeClaude},
+		{"gemini", EndpointTypeGemini},
+		{"GEMINI", EndpointTypeGemini},
 		{"unknown", "unknown"},
 	}
 	for _, tt := range tests {
@@ -317,6 +319,20 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 			EndpointType: "claude",
 			Endpoint:     "https://api.anthropic.com",
 			AzureAPIKey:  "sk-ant-test",
+		}}
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("expected no validation error, got %v", err)
+		}
+	})
+
+	// gemini target: resource_path_prefix not required
+	t.Run("gemini without resource_path_prefix", func(t *testing.T) {
+		cfg := base()
+		cfg.AzureTargets = []AzureTarget{{
+			Name:         "gemini-target",
+			EndpointType: "gemini",
+			Endpoint:     "https://generativelanguage.googleapis.com",
+			AzureAPIKey:  "AIza-test",
 		}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("expected no validation error, got %v", err)

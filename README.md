@@ -3,8 +3,8 @@
 本项目提供一个轻量级的 HTTP 代理，用于统一转发多种 AI 上游端点。支持的上游类型包括 **Azure OpenAI**、**OpenAI** 和 **Claude（Anthropic）**，客户端可通过同一入口透明访问不同供应商的模型。代理负责集中管理凭据、请求路由、日志，以及基本的故障切换能力。
 
 ## 功能特性
-- **多类型上游端点**：支持三种上游类型 —— `azure_openai`、`openai`、`claude`，每个 target 通过 `endpoint_type` 字段区分。
-- **内嵌模型目录**：内置 187 条模型元数据的本地数据库（`internal/catalog`），涵盖 Azure OpenAI、OpenAI 和 Claude 的模型，提供默认费用参考和别名解析，无需外部网络请求。
+- **多类型上游端点**：支持四种上游类型 —— `azure_openai`、`openai`、`claude`、`gemini`，每个 target 通过 `endpoint_type` 字段区分。
+- **内嵌模型目录**：内置模型元数据的本地数据库（`internal/catalog`），涵盖 Azure OpenAI、OpenAI、Claude 和 Gemini 的模型，提供默认费用参考和别名解析，无需外部网络请求。
 - **endpoint_type + model 双维度费用与消费统计**：模型费用与消费事件均按上游类型维度追踪，支持精细化成本分析。
 - **后台目标管理（Target CRUD）**：通过管理接口和 Web UI 动态添加、修改、删除上游目标，无需重启服务。
 - 基于 JSON 的配置文件，并支持管理接口触发热加载。
@@ -33,6 +33,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
   - **Azure OpenAI**：需要 Azure OpenAI 资源 URL 和 API Key。
   - **OpenAI**：需要 OpenAI API Key（endpoint 通常为 `https://api.openai.com`）。
   - **Claude（Anthropic）**：需要 Anthropic API Key（endpoint 通常为 `https://api.anthropic.com`）。
+  - **Gemini（Google）**：需要 Google Gemini API Key（endpoint 通常为 `https://generativelanguage.googleapis.com/v1beta/openai`）。
 - 能够为内部客户端生成并分发访问令牌。
 
 ## 快速上手
@@ -63,15 +64,16 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 `config/config.json` 中的关键字段：
 
 - `server`：监听地址、对外基址、超时时间、请求体大小限制。
-- `azure_targets`：上游目标列表，顺序决定主备优先级。每个目标可通过 `endpoint_type` 字段指定上游类型（默认 `azure_openai`），支持三种类型：
+- `azure_targets`：上游目标列表，顺序决定主备优先级。每个目标可通过 `endpoint_type` 字段指定上游类型（默认 `azure_openai`），支持四种类型：
 
   | `endpoint_type`  | 说明 | 必填字段 |
   |-------------------|------|----------|
   | `azure_openai`（默认） | Azure OpenAI 资源 | `endpoint`（Azure 资源 URL）、`resource_path_prefix`（如 `/openai`）、`azure_api_key` |
   | `openai`          | OpenAI 官方 API | `endpoint`（如 `https://api.openai.com`）、`azure_api_key`（即 OpenAI API Key） |
   | `claude`          | Anthropic Claude API | `endpoint`（如 `https://api.anthropic.com`）、`azure_api_key`（即 Anthropic API Key） |
+  | `gemini`          | Google Gemini API | `endpoint`（如 `https://generativelanguage.googleapis.com/v1beta/openai`）、`azure_api_key`（即 Google API Key） |
 
-  > 注：`resource_path_prefix` 仅 `azure_openai` 类型必填；其他类型无需此字段。`azure_api_key` 字段名为历史兼容，对 OpenAI/Claude 类型填写相应平台的 API Key 即可。
+  > 注：`resource_path_prefix` 仅 `azure_openai` 类型必填；其他类型无需此字段。`azure_api_key` 字段名为历史兼容，对 OpenAI/Claude/Gemini 类型填写相应平台的 API Key 即可。
 
   `allowed_models` 用于模型级路由和白名单。
 - `data_files`：文件型 NoSQL 数据路径，默认指向 `config/clients.json`、`config/model_costs.json`、`config/usage_events.jsonl`、`config/admin_users.json`、`config/admin_audit.jsonl`；客户端访问令牌、模型费用、消费事件、后台管理员账号与审计日志分别存放在这些文件中。
@@ -110,7 +112,7 @@ curl -X POST -b "llms_proxy_admin_session=<session-cookie>" \
 - **登录入口**：浏览器访问 `http://localhost:8080/login`，输入管理员账号密码完成登录。
 - **会话管理**：登录后通过 cookie（`llms_proxy_admin_session`）维持会话，支持滑动过期与登出。
 - **管理台**：登录后进入 `/admin`，左侧导航包含 6 个页面：总览、目标管理、客户端管理、模型费用、消费统计、审计日志。
-- **目标管理**：支持在 Web UI 中动态添加 / 编辑 / 删除上游目标（Target），可选择 `azure_openai`、`openai`、`claude` 类型，配置对应的 endpoint、API Key 和允许模型列表。
+- **目标管理**：支持在 Web UI 中动态添加 / 编辑 / 删除上游目标（Target），可选择 `azure_openai`、`openai`、`claude`、`gemini` 类型，配置对应的 endpoint、API Key 和允许模型列表。
 - **默认账号**：首次部署自带 `admin` / `admin123`，**生产环境请立即更换密码**。
 
 未登录访问 `/admin/*` 会自动跳转到登录页。

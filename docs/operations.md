@@ -4,7 +4,7 @@ This guide covers the preparation, deployment, and day-two operations for the Az
 
 > **Multi-Endpoint Support** — The proxy now supports three upstream provider
 > types via the `endpoint_type` field on each target: `azure_openai` (default),
-> `openai`, and `claude`. All operational procedures below apply to every type
+> `openai`, `claude`, and `gemini`. All operational procedures below apply to every type
 > unless stated otherwise.
 
 ## Pre-Deployment Checklist
@@ -12,7 +12,7 @@ This guide covers the preparation, deployment, and day-two operations for the Az
 - [ ] If routing to **OpenAI** upstream, prepare an OpenAI API Key (starts with `sk-`).
 - [ ] If routing to **Claude** upstream, prepare an Anthropic API Key (starts with `sk-ant-`).
 - [ ] Generate client tokens for each team; scope `allowed_targets` appropriately and save them to `config/clients.json`.
-- [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions. Each entry in `azure_targets` now carries an `endpoint_type` field — accepted values are `azure_openai` (default), `openai`, or `claude`.
+- [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions. Each entry in `azure_targets` now carries an `endpoint_type` field — accepted values are `azure_openai` (default), `openai`, `claude`, or `gemini`.
 - [ ] Review `config/model_costs.json` and populate model token fees before enabling the cost estimation page. Each cost record includes an `endpoint_type` field (defaults to `azure_openai` for backward compatibility).
 - [ ] **Configure admin credentials**: edit `config/admin_users.json` to replace the default `admin/admin123` account. Passwords must be hashed as `sha256$<salt>$<hex>`. **Never deploy the default password to production.**
 - [ ] **Configure admin session**: set a strong `secret` in `config.admin_session` (at least 32 characters), and enable `secure_cookie: true` when running behind HTTPS.
@@ -93,8 +93,8 @@ Automate polling of admin endpoints or export metrics to Prometheus via a lightw
 4. **Log growth** – adjust logging config to use rotated paths or compress old logs (see `internal/logging` for options).
 5. **Client sees 400 model not supported** – verify request `model` is included in at least one target's `allowed_models`.
 6. **Statistics page shows zero/empty cost** – confirm `config/model_costs.json` contains the requested model name and non-zero per-token prices.
-7. **Proxy returns upstream error** – verify the target's `endpoint_type` is set correctly (`azure_openai`, `openai`, or `claude`). Confirm the API key matches the upstream service (Azure keys for `azure_openai`, OpenAI `sk-` keys for `openai`, Anthropic `sk-ant-` keys for `claude`).
-8. **Claude / OpenAI authentication failure** – check that the key format matches the target type. OpenAI keys use the `sk-` prefix; Anthropic (Claude) keys use the `sk-ant-` prefix. A mismatch between key and `endpoint_type` will cause 401/403 from the upstream provider.
+7. **Proxy returns upstream error** – verify the target's `endpoint_type` is set correctly (`azure_openai`, `openai`, `claude`, or `gemini`). Confirm the API key matches the upstream service (Azure keys for `azure_openai`, OpenAI `sk-` keys for `openai`, Anthropic `sk-ant-` keys for `claude`, Google `AIza` keys for `gemini`).
+8. **Claude / OpenAI / Gemini authentication failure** – check that the key format matches the target type. OpenAI keys use the `sk-` prefix; Anthropic (Claude) keys use the `sk-ant-` prefix; Google (Gemini) keys use the `AIza` prefix. A mismatch between key and `endpoint_type` will cause 401/403 from the upstream provider.
 
 ## Azure v1 Endpoint-Model Verification
 在正式切流前，建议逐个校验 endpoint+model 组合是否可用（Azure v1）：
@@ -111,7 +111,7 @@ curl -sS \
 
 ## Model Catalog Operations
 
-The project ships an **embedded model catalog** (`internal/catalog/data/models.json`) containing ~187 model entries across all three endpoint types (`azure_openai`, `openai`, `claude`). The catalog provides default cost data, display names, capability tags, and model aliases.
+The project ships an **embedded model catalog** (`internal/catalog/data/models.json`) containing ~187 model entries across all four endpoint types (`azure_openai`, `openai`, `claude`, `gemini`). The catalog provides default cost data, display names, capability tags, and model aliases.
 
 ### How the catalog is used
 - The catalog is compiled into the binary via `go:embed` — no external network calls are needed at runtime.
@@ -128,7 +128,7 @@ The project ships an **embedded model catalog** (`internal/catalog/data/models.j
    ```sh
    python3 scripts/update-model-catalog.py /tmp/models_dev_raw.json internal/catalog/data/models.json
    ```
-   The script converts prices from $/million tokens to $/thousand tokens, maps providers to `endpoint_type` values (`openai` → `openai`, `azure` → `azure_openai`, `anthropic` → `claude`), and supplements common models that may be missing from the upstream data.
+   The script converts prices from $/million tokens to $/thousand tokens, maps providers to `endpoint_type` values (`openai` → `openai`, `azure` → `azure_openai`, `anthropic` → `claude`, `google` → `gemini`), and supplements common models that may be missing from the upstream data.
 3. Rebuild the binary (the JSON is embedded at compile time):
    ```sh
    make build
