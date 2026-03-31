@@ -1227,7 +1227,7 @@
           /* usage summary */
           var summaryHTML = "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;'>";
           var s = ov.usage_summary || {};
-          var periods = [{k:"today",l:"今日"},{k:"last_hour",l:"近1小时"},{k:"yesterday",l:"昨日"},{k:"last_30_days",l:"近30天"}];
+          var periods = [{k:"last_hour",l:"近1小时"},{k:"today",l:"今日"},{k:"yesterday",l:"昨日"},{k:"last_7_days",l:"近7天"},{k:"last_30_days",l:"近30天"}];
           periods.forEach(function(p) {
             var d = s[p.k] || {};
             summaryHTML += "<div style='padding:12px;border:1px solid var(--line);border-radius:6px;'>";
@@ -1237,8 +1237,25 @@
             summaryHTML += "<div>费用: <strong>"+fmtMoney(d.estimated_cost)+"</strong></div>";
             summaryHTML += "</div>";
           });
+          /* custom date range card */
+          summaryHTML += "<div id='customRangeCard' style='padding:12px;border:1px solid var(--line);border-radius:6px;'>";
+          summaryHTML += "<div style='font-size:12px;color:var(--text-muted);margin-bottom:4px;'>自定义</div>";
+          summaryHTML += "<div style='display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;'>";
+          summaryHTML += "<input type='date' id='customFrom' style='font-size:12px;padding:2px 4px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--text);'>";
+          summaryHTML += "<span style='line-height:26px;'>~</span>";
+          summaryHTML += "<input type='date' id='customTo' style='font-size:12px;padding:2px 4px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--text);'>";
+          summaryHTML += "<button class='btn' id='customRangeBtn' style='font-size:12px;padding:2px 8px;'>查询</button>";
+          summaryHTML += "</div>";
+          summaryHTML += "<div id='customRangeResult'>-</div>";
+          summaryHTML += "</div>";
           summaryHTML += "</div>";
           document.getElementById("overviewUsageSummary").innerHTML = summaryHTML;
+
+          /* wire up custom range query */
+          var today = new Date(); var dd = String(today.getDate()).padStart(2,'0'); var mm = String(today.getMonth()+1).padStart(2,'0'); var yyyy = today.getFullYear();
+          document.getElementById("customTo").value = yyyy+"-"+mm+"-"+dd;
+          document.getElementById("customFrom").value = yyyy+"-"+mm+"-"+dd;
+          document.getElementById("customRangeBtn").addEventListener("click", loadCustomRange);
         } catch(e) {
           document.getElementById("overviewUsageSummary").innerHTML = "<div class='loading-overlay'>加载失败: "+esc(e.message)+"</div>";
         }
@@ -1250,6 +1267,21 @@
         } catch(e) {
           document.getElementById("overviewAuditBody").innerHTML = "<tr class='empty-row'><td colspan='5'>加载失败</td></tr>";
         }
+      }
+
+      /* Custom date range query for overview usage */
+      async function loadCustomRange() {
+        var fromVal = document.getElementById("customFrom").value;
+        var toVal = document.getElementById("customTo").value;
+        var el = document.getElementById("customRangeResult");
+        if (!fromVal || !toVal) { el.textContent = "请选择日期范围"; return; }
+        el.innerHTML = "<span class='loading-spinner' style='width:14px;height:14px;'></span> 查询中...";
+        try {
+          var toDate = new Date(toVal + "T23:59:59Z");
+          var data = await api("/admin/data/usage/aggregate?from=" + encodeURIComponent(fromVal + "T00:00:00Z") + "&to=" + encodeURIComponent(toDate.toISOString()));
+          var t = data.totals || {};
+          el.innerHTML = "请求数: <strong>"+fmtNum(t.requests)+"</strong> &nbsp; 总 Token: <strong>"+fmtNum(totalTok(t))+"</strong> &nbsp; 费用: <strong>"+fmtMoney(t.estimated_cost)+"</strong>";
+        } catch(e) { el.textContent = "查询失败: " + e.message; }
       }
 
       /* Overview auto-refresh: poll every 15s while on overview page */

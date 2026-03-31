@@ -103,9 +103,10 @@ type AggregateResult struct {
 // SummaryResult provides predefined windows for UI.
 type SummaryResult struct {
 	GeneratedAt time.Time `json:"generated_at"`
-	Today       Totals    `json:"today"`
 	LastHour    Totals    `json:"last_hour"`
+	Today       Totals    `json:"today"`
 	Yesterday   Totals    `json:"yesterday"`
+	Last7Days   Totals    `json:"last_7_days"`
 	Last30Days  Totals    `json:"last_30_days"`
 }
 
@@ -316,10 +317,14 @@ func (s *Store) Summary(now time.Time, costs CostTable) (SummaryResult, error) {
 	}
 
 	last30Start := now.AddDate(0, 0, -30)
+	last7Start := now.AddDate(0, 0, -7)
 	for _, evt := range events {
 		t := evt.Timestamp.UTC()
 		if !t.Before(last30Start) && !t.After(now) {
 			addEventTotals(&result.Last30Days, evt, costs)
+			if !t.Before(last7Start) {
+				addEventTotals(&result.Last7Days, evt, costs)
+			}
 		}
 	}
 
