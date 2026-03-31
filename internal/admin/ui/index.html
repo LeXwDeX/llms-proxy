@@ -606,11 +606,11 @@
           </div>
           <div class="stats-grid" id="overviewStats">
             <div class="stat-card">
-              <div class="stat-label">请求总量</div>
+              <div class="stat-label">最近72小时请求总量</div>
               <div class="stat-value" id="ovTotalReqs">-</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">成功率</div>
+              <div class="stat-label">最近72小时成功率</div>
               <div class="stat-value" id="ovSuccessRate">-</div>
             </div>
             <div class="stat-card">
@@ -1218,7 +1218,7 @@
         try {
           var data = await api("/admin/api/overview");
           var ov = data || {};
-          document.getElementById("ovTotalReqs").textContent = fmtNum(ov.total_requests);
+          document.getElementById("ovTotalReqs").textContent = fmtNum(ov.requests_72h);
           document.getElementById("ovSuccessRate").textContent = fmtPct(ov.success_rate);
           document.getElementById("ovTargets").textContent = fmtNum(ov.active_targets);
           document.getElementById("ovClients").textContent = fmtNum(ov.client_count);

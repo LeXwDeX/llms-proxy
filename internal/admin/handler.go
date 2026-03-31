@@ -260,9 +260,19 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var successRate float64
-	if metrics.TotalRequests > 0 {
-		successRate = float64(metrics.TotalSuccess) / float64(metrics.TotalRequests) * 100
+	// 72-hour request/success stats from usage events.
+	from72h := now.Add(-72 * time.Hour)
+	events72h, _ := usageStore.List(usage.Filter{From: &from72h, To: &now, Limit: 0})
+	var reqs72h, success72h int64
+	for _, evt := range events72h {
+		reqs72h++
+		if evt.StatusCode > 0 && evt.StatusCode < 500 {
+			success72h++
+		}
+	}
+	var successRate72h float64
+	if reqs72h > 0 {
+		successRate72h = float64(success72h) / float64(reqs72h) * 100
 	}
 
 	response := map[string]any{
@@ -272,7 +282,9 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"active_targets":   activeTargets,
 		"active_requests":  metrics.ActiveRequests,
 		"total_requests":   metrics.TotalRequests,
-		"success_rate":     successRate,
+		"success_rate":     successRate72h,
+		"requests_72h":     reqs72h,
+		"success_72h":      success72h,
 		"client_count":     len(clients),
 		"model_cost_count": len(models),
 		"requests": map[string]int64{
