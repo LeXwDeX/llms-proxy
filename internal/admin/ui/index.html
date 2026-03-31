@@ -1227,7 +1227,7 @@
           /* usage summary */
           var summaryHTML = "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;'>";
           var s = ov.usage_summary || {};
-          var periods = [{k:"last_hour",l:"近1小时"},{k:"yesterday",l:"昨日"},{k:"last_30_days",l:"近30天"}];
+          var periods = [{k:"today",l:"今日"},{k:"last_hour",l:"近1小时"},{k:"yesterday",l:"昨日"},{k:"last_30_days",l:"近30天"}];
           periods.forEach(function(p) {
             var d = s[p.k] || {};
             summaryHTML += "<div style='padding:12px;border:1px solid var(--line);border-radius:6px;'>";
