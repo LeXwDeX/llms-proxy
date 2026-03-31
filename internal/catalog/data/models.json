@@ -4,8 +4,8 @@
     "model": "claude-haiku-4-5",
     "display_name": "Claude Haiku 4.5",
     "default_cost": {
-      "input_per_1m_tokens": 1.0,
-      "output_per_1m_tokens": 5.0,
+      "input_per_1m_tokens": 1,
+      "output_per_1m_tokens": 5,
       "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
@@ -20,8 +20,8 @@
     "model": "claude-opus-4-1",
     "display_name": "Claude Opus 4.1",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 75.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 75,
       "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
@@ -36,8 +36,8 @@
     "model": "claude-opus-4-5",
     "display_name": "Claude Opus 4.5",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 25.0,
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 25,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -51,8 +51,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 25.0,
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 25,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -66,8 +66,8 @@
     "model": "claude-sonnet-4-5",
     "display_name": "Claude Sonnet 4.5",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -95,7 +95,7 @@
     "display_name": "Codex Mini",
     "default_cost": {
       "input_per_1m_tokens": 1.5,
-      "output_per_1m_tokens": 6.0,
+      "output_per_1m_tokens": 6,
       "cached_input_per_1m_tokens": 0.375
     },
     "capabilities": [
@@ -109,7 +109,7 @@
     "display_name": "Command A",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 10.0
+      "output_per_1m_tokens": 10
     },
     "capabilities": [
       "function_calling",
@@ -134,7 +134,7 @@
     "display_name": "Command R+",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 10.0
+      "output_per_1m_tokens": 10
     },
     "capabilities": [
       "function_calling"
@@ -172,8 +172,8 @@
     "model": "dall-e-2",
     "display_name": "DALL·E 2",
     "default_cost": {
-      "input_per_1m_tokens": 20.0,
-      "output_per_1m_tokens": 20.0
+      "input_per_1m_tokens": 20,
+      "output_per_1m_tokens": 20
     },
     "capabilities": [
       "image_generation"
@@ -184,8 +184,8 @@
     "model": "dall-e-3",
     "display_name": "DALL·E 3",
     "default_cost": {
-      "input_per_1m_tokens": 40.0,
-      "output_per_1m_tokens": 80.0
+      "input_per_1m_tokens": 40,
+      "output_per_1m_tokens": 80
     },
     "capabilities": [
       "image_generation"
@@ -275,7 +275,7 @@
     "display_name": "GPT-3.5 Turbo 0301",
     "default_cost": {
       "input_per_1m_tokens": 1.5,
-      "output_per_1m_tokens": 2.0
+      "output_per_1m_tokens": 2
     }
   },
   {
@@ -283,8 +283,8 @@
     "model": "gpt-3.5-turbo-0613",
     "display_name": "GPT-3.5 Turbo 0613",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 4.0
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 4
     }
   },
   {
@@ -292,8 +292,8 @@
     "model": "gpt-3.5-turbo-1106",
     "display_name": "GPT-3.5 Turbo 1106",
     "default_cost": {
-      "input_per_1m_tokens": 1.0,
-      "output_per_1m_tokens": 2.0
+      "input_per_1m_tokens": 1,
+      "output_per_1m_tokens": 2
     }
   },
   {
@@ -302,15 +302,15 @@
     "display_name": "GPT-3.5 Turbo Instruct",
     "default_cost": {
       "input_per_1m_tokens": 1.5,
-      "output_per_1m_tokens": 2.0
+      "output_per_1m_tokens": 2
     }
   },
   {
     "endpoint_type": "azure_openai",
     "model": "gpt-4",
     "default_cost": {
-      "input_per_1m_tokens": 60.0,
-      "output_per_1m_tokens": 120.0
+      "input_per_1m_tokens": 60,
+      "output_per_1m_tokens": 120
     },
     "capabilities": [
       "function_calling"
@@ -321,8 +321,8 @@
     "model": "gpt-4-32k",
     "display_name": "GPT-4 32K",
     "default_cost": {
-      "input_per_1m_tokens": 60.0,
-      "output_per_1m_tokens": 120.0
+      "input_per_1m_tokens": 60,
+      "output_per_1m_tokens": 120
     },
     "capabilities": [
       "function_calling"
@@ -333,8 +333,8 @@
     "model": "gpt-4-turbo",
     "display_name": "GPT-4 Turbo",
     "default_cost": {
-      "input_per_1m_tokens": 10.0,
-      "output_per_1m_tokens": 30.0
+      "input_per_1m_tokens": 10,
+      "output_per_1m_tokens": 30
     },
     "capabilities": [
       "vision",
@@ -346,8 +346,8 @@
     "model": "gpt-4-turbo-vision",
     "display_name": "GPT-4 Turbo Vision",
     "default_cost": {
-      "input_per_1m_tokens": 10.0,
-      "output_per_1m_tokens": 30.0
+      "input_per_1m_tokens": 10,
+      "output_per_1m_tokens": 30
     },
     "capabilities": [
       "vision",
@@ -358,8 +358,8 @@
     "endpoint_type": "azure_openai",
     "model": "gpt-4.1",
     "default_cost": {
-      "input_per_1m_tokens": 2.0,
-      "output_per_1m_tokens": 8.0,
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 8,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -400,7 +400,7 @@
     "model": "gpt-4o",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
@@ -427,7 +427,7 @@
     "model": "gpt-5",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
@@ -442,7 +442,7 @@
     "display_name": "GPT-5 Chat",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
@@ -455,7 +455,7 @@
     "model": "gpt-5-codex",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
@@ -470,7 +470,7 @@
     "display_name": "GPT-5 Mini",
     "default_cost": {
       "input_per_1m_tokens": 0.25,
-      "output_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 2,
       "cached_input_per_1m_tokens": 0.03
     },
     "capabilities": [
@@ -499,8 +499,8 @@
     "model": "gpt-5-pro",
     "display_name": "GPT-5 Pro",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 120.0
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 120
     },
     "capabilities": [
       "vision",
@@ -514,7 +514,7 @@
     "model": "gpt-5.1",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -533,7 +533,7 @@
     "display_name": "GPT-5.1 Chat",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -552,7 +552,7 @@
     "display_name": "GPT-5.1 Codex",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -571,7 +571,7 @@
     "display_name": "GPT-5.1 Codex Max",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -587,7 +587,7 @@
     "display_name": "GPT-5.1 Codex Mini",
     "default_cost": {
       "input_per_1m_tokens": 0.25,
-      "output_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 2,
       "cached_input_per_1m_tokens": 0.025
     },
     "capabilities": [
@@ -602,7 +602,7 @@
     "model": "gpt-5.2",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -618,7 +618,7 @@
     "display_name": "GPT-5.2 Chat",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -634,7 +634,7 @@
     "display_name": "GPT-5.2 Codex",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -650,7 +650,7 @@
     "display_name": "GPT-5.3 Chat",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -666,7 +666,7 @@
     "display_name": "GPT-5.3 Codex",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -681,7 +681,7 @@
     "model": "gpt-5.4",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.25
     },
     "capabilities": [
@@ -728,8 +728,8 @@
     "model": "gpt-5.4-pro",
     "display_name": "GPT-5.4 Pro",
     "default_cost": {
-      "input_per_1m_tokens": 30.0,
-      "output_per_1m_tokens": 180.0
+      "input_per_1m_tokens": 30,
+      "output_per_1m_tokens": 180
     },
     "capabilities": [
       "vision",
@@ -742,8 +742,8 @@
     "model": "gpt-image-1",
     "display_name": "GPT Image 1",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 40.0
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
     },
     "capabilities": [
       "image_generation"
@@ -754,8 +754,8 @@
     "model": "gpt-image-1.5",
     "display_name": "GPT Image 1.5",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 40.0
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
     },
     "capabilities": [
       "image_generation"
@@ -766,8 +766,8 @@
     "model": "grok-3",
     "display_name": "Grok 3",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.75
     },
     "capabilities": [
@@ -793,8 +793,8 @@
     "model": "grok-4",
     "display_name": "Grok 4",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.75
     },
     "capabilities": [
@@ -894,7 +894,7 @@
     "display_name": "Kimi K2.5",
     "default_cost": {
       "input_per_1m_tokens": 0.6,
-      "output_per_1m_tokens": 3.0
+      "output_per_1m_tokens": 3
     },
     "capabilities": [
       "vision",
@@ -944,7 +944,7 @@
     "display_name": "Llama 4 Maverick 17B 128E Instruct FP8",
     "default_cost": {
       "input_per_1m_tokens": 0.25,
-      "output_per_1m_tokens": 1.0
+      "output_per_1m_tokens": 1
     },
     "capabilities": [
       "vision",
@@ -996,7 +996,7 @@
     "model": "meta-llama-3.1-405b-instruct",
     "default_cost": {
       "input_per_1m_tokens": 5.33,
-      "output_per_1m_tokens": 16.0
+      "output_per_1m_tokens": 16
     },
     "capabilities": [
       "function_calling"
@@ -1041,8 +1041,8 @@
     "model": "mistral-large-2411",
     "display_name": "Mistral Large 24.11",
     "default_cost": {
-      "input_per_1m_tokens": 2.0,
-      "output_per_1m_tokens": 6.0
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 6
     },
     "capabilities": [
       "function_calling"
@@ -1054,7 +1054,7 @@
     "display_name": "Mistral Medium 3",
     "default_cost": {
       "input_per_1m_tokens": 0.4,
-      "output_per_1m_tokens": 2.0
+      "output_per_1m_tokens": 2
     },
     "capabilities": [
       "vision",
@@ -1102,8 +1102,8 @@
     "endpoint_type": "azure_openai",
     "model": "o1",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 60.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 60,
       "cached_input_per_1m_tokens": 7.5
     },
     "capabilities": [
@@ -1130,7 +1130,7 @@
     "model": "o1-preview",
     "default_cost": {
       "input_per_1m_tokens": 16.5,
-      "output_per_1m_tokens": 66.0,
+      "output_per_1m_tokens": 66,
       "cached_input_per_1m_tokens": 8.25
     },
     "capabilities": [
@@ -1142,8 +1142,8 @@
     "endpoint_type": "azure_openai",
     "model": "o3",
     "default_cost": {
-      "input_per_1m_tokens": 2.0,
-      "output_per_1m_tokens": 8.0,
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 8,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -1340,7 +1340,7 @@
     "model": "tts-1",
     "display_name": "TTS 1",
     "default_cost": {
-      "input_per_1m_tokens": 15.0
+      "input_per_1m_tokens": 15
     },
     "capabilities": [
       "audio_output"
@@ -1351,7 +1351,7 @@
     "model": "tts-1-hd",
     "display_name": "TTS 1 HD",
     "default_cost": {
-      "input_per_1m_tokens": 30.0
+      "input_per_1m_tokens": 30
     },
     "capabilities": [
       "audio_output"
@@ -1362,7 +1362,7 @@
     "model": "whisper-1",
     "display_name": "Whisper 1",
     "default_cost": {
-      "input_per_1m_tokens": 6.0
+      "input_per_1m_tokens": 6
     },
     "capabilities": [
       "audio_input"
@@ -1374,7 +1374,7 @@
     "display_name": "Claude Haiku 3.5",
     "default_cost": {
       "input_per_1m_tokens": 0.8,
-      "output_per_1m_tokens": 4.0,
+      "output_per_1m_tokens": 4,
       "cached_input_per_1m_tokens": 0.08
     },
     "capabilities": [
@@ -1391,7 +1391,7 @@
     "display_name": "Claude Haiku 3.5 (latest)",
     "default_cost": {
       "input_per_1m_tokens": 0.8,
-      "output_per_1m_tokens": 4.0,
+      "output_per_1m_tokens": 4,
       "cached_input_per_1m_tokens": 0.08
     },
     "capabilities": [
@@ -1407,8 +1407,8 @@
     "model": "claude-3-5-sonnet-20240620",
     "display_name": "Claude Sonnet 3.5",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1424,8 +1424,8 @@
     "model": "claude-3-5-sonnet-20241022",
     "display_name": "Claude Sonnet 3.5 v2",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1441,8 +1441,8 @@
     "model": "claude-3-7-sonnet-20250219",
     "display_name": "Claude Sonnet 3.7",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1459,8 +1459,8 @@
     "model": "claude-3-7-sonnet-latest",
     "display_name": "Claude Sonnet 3.7 (latest)",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1491,8 +1491,8 @@
     "model": "claude-3-opus-20240229",
     "display_name": "Claude Opus 3",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 75.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 75,
       "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
@@ -1505,8 +1505,8 @@
     "model": "claude-3-sonnet-20240229",
     "display_name": "Claude Sonnet 3",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1519,8 +1519,8 @@
     "model": "claude-haiku-4-5",
     "display_name": "Claude Haiku 4.5 (latest)",
     "default_cost": {
-      "input_per_1m_tokens": 1.0,
-      "output_per_1m_tokens": 5.0,
+      "input_per_1m_tokens": 1,
+      "output_per_1m_tokens": 5,
       "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
@@ -1534,8 +1534,8 @@
     "model": "claude-haiku-4-5-20251001",
     "display_name": "Claude Haiku 4.5",
     "default_cost": {
-      "input_per_1m_tokens": 1.0,
-      "output_per_1m_tokens": 5.0,
+      "input_per_1m_tokens": 1,
+      "output_per_1m_tokens": 5,
       "cached_input_per_1m_tokens": 0.1
     },
     "capabilities": [
@@ -1549,8 +1549,8 @@
     "model": "claude-opus-4-0",
     "display_name": "Claude Opus 4 (latest)",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 75.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 75,
       "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
@@ -1564,8 +1564,8 @@
     "model": "claude-opus-4-1",
     "display_name": "Claude Opus 4.1 (latest)",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 75.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 75,
       "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
@@ -1579,8 +1579,8 @@
     "model": "claude-opus-4-1-20250805",
     "display_name": "Claude Opus 4.1",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 75.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 75,
       "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
@@ -1594,8 +1594,8 @@
     "model": "claude-opus-4-20250514",
     "display_name": "Claude Opus 4",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 75.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 75,
       "cached_input_per_1m_tokens": 1.5
     },
     "capabilities": [
@@ -1613,8 +1613,8 @@
     "model": "claude-opus-4-5",
     "display_name": "Claude Opus 4.5 (latest)",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 25.0,
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 25,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -1628,8 +1628,8 @@
     "model": "claude-opus-4-5-20251101",
     "display_name": "Claude Opus 4.5",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 25.0,
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 25,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -1643,8 +1643,8 @@
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 25.0,
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 25,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -1658,8 +1658,8 @@
     "model": "claude-sonnet-4-0",
     "display_name": "Claude Sonnet 4 (latest)",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1673,8 +1673,8 @@
     "model": "claude-sonnet-4-20250514",
     "display_name": "Claude Sonnet 4",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1692,8 +1692,8 @@
     "model": "claude-sonnet-4-5",
     "display_name": "Claude Sonnet 4.5 (latest)",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1707,8 +1707,8 @@
     "model": "claude-sonnet-4-5-20250929",
     "display_name": "Claude Sonnet 4.5",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1725,8 +1725,8 @@
     "model": "claude-sonnet-4-6",
     "display_name": "Claude Sonnet 4.6",
     "default_cost": {
-      "input_per_1m_tokens": 3.0,
-      "output_per_1m_tokens": 15.0,
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.3
     },
     "capabilities": [
@@ -1736,12 +1736,519 @@
     ]
   },
   {
+    "endpoint_type": "gemini",
+    "model": "gemini-1.5-flash",
+    "display_name": "Gemini 1.5 Flash",
+    "default_cost": {
+      "input_per_1m_tokens": 0.075,
+      "output_per_1m_tokens": 0.3,
+      "cached_input_per_1m_tokens": 0.01875
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-1.5-flash-8b",
+    "display_name": "Gemini 1.5 Flash-8B",
+    "default_cost": {
+      "input_per_1m_tokens": 0.0375,
+      "output_per_1m_tokens": 0.15,
+      "cached_input_per_1m_tokens": 0.01
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-1.5-pro",
+    "display_name": "Gemini 1.5 Pro",
+    "default_cost": {
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 5,
+      "cached_input_per_1m_tokens": 0.3125
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.0-flash",
+    "display_name": "Gemini 2.0 Flash",
+    "default_cost": {
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.025
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.0-flash-lite",
+    "display_name": "Gemini 2.0 Flash Lite",
+    "default_cost": {
+      "input_per_1m_tokens": 0.075,
+      "output_per_1m_tokens": 0.3
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash",
+    "display_name": "Gemini 2.5 Flash",
+    "default_cost": {
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 2.5,
+      "cached_input_per_1m_tokens": 0.075
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-image",
+    "display_name": "Gemini 2.5 Flash Image",
+    "default_cost": {
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 30,
+      "cached_input_per_1m_tokens": 0.075
+    },
+    "capabilities": [
+      "vision",
+      "image_generation",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-image-preview",
+    "display_name": "Gemini 2.5 Flash Image (Preview)",
+    "default_cost": {
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 30,
+      "cached_input_per_1m_tokens": 0.075
+    },
+    "capabilities": [
+      "vision",
+      "image_generation",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-lite",
+    "display_name": "Gemini 2.5 Flash Lite",
+    "default_cost": {
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.025
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-lite-preview-06-17",
+    "display_name": "Gemini 2.5 Flash Lite Preview 06-17",
+    "default_cost": {
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.025
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-lite-preview-09-2025",
+    "display_name": "Gemini 2.5 Flash Lite Preview 09-25",
+    "default_cost": {
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.025
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-preview-04-17",
+    "display_name": "Gemini 2.5 Flash Preview 04-17",
+    "default_cost": {
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.6,
+      "cached_input_per_1m_tokens": 0.0375
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-preview-05-20",
+    "display_name": "Gemini 2.5 Flash Preview 05-20",
+    "default_cost": {
+      "input_per_1m_tokens": 0.15,
+      "output_per_1m_tokens": 0.6,
+      "cached_input_per_1m_tokens": 0.0375
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-preview-09-2025",
+    "display_name": "Gemini 2.5 Flash Preview 09-25",
+    "default_cost": {
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 2.5,
+      "cached_input_per_1m_tokens": 0.075
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-flash-preview-tts",
+    "display_name": "Gemini 2.5 Flash Preview TTS",
+    "default_cost": {
+      "input_per_1m_tokens": 0.5,
+      "output_per_1m_tokens": 10
+    },
+    "capabilities": [
+      "audio_output"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-pro",
+    "display_name": "Gemini 2.5 Pro",
+    "default_cost": {
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10,
+      "cached_input_per_1m_tokens": 0.31
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-pro-preview-05-06",
+    "display_name": "Gemini 2.5 Pro Preview 05-06",
+    "default_cost": {
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10,
+      "cached_input_per_1m_tokens": 0.31
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-pro-preview-06-05",
+    "display_name": "Gemini 2.5 Pro Preview 06-05",
+    "default_cost": {
+      "input_per_1m_tokens": 1.25,
+      "output_per_1m_tokens": 10,
+      "cached_input_per_1m_tokens": 0.31
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-2.5-pro-preview-tts",
+    "display_name": "Gemini 2.5 Pro Preview TTS",
+    "default_cost": {
+      "input_per_1m_tokens": 1,
+      "output_per_1m_tokens": 20
+    },
+    "capabilities": [
+      "audio_output"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-3-flash-preview",
+    "display_name": "Gemini 3 Flash Preview",
+    "default_cost": {
+      "input_per_1m_tokens": 0.5,
+      "output_per_1m_tokens": 3,
+      "cached_input_per_1m_tokens": 0.05
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-3-pro-preview",
+    "display_name": "Gemini 3 Pro Preview",
+    "default_cost": {
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 12,
+      "cached_input_per_1m_tokens": 0.2
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-3.1-flash-image-preview",
+    "display_name": "Gemini 3.1 Flash Image (Preview)",
+    "default_cost": {
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 60
+    },
+    "capabilities": [
+      "vision",
+      "image_generation",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-3.1-flash-lite-preview",
+    "display_name": "Gemini 3.1 Flash Lite Preview",
+    "default_cost": {
+      "input_per_1m_tokens": 0.25,
+      "output_per_1m_tokens": 1.5,
+      "cached_input_per_1m_tokens": 0.025
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-3.1-pro-preview",
+    "display_name": "Gemini 3.1 Pro Preview",
+    "default_cost": {
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 12,
+      "cached_input_per_1m_tokens": 0.2
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-3.1-pro-preview-customtools",
+    "display_name": "Gemini 3.1 Pro Preview Custom Tools",
+    "default_cost": {
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 12,
+      "cached_input_per_1m_tokens": 0.2
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-embedding-001",
+    "display_name": "Gemini Embedding 001",
+    "default_cost": {
+      "input_per_1m_tokens": 0.15
+    }
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-flash-latest",
+    "display_name": "Gemini Flash Latest",
+    "default_cost": {
+      "input_per_1m_tokens": 0.3,
+      "output_per_1m_tokens": 2.5,
+      "cached_input_per_1m_tokens": 0.075
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-flash-lite-latest",
+    "display_name": "Gemini Flash-Lite Latest",
+    "default_cost": {
+      "input_per_1m_tokens": 0.1,
+      "output_per_1m_tokens": 0.4,
+      "cached_input_per_1m_tokens": 0.025
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-live-2.5-flash",
+    "display_name": "Gemini Live 2.5 Flash",
+    "default_cost": {
+      "input_per_1m_tokens": 0.5,
+      "output_per_1m_tokens": 2
+    },
+    "capabilities": [
+      "vision",
+      "audio_input",
+      "audio_output",
+      "function_calling",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemini-live-2.5-flash-preview-native-audio",
+    "display_name": "Gemini Live 2.5 Flash Preview Native Audio",
+    "default_cost": {
+      "input_per_1m_tokens": 0.5,
+      "output_per_1m_tokens": 2
+    },
+    "capabilities": [
+      "audio_input",
+      "audio_output",
+      "function_calling",
+      "reasoning"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemma-3-12b-it",
+    "display_name": "Gemma 3 12B",
+    "capabilities": [
+      "vision",
+      "structured_output"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemma-3-27b-it",
+    "display_name": "Gemma 3 27B",
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemma-3-4b-it",
+    "display_name": "Gemma 3 4B",
+    "capabilities": [
+      "vision"
+    ]
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemma-3n-e2b-it",
+    "display_name": "Gemma 3n 2B"
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemma-3n-e4b-it",
+    "display_name": "Gemma 3n 4B"
+  },
+  {
     "endpoint_type": "openai",
     "model": "codex-mini-latest",
     "display_name": "Codex Mini",
     "default_cost": {
       "input_per_1m_tokens": 1.5,
-      "output_per_1m_tokens": 6.0,
+      "output_per_1m_tokens": 6,
       "cached_input_per_1m_tokens": 0.375
     },
     "capabilities": [
@@ -1754,8 +2261,8 @@
     "model": "dall-e-2",
     "display_name": "DALL·E 2",
     "default_cost": {
-      "input_per_1m_tokens": 20.0,
-      "output_per_1m_tokens": 20.0
+      "input_per_1m_tokens": 20,
+      "output_per_1m_tokens": 20
     },
     "capabilities": [
       "image_generation"
@@ -1766,8 +2273,8 @@
     "model": "dall-e-3",
     "display_name": "DALL·E 3",
     "default_cost": {
-      "input_per_1m_tokens": 40.0,
-      "output_per_1m_tokens": 80.0
+      "input_per_1m_tokens": 40,
+      "output_per_1m_tokens": 80
     },
     "capabilities": [
       "image_generation"
@@ -1786,8 +2293,8 @@
     "endpoint_type": "openai",
     "model": "gpt-4",
     "default_cost": {
-      "input_per_1m_tokens": 30.0,
-      "output_per_1m_tokens": 60.0
+      "input_per_1m_tokens": 30,
+      "output_per_1m_tokens": 60
     },
     "capabilities": [
       "function_calling"
@@ -1798,8 +2305,8 @@
     "model": "gpt-4-turbo",
     "display_name": "GPT-4 Turbo",
     "default_cost": {
-      "input_per_1m_tokens": 10.0,
-      "output_per_1m_tokens": 30.0
+      "input_per_1m_tokens": 10,
+      "output_per_1m_tokens": 30
     },
     "capabilities": [
       "vision",
@@ -1810,8 +2317,8 @@
     "endpoint_type": "openai",
     "model": "gpt-4.1",
     "default_cost": {
-      "input_per_1m_tokens": 2.0,
-      "output_per_1m_tokens": 8.0,
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 8,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -1855,7 +2362,7 @@
     "model": "gpt-4o",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
@@ -1869,8 +2376,8 @@
     "model": "gpt-4o-2024-05-13",
     "display_name": "GPT-4o (2024-05-13)",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 15.0
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 15
     },
     "capabilities": [
       "vision",
@@ -1884,7 +2391,7 @@
     "display_name": "GPT-4o (2024-08-06)",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
@@ -1899,7 +2406,7 @@
     "display_name": "GPT-4o (2024-11-20)",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 1.25
     },
     "capabilities": [
@@ -1928,7 +2435,7 @@
     "model": "gpt-5",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -1944,7 +2451,7 @@
     "display_name": "GPT-5 Chat (latest)",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0
+      "output_per_1m_tokens": 10
     },
     "capabilities": [
       "vision",
@@ -1957,7 +2464,7 @@
     "model": "gpt-5-codex",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -1973,7 +2480,7 @@
     "display_name": "GPT-5 Mini",
     "default_cost": {
       "input_per_1m_tokens": 0.25,
-      "output_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 2,
       "cached_input_per_1m_tokens": 0.025
     },
     "capabilities": [
@@ -2004,8 +2511,8 @@
     "model": "gpt-5-pro",
     "display_name": "GPT-5 Pro",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 120.0
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 120
     },
     "capabilities": [
       "vision",
@@ -2019,7 +2526,7 @@
     "model": "gpt-5.1",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.13
     },
     "capabilities": [
@@ -2035,7 +2542,7 @@
     "display_name": "GPT-5.1 Chat",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -2051,7 +2558,7 @@
     "display_name": "GPT-5.1 Codex",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -2067,7 +2574,7 @@
     "display_name": "GPT-5.1 Codex Max",
     "default_cost": {
       "input_per_1m_tokens": 1.25,
-      "output_per_1m_tokens": 10.0,
+      "output_per_1m_tokens": 10,
       "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
@@ -2083,7 +2590,7 @@
     "display_name": "GPT-5.1 Codex mini",
     "default_cost": {
       "input_per_1m_tokens": 0.25,
-      "output_per_1m_tokens": 2.0,
+      "output_per_1m_tokens": 2,
       "cached_input_per_1m_tokens": 0.025
     },
     "capabilities": [
@@ -2098,7 +2605,7 @@
     "model": "gpt-5.2",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -2113,8 +2620,8 @@
     "model": "gpt-5.2-chat",
     "display_name": "GPT-5.2 Chat",
     "default_cost": {
-      "input_per_1m_tokens": 2.0,
-      "output_per_1m_tokens": 8.0,
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 8,
       "cached_input_per_1m_tokens": 0.2
     },
     "capabilities": [
@@ -2129,7 +2636,7 @@
     "display_name": "GPT-5.2 Chat",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -2145,7 +2652,7 @@
     "display_name": "GPT-5.2 Codex",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -2160,8 +2667,8 @@
     "model": "gpt-5.2-pro",
     "display_name": "GPT-5.2 Pro",
     "default_cost": {
-      "input_per_1m_tokens": 21.0,
-      "output_per_1m_tokens": 168.0
+      "input_per_1m_tokens": 21,
+      "output_per_1m_tokens": 168
     },
     "capabilities": [
       "vision",
@@ -2171,11 +2678,26 @@
   },
   {
     "endpoint_type": "openai",
+    "model": "gpt-5.3-chat-latest",
+    "display_name": "GPT-5.3 Chat (latest)",
+    "default_cost": {
+      "input_per_1m_tokens": 1.75,
+      "output_per_1m_tokens": 14,
+      "cached_input_per_1m_tokens": 0.175
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output"
+    ]
+  },
+  {
+    "endpoint_type": "openai",
     "model": "gpt-5.3-codex",
     "display_name": "GPT-5.3 Codex",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -2191,7 +2713,7 @@
     "display_name": "GPT-5.3 Codex Spark",
     "default_cost": {
       "input_per_1m_tokens": 1.75,
-      "output_per_1m_tokens": 14.0,
+      "output_per_1m_tokens": 14,
       "cached_input_per_1m_tokens": 0.175
     },
     "capabilities": [
@@ -2206,7 +2728,7 @@
     "model": "gpt-5.4",
     "default_cost": {
       "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 15.0,
+      "output_per_1m_tokens": 15,
       "cached_input_per_1m_tokens": 0.25
     },
     "capabilities": [
@@ -2253,8 +2775,8 @@
     "model": "gpt-5.4-pro",
     "display_name": "GPT-5.4 Pro",
     "default_cost": {
-      "input_per_1m_tokens": 30.0,
-      "output_per_1m_tokens": 180.0
+      "input_per_1m_tokens": 30,
+      "output_per_1m_tokens": 180
     },
     "capabilities": [
       "vision",
@@ -2267,8 +2789,8 @@
     "model": "gpt-image-1",
     "display_name": "GPT Image 1",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 40.0
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
     },
     "capabilities": [
       "image_generation"
@@ -2279,8 +2801,8 @@
     "model": "gpt-image-1.5",
     "display_name": "GPT Image 1.5",
     "default_cost": {
-      "input_per_1m_tokens": 5.0,
-      "output_per_1m_tokens": 40.0
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
     },
     "capabilities": [
       "image_generation"
@@ -2290,8 +2812,8 @@
     "endpoint_type": "openai",
     "model": "o1",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 60.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 60,
       "cached_input_per_1m_tokens": 7.5
     },
     "capabilities": [
@@ -2318,8 +2840,8 @@
     "endpoint_type": "openai",
     "model": "o1-preview",
     "default_cost": {
-      "input_per_1m_tokens": 15.0,
-      "output_per_1m_tokens": 60.0,
+      "input_per_1m_tokens": 15,
+      "output_per_1m_tokens": 60,
       "cached_input_per_1m_tokens": 7.5
     },
     "capabilities": [
@@ -2330,8 +2852,8 @@
     "endpoint_type": "openai",
     "model": "o1-pro",
     "default_cost": {
-      "input_per_1m_tokens": 150.0,
-      "output_per_1m_tokens": 600.0
+      "input_per_1m_tokens": 150,
+      "output_per_1m_tokens": 600
     },
     "capabilities": [
       "vision",
@@ -2344,8 +2866,8 @@
     "endpoint_type": "openai",
     "model": "o3",
     "default_cost": {
-      "input_per_1m_tokens": 2.0,
-      "output_per_1m_tokens": 8.0,
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 8,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -2359,8 +2881,8 @@
     "endpoint_type": "openai",
     "model": "o3-deep-research",
     "default_cost": {
-      "input_per_1m_tokens": 10.0,
-      "output_per_1m_tokens": 40.0,
+      "input_per_1m_tokens": 10,
+      "output_per_1m_tokens": 40,
       "cached_input_per_1m_tokens": 2.5
     },
     "capabilities": [
@@ -2387,8 +2909,8 @@
     "endpoint_type": "openai",
     "model": "o3-pro",
     "default_cost": {
-      "input_per_1m_tokens": 20.0,
-      "output_per_1m_tokens": 80.0
+      "input_per_1m_tokens": 20,
+      "output_per_1m_tokens": 80
     },
     "capabilities": [
       "vision",
@@ -2416,8 +2938,8 @@
     "endpoint_type": "openai",
     "model": "o4-mini-deep-research",
     "default_cost": {
-      "input_per_1m_tokens": 2.0,
-      "output_per_1m_tokens": 8.0,
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 8,
       "cached_input_per_1m_tokens": 0.5
     },
     "capabilities": [
@@ -2452,7 +2974,7 @@
     "model": "tts-1",
     "display_name": "TTS 1",
     "default_cost": {
-      "input_per_1m_tokens": 15.0
+      "input_per_1m_tokens": 15
     },
     "capabilities": [
       "audio_output"
@@ -2463,7 +2985,7 @@
     "model": "tts-1-hd",
     "display_name": "TTS 1 HD",
     "default_cost": {
-      "input_per_1m_tokens": 30.0
+      "input_per_1m_tokens": 30
     },
     "capabilities": [
       "audio_output"
@@ -2474,7 +2996,7 @@
     "model": "whisper-1",
     "display_name": "Whisper 1",
     "default_cost": {
-      "input_per_1m_tokens": 6.0
+      "input_per_1m_tokens": 6
     },
     "capabilities": [
       "audio_input"
