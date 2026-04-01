@@ -1,10 +1,10 @@
 # 项目总览
 
-本项目是一个 **多类型上游端点代理服务**：对外提供 OpenAI 风格的 HTTP 入口，对内统一转发到多个上游终端（Azure OpenAI、OpenAI、Claude），帮助内部客户端在一个入口下完成鉴权、路由、日志、故障切换与运维管理。
+本项目是一个 **多类型上游端点代理服务**：对外提供统一的 HTTP 入口，对内统一转发到多个上游终端（Azure OpenAI、OpenAI、Claude、Gemini），帮助内部客户端在一个入口下完成鉴权、路由、日志、故障切换与运维管理。
 
 ## 业务目标
-- 统一入口：屏蔽多个上游终端差异（Azure OpenAI / OpenAI / Claude），对外保持 OpenAI 兼容调用方式。
-- 多类型上游：通过 `endpoint_type` 字段区分目标类型，支持 `azure_openai`（默认）、`openai`、`claude` 三种上游，并按类型自动适配认证方式与请求格式。
+- 统一入口：屏蔽多个上游终端差异（Azure OpenAI / OpenAI / Claude / Gemini），对外按各协议原生方式透传。
+- 多类型上游：通过 `endpoint_type` 字段区分目标类型，支持 `azure_openai`（默认）、`openai`、`claude` 、`gemini` 等多种上游，并按类型自动适配认证方式与请求格式。
 - 权限隔离：按客户端令牌控制可访问的目标集合。
 - 稳定性：支持目标选择、失败静默、重试与自动切换。
 - 可观测性：提供结构化日志、健康检查、指标统计与请求 ID 追踪。
@@ -21,7 +21,7 @@
 - `internal/config` 负责配置读取、校验、克隆和热加载缓存。
 - 配置模型包括：
   - `server`：监听地址、请求超时；
-  - `azure_targets`：上游终端配置，每个目标包含 `endpoint_type`（`azure_openai` | `openai` | `claude`，默认 `azure_openai`）、端点地址、API Key、允许模型等；`resource_path_prefix` 仅 `azure_openai` 类型必填；
+  - `azure_targets`：上游终端配置，每个目标包含 `endpoint_type`（`azure_openai` | `openai` | `claude` | `gemini`，默认 `azure_openai`）、端点地址、API Key、允许模型等；`resource_path_prefix` 仅 `azure_openai` 类型必填；
   - `data_files`：文件式 NoSQL 数据路径（clients、model_costs、usage_events、admin_users、admin_audit）；
   - `admin_session`：管理后台会话配置；
   - `logging`：日志级别与日志文件路径。
@@ -29,7 +29,7 @@
 
 ### 3. 认证层
 - `internal/auth` 负责客户端鉴权与授权。
-- 支持 `Authorization: Bearer <access-key>`、`api-key` header，以及 `?api-key=` 查询参数。
+- 支持 `Authorization: Bearer <access-key>`、`api-key` header、`x-api-key` header、`x-goog-api-key` header，以及 `?api-key=` 查询参数。
 - `Store` 按配置构建运行时凭据映射；`Principal` 保存客户端名称、是否放通全部目标、允许目标列表。
 
 ### 4. 代理层
@@ -41,6 +41,9 @@
     - `azure_openai`（默认）→ 设置 `api-key` header（或 Bearer 直通）；
     - `openai` → 设置 `Authorization: Bearer <key>`；
     - `claude` → 设置 `x-api-key` + 自动补充 `anthropic-version: 2023-06-01`；
+    - `gemini` → 设置 `x-goog-api-key` header；
+  - 模型名提取支持多种来源：请求体 JSON `model` 字段、Azure 路径 `/deployments/{model}/`、Gemini 路径 `/models/{model}:action`；
+  - 用量采集兼容 OpenAI（`usage.prompt_tokens`）、Claude（`usage.input_tokens`）和 Gemini（`usageMetadata.promptTokenCount`/`candidatesTokenCount`）三种响应格式；
   - 对 Azure v1 不兼容字段做白名单过滤（仅对 `azure_openai` 类型目标生效，其他类型透传原始请求体）；
   - 转发请求、回写响应、保留流式输出；
   - 响应头同时返回 `X-Proxy-Target`（规范）和 `X-Azure-Target`（向后兼容）；
@@ -85,12 +88,12 @@
 6. 结果透传给客户端，并在响应头中标记 `X-Proxy-Target`（规范）和 `X-Azure-Target`（向后兼容）。
 
 ## 关键业务规则
-- 每个目标（Target）通过 `endpoint_type` 标识上游类型，支持 `azure_openai`（默认）、`openai`、`claude`；空值等同于 `azure_openai`。
+- 每个目标（Target）通过 `endpoint_type` 标识上游类型，支持 `azure_openai`（默认）、`openai`、`claude`、`gemini`；空值等同于 `azure_openai`。
 - 客户端令牌与可访问目标绑定；`allowed_targets` 为空表示允许访问全部目标。
 - 显式目标可通过 `X-Proxy-Target` 或 `target` 查询参数指定。
 - 若目标配置了 `allowed_models`，请求必须携带可识别的 `model`，且模型必须命中白名单。
 - 代理会剥离内部/旧版参数：`target`、`api-version`、`api_version`、`api-key`。
-- 对部分 JSON 接口执行顶层字段白名单过滤（chat completions、responses、embeddings），**仅对 `azure_openai` 类型目标生效**；`openai` 和 `claude` 类型透传原始请求体。
+- 对部分 JSON 接口执行顶层字段白名单过滤（chat completions、responses、embeddings），**仅对 `azure_openai` 类型目标生效**；`openai`、`claude` 和 `gemini` 类型透传原始请求体。
 - 某个目标连续失败后会进入静默窗口，优先切换到其他可用目标。
 - 模型费用（`model_costs`）和用量事件（`usage_events`）均包含 `endpoint_type` 维度；`CostTable` 支持双键查找（`endpoint_type:model` → `model` 降级兼容）。
 

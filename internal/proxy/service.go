@@ -885,8 +885,20 @@ func parseUsageFromPayload(payload map[string]any) (usageTokens, string, bool) {
 	}
 
 	model := strings.ToLower(readString(payload["model"]))
+	// Gemini uses "modelVersion" instead of "model".
+	if model == "" {
+		model = strings.ToLower(readString(payload["modelVersion"]))
+	}
 
 	if usageMap, ok := payload["usage"].(map[string]any); ok {
+		tokens, found := parseUsageMap(usageMap)
+		if found {
+			return tokens, model, true
+		}
+	}
+
+	// Gemini native API: usageMetadata with promptTokenCount / candidatesTokenCount.
+	if usageMap, ok := payload["usageMetadata"].(map[string]any); ok {
 		tokens, found := parseUsageMap(usageMap)
 		if found {
 			return tokens, model, true
@@ -931,9 +943,9 @@ func parseUsageMap(usageMap map[string]any) (usageTokens, bool) {
 		return 0, false
 	}
 
-	input, _ := readField("input_tokens", "prompt_tokens")
-	output, _ := readField("output_tokens", "completion_tokens")
-	cached, hasCached := readField("cached_tokens")
+	input, _ := readField("input_tokens", "prompt_tokens", "promptTokenCount")
+	output, _ := readField("output_tokens", "completion_tokens", "candidatesTokenCount")
+	cached, hasCached := readField("cached_tokens", "cachedContentTokenCount")
 	if !hasCached {
 		if details, ok := usageMap["input_tokens_details"].(map[string]any); ok {
 			if value, ok := details["cached_tokens"]; ok {
