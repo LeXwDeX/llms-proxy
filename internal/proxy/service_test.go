@@ -1254,6 +1254,26 @@ func TestExtractModelFromMultipartForm(t *testing.T) {
 	}
 }
 
+func TestExtractModelFromGeminiPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/v1beta/models/gemini-3.1-flash-image-preview:generateContent", "gemini-3.1-flash-image-preview"},
+		{"/v1beta/models/gemini-3-pro-image-preview:streamGenerateContent", "gemini-3-pro-image-preview"},
+		{"/v1alpha/models/gemini-2.5-pro:generateContent", "gemini-2.5-pro"},
+		{"/v1/models/some-model:countTokens", "some-model"},
+		{"/v1beta/models/gemini-flash:generateContent?key=abc", "gemini-flash"},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodPost, tc.path, nil)
+		req.Header.Set("Content-Type", "application/json")
+		if got := extractModel(req, nil); got != tc.want {
+			t.Errorf("path=%q: expected model %q, got %q", tc.path, tc.want, got)
+		}
+	}
+}
+
 func TestServiceOpenAITargetSendsBearerAuth(t *testing.T) {
 	var seenAuth string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

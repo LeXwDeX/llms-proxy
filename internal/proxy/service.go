@@ -1457,6 +1457,24 @@ func extractModel(r *http.Request, body []byte) string {
 		return strings.TrimSpace(after)
 	}
 
+	// Gemini native REST API: /v1beta/models/{model}:{action}
+	// Also match /v1alpha/models/... and /v1/models/... variants.
+	const modelsSegment = "/models/"
+	if idx := strings.Index(path, modelsSegment); idx >= 0 {
+		after := path[idx+len(modelsSegment):]
+		// Strip :{action} suffix (e.g. ":generatecontent", ":streamgeneratecontent")
+		if colon := strings.Index(after, ":"); colon >= 0 {
+			after = after[:colon]
+		}
+		// Strip any trailing path segments
+		if slash := strings.Index(after, "/"); slash >= 0 {
+			after = after[:slash]
+		}
+		if m := strings.TrimSpace(after); m != "" {
+			return m
+		}
+	}
+
 	if len(body) > 0 {
 		contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 		if strings.Contains(contentType, "application/x-www-form-urlencoded") {
