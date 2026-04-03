@@ -106,6 +106,21 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// Flush implements http.Flusher so that SSE streaming works correctly
+// through the middleware chain. Without this, streamingWriter cannot
+// detect the Flusher interface and SSE frames accumulate in the buffer.
+func (r *responseRecorder) Flush() {
+	if fl, ok := r.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
+// Unwrap returns the underlying ResponseWriter, allowing http.NewResponseController
+// and similar utilities to discover interfaces on the original writer.
+func (r *responseRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 func remoteIP(r *http.Request) string {
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff != "" {
