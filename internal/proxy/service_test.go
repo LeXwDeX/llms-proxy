@@ -1230,6 +1230,63 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 	}
 }
 
+func TestExtractUsageFromClaudeSSE(t *testing.T) {
+	// Claude streaming responses split usage across two events:
+	// - message_start: contains input_tokens under message.usage
+	// - message_delta: contains output_tokens under usage
+	sseBody := []byte(
+		"event: message_start\n" +
+			`data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","content":[],"model":"claude-opus-4-6","usage":{"input_tokens":2048,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}` + "\n\n" +
+			"event: content_block_start\n" +
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}` + "\n\n" +
+			"event: content_block_delta\n" +
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}` + "\n\n" +
+			"event: content_block_stop\n" +
+			`data: {"type":"content_block_stop","index":0}` + "\n\n" +
+			"event: message_delta\n" +
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":350}}` + "\n\n" +
+			"event: message_stop\n" +
+			`data: {"type":"message_stop"}` + "\n\n",
+	)
+
+	tokens, model, ok := extractUsageFromSSE(sseBody)
+	if !ok {
+		t.Fatal("expected usage to be found in Claude SSE")
+	}
+	if model != "claude-opus-4-6" {
+		t.Fatalf("expected model claude-opus-4-6, got %q", model)
+	}
+	if tokens.InputTokens != 2048 {
+		t.Fatalf("expected input_tokens=2048 (from message_start), got %d", tokens.InputTokens)
+	}
+	if tokens.OutputTokens != 350 {
+		t.Fatalf("expected output_tokens=350 (from message_delta), got %d", tokens.OutputTokens)
+	}
+}
+
+func TestExtractUsageFromClaudeSSETailOnly(t *testing.T) {
+	// Simulate tail-only capture: message_start is missing (fell outside buffer),
+	// only message_delta remains. We should still get output_tokens.
+	sseBody := []byte(
+		"event: message_delta\n" +
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":500}}` + "\n\n" +
+			"event: message_stop\n" +
+			`data: {"type":"message_stop"}` + "\n\n",
+	)
+
+	tokens, _, ok := extractUsageFromSSE(sseBody)
+	if !ok {
+		t.Fatal("expected usage to be found")
+	}
+	if tokens.OutputTokens != 500 {
+		t.Fatalf("expected output_tokens=500, got %d", tokens.OutputTokens)
+	}
+	// input_tokens will be 0 since message_start is missing — best effort.
+	if tokens.InputTokens != 0 {
+		t.Fatalf("expected input_tokens=0 (message_start missing), got %d", tokens.InputTokens)
+	}
+}
+
 func TestExtractModelFromFormEncoded(t *testing.T) {
 	body := []byte("model=gpt-4o&input=hello")
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))

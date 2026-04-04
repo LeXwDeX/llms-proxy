@@ -840,7 +840,7 @@ func extractUsageTokens(contentType string, body []byte) (usageTokens, string, b
 }
 
 func extractUsageFromSSE(body []byte) (usageTokens, string, bool) {
-	var last usageTokens
+	var merged usageTokens
 	var model string
 	found := false
 
@@ -866,7 +866,18 @@ func extractUsageFromSSE(body []byte) (usageTokens, string, bool) {
 		if !ok {
 			continue
 		}
-		last = tokens
+		// Accumulate: keep the maximum of each field across all SSE events.
+		// Claude splits usage across message_start (input_tokens) and
+		// message_delta (output_tokens), so we must merge them.
+		if tokens.InputTokens > merged.InputTokens {
+			merged.InputTokens = tokens.InputTokens
+		}
+		if tokens.OutputTokens > merged.OutputTokens {
+			merged.OutputTokens = tokens.OutputTokens
+		}
+		if tokens.CachedTokens > merged.CachedTokens {
+			merged.CachedTokens = tokens.CachedTokens
+		}
 		if m != "" {
 			model = m
 		}
@@ -876,7 +887,7 @@ func extractUsageFromSSE(body []byte) (usageTokens, string, bool) {
 	if !found {
 		return usageTokens{}, "", false
 	}
-	return last, model, true
+	return merged, model, true
 }
 
 func parseUsageFromPayload(payload map[string]any) (usageTokens, string, bool) {
@@ -910,6 +921,19 @@ func parseUsageFromPayload(payload map[string]any) (usageTokens, string, bool) {
 			model = strings.ToLower(readString(responseMap["model"]))
 		}
 		if usageMap, ok := responseMap["usage"].(map[string]any); ok {
+			tokens, found := parseUsageMap(usageMap)
+			if found {
+				return tokens, model, true
+			}
+		}
+	}
+
+	// Claude SSE message_start event: usage nested under "message.usage".
+	if messageMap, ok := payload["message"].(map[string]any); ok {
+		if model == "" {
+			model = strings.ToLower(readString(messageMap["model"]))
+		}
+		if usageMap, ok := messageMap["usage"].(map[string]any); ok {
 			tokens, found := parseUsageMap(usageMap)
 			if found {
 				return tokens, model, true
