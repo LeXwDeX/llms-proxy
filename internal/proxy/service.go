@@ -985,6 +985,20 @@ func parseUsageMap(usageMap map[string]any) (usageTokens, bool) {
 		}
 	}
 
+	// Claude prompt caching: cache_read_input_tokens is the cached portion,
+	// cache_creation_input_tokens is tokens used to build the cache entry.
+	// Claude's "input_tokens" only counts non-cached tokens, so we add the
+	// cache fields to get the true total and map them to our cached_tokens.
+	cacheRead := readInt64(usageMap["cache_read_input_tokens"])
+	cacheCreation := readInt64(usageMap["cache_creation_input_tokens"])
+	if cacheRead > 0 || cacheCreation > 0 {
+		hasAny = true
+		input += cacheRead + cacheCreation
+		if cacheRead > cached {
+			cached = cacheRead
+		}
+	}
+
 	if !hasAny {
 		return usageTokens{}, false
 	}

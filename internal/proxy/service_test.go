@@ -1287,6 +1287,64 @@ func TestExtractUsageFromClaudeSSETailOnly(t *testing.T) {
 	}
 }
 
+func TestExtractUsageFromClaudeSSEWithCaching(t *testing.T) {
+	// Claude prompt caching: message_start has cache_read_input_tokens,
+	// message_delta has only input_tokens (non-cached portion).
+	// We should merge: total input = input_tokens + cache_read + cache_creation.
+	sseBody := []byte(
+		"event: message_start\n" +
+			`data: {"type":"message_start","message":{"model":"claude-opus-4-6","usage":{"input_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":50000,"output_tokens":1}}}` + "\n\n" +
+			"event: content_block_delta\n" +
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}` + "\n\n" +
+			"event: message_delta\n" +
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":3,"output_tokens":200}}` + "\n\n" +
+			"event: message_stop\n" +
+			`data: {"type":"message_stop"}` + "\n\n",
+	)
+
+	tokens, model, ok := extractUsageFromSSE(sseBody)
+	if !ok {
+		t.Fatal("expected usage to be found")
+	}
+	if model != "claude-opus-4-6" {
+		t.Fatalf("expected model claude-opus-4-6, got %q", model)
+	}
+	// Total input = 3 (non-cached) + 50000 (cache_read) from message_start
+	// message_delta has input_tokens=3 (no cache fields) → merged max = 50003
+	if tokens.InputTokens != 50003 {
+		t.Fatalf("expected input_tokens=50003 (3 + 50000 cache_read), got %d", tokens.InputTokens)
+	}
+	if tokens.OutputTokens != 200 {
+		t.Fatalf("expected output_tokens=200, got %d", tokens.OutputTokens)
+	}
+	if tokens.CachedTokens != 50000 {
+		t.Fatalf("expected cached_tokens=50000, got %d", tokens.CachedTokens)
+	}
+}
+
+func TestExtractUsageFromClaudeSSECachingTailOnly(t *testing.T) {
+	// When only message_delta is in buffer (long conversation), input_tokens
+	// reflects only non-cached tokens. cache fields are missing.
+	sseBody := []byte(
+		"event: message_delta\n" +
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":400}}` + "\n\n" +
+			"event: message_stop\n" +
+			`data: {"type":"message_stop"}` + "\n\n",
+	)
+
+	tokens, _, ok := extractUsageFromSSE(sseBody)
+	if !ok {
+		t.Fatal("expected usage to be found")
+	}
+	// Without cache fields, input_tokens stays as 1 (best effort)
+	if tokens.InputTokens != 1 {
+		t.Fatalf("expected input_tokens=1, got %d", tokens.InputTokens)
+	}
+	if tokens.OutputTokens != 400 {
+		t.Fatalf("expected output_tokens=400, got %d", tokens.OutputTokens)
+	}
+}
+
 func TestExtractModelFromFormEncoded(t *testing.T) {
 	body := []byte("model=gpt-4o&input=hello")
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
