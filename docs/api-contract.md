@@ -5,7 +5,7 @@ This document describes the externally visible HTTP contract that the proxy expo
 ## Authentication
 - Client requests **must** include `Authorization: Bearer <access-key>`.
 - Also supports Azure-style client auth: `api-key: <access-key>` (header) or `?api-key=<access-key>` (query).
-- Tokens map 1:1 to entries in `./config/clients.json` (configured via `config.data_files.clients_file`).
+- Tokens map 1:1 to entries in the bbolt database (managed via `/admin/data/clients`).
 - On authentication failure the proxy returns `401 Unauthorized` and a `WWW-Authenticate: Bearer` header.
 - Requests receive an `X-Request-ID` header (generated when missing) that propagates through logs.
 
@@ -51,7 +51,7 @@ This document describes the externally visible HTTP contract that the proxy expo
 ## Admin Authentication (Session-based)
 The admin management system uses **independent username/password authentication**, completely separate from the client proxy bearer-token auth.
 
-- Admin users are stored in `config/admin_users.json` (configured via `config.data_files.admin_users_file`).
+- Admin users are stored in the bbolt database (managed via admin API).
 - Passwords are stored as `sha256$<salt>$<hex>` hashes.
 - After login, the server sets a signed session cookie (`llms_proxy_admin_session` by default).
 - Session configuration (cookie name, secret, TTL, sliding expiration) is defined in `config.admin_session`.
@@ -144,10 +144,10 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 - If validation fails, the proxy preserves the previous configuration and returns an error response.
 
 ### `GET /admin/data/clients`
-- Returns the current client list from `config.data_files.clients_file`.
+- Returns the current client list from the bbolt database.
 
 ### `POST /admin/data/clients`
-- Creates a client in the file-backed store.
+- Creates a client in the bbolt database.
 
 ### `PUT /admin/data/clients/{name}`
 - Updates the named client.
@@ -156,7 +156,7 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 - Deletes the named client.
 
 ### `GET /admin/data/model-costs`
-- Returns model token cost configuration from `config.data_files.model_costs_file`.
+- Returns model token cost configuration from the bbolt database.
 - Each record includes an `endpoint_type` field (defaults to `azure_openai` when not set).
 
 ### `PUT /admin/data/model-costs/{model}`
@@ -262,7 +262,7 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 - Response format is identical to `GET /admin/data/catalog`.
 
 ### `GET /admin/data/usage/events`
-- Returns usage events from `config.data_files.usage_events_file` with optional filters (`from`, `to`, `client_name`, `model`, `limit`).
+- Returns usage events from the bbolt database with optional filters (`from`, `to`, `client_name`, `model`, `limit`).
 
 ### `GET /admin/data/usage/aggregate`
 - Returns aggregated token/cost data by hour or day.

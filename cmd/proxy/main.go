@@ -66,14 +66,33 @@ func main() {
 	}
 
 	appLogger := logManager.App()
-	clientStore := nosql.NewClientStore(cfg.DataFiles.ClientsFile)
-	adminUsers := admin.NewUserStore(cfg.DataFiles.AdminUsersFile)
-	auditStore := admin.NewAuditStore(cfg.DataFiles.AdminAuditFile)
+
+	// Open bbolt database.
+	dbPath := cfg.DataStore.DBPath
+	db, err := nosql.OpenDB(dbPath)
+	if err != nil {
+		appLogger.Error("failed to open database", "path", dbPath, "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Migrate from legacy JSON files if needed.
+	if err := nosql.MigrateFromJSON(db, cfg.DataFiles); err != nil {
+		appLogger.Warn("json migration encountered errors", "error", err)
+	}
+
+	// Create all bbolt-backed stores.
+	clientStore := nosql.NewClientStore(db)
+	modelCostStore := nosql.NewModelCostStore(db)
+	usageStore := nosql.NewUsageStore(db)
+	userStore := nosql.NewUserStore(db)
+	auditStore := nosql.NewAuditStore(db)
+
 	sessionManager := admin.NewSessionManager(cfg.AdminSession, appLogger)
+
 	clients, err := clientStore.List()
 	if err != nil {
-		appLogger.Error("failed to load clients file",
-			"path", cfg.DataFiles.ClientsFile,
+		appLogger.Error("failed to load clients from database",
 			"error", err,
 		)
 		os.Exit(1)
@@ -87,6 +106,7 @@ func main() {
 		"effective_log_level", logLevel,
 		"targets", len(cfg.Targets),
 		"clients", len(clients),
+		"db_path", dbPath,
 	)
 
 	authStore := auth.NewStore()
@@ -94,13 +114,15 @@ func main() {
 		appLogger.Error("failed to initialize auth store", "error", err)
 		os.Exit(1)
 	}
-	existingAdmins, err := adminUsers.List()
+
+	// Seed default admin user if the user store is empty.
+	existingAdmins, err := userStore.List()
 	if err != nil {
-		appLogger.Error("failed to load admin users file", "path", cfg.DataFiles.AdminUsersFile, "error", err)
+		appLogger.Error("failed to load admin users", "error", err)
 		os.Exit(1)
 	}
 	if len(existingAdmins) == 0 {
-		seedErr := adminUsers.SeedDefaultUser(config.AdminUser{
+		seedErr := userStore.SeedDefaultUser(config.AdminUser{
 			Username:     "admin",
 			PasswordHash: admin.HashPassword("admin123", "default-salt"),
 			Role:         "admin",
@@ -123,6 +145,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set usage recorder from the bbolt-backed store.
+	proxyService.SetUsageRecorder(usageStore)
+
 	router := chi.NewRouter()
 	router.Use(appmiddleware.RequestID())
 	router.Use(appmiddleware.Recoverer(appLogger))
@@ -132,14 +157,14 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	portal := admin.NewPortal(adminUsers, sessionManager, auditStore, appLogger)
+	portal := admin.NewPortal(userStore, sessionManager, auditStore, appLogger)
 	router.Get("/login", portal.HandleLoginPage)
 	router.Post("/login", portal.HandleLogin)
 	router.Post("/logout", portal.HandleLogout)
 
 	adminRouter := chi.NewRouter()
 	adminRouter.Use(sessionManager.Middleware)
-	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, adminUsers, modelCatalog, appLogger))
+	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, userStore, clientStore, modelCostStore, usageStore, modelCatalog, appLogger))
 	router.Mount("/admin", adminRouter)
 
 	protected := chi.NewRouter()

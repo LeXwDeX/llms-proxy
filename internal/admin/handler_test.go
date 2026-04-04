@@ -23,13 +23,50 @@ import (
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
+// testStores creates a bbolt DB and all stores for testing.
+type testStores struct {
+	clientStore    *nosql.ClientStore
+	modelCostStore *nosql.ModelCostStore
+	usageStore     *nosql.UsageStore
+	userStore      *nosql.UserStore
+	auditStore     *nosql.AuditStore
+}
+
+func setupTestStores(t *testing.T, tempDir string) testStores {
+	t.Helper()
+	dbPath := filepath.Join(tempDir, "test.db")
+	db, err := nosql.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return testStores{
+		clientStore:    nosql.NewClientStore(db),
+		modelCostStore: nosql.NewModelCostStore(db),
+		usageStore:     nosql.NewUsageStore(db),
+		userStore:      nosql.NewUserStore(db),
+		auditStore:     nosql.NewAuditStore(db),
+	}
+}
+
+func seedClients(t *testing.T, store *nosql.ClientStore, clients []config.Client) {
+	t.Helper()
+	for _, c := range clients {
+		if err := store.Create(c); err != nil {
+			t.Fatalf("failed to seed client %q: %v", c.Name, err)
+		}
+	}
+}
+
 func TestHandlerUIEntry(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	cfg := testConfig(tempDir, 1, []string{"k1"})
 	clients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), clients)
 	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	manager := config.NewManager(configPath)
@@ -42,7 +79,7 @@ func TestHandlerUIEntry(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 
 	for _, route := range []string{"/", "/ui"} {
 		t.Run(route, func(t *testing.T) {
@@ -71,8 +108,10 @@ func TestHandlerUIEntryWhenMountedUnderAuth(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.json")
 	cfg := testConfig(tempDir, 1, []string{"k1"})
 	clients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), clients)
 	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	manager := config.NewManager(configPath)
@@ -85,7 +124,7 @@ func TestHandlerUIEntryWhenMountedUnderAuth(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	adminHandler := NewHandler(manager, store, service, nil, nil, nil, logger)
+	adminHandler := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 	protected := chi.NewRouter()
 	protected.Use(auth.Middleware(store, logger))
 	protected.Mount("/admin", adminHandler)
@@ -110,8 +149,10 @@ func TestHandlerHealthz(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.json")
 	cfg := testConfig(tempDir, 2, []string{"k1"})
 	clients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), clients)
 	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	manager := config.NewManager(configPath)
@@ -124,7 +165,7 @@ func TestHandlerHealthz(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/healthz", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -157,8 +198,10 @@ func TestHandlerMetrics(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.json")
 	cfg := testConfig(tempDir, 1, []string{"k1"})
 	clients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), clients)
 	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	manager := config.NewManager(configPath)
@@ -171,7 +214,7 @@ func TestHandlerMetrics(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/metrics", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -201,8 +244,10 @@ func TestHandlerReloadConfig(t *testing.T) {
 
 	initial := testConfig(tempDir, 1, []string{"k1"})
 	initialClients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), initialClients)
 	writeConfigFile(t, configPath, initial)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, initialClients)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	manager := config.NewManager(configPath)
@@ -215,12 +260,16 @@ func TestHandlerReloadConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 
+	// Update config with 2 targets and new client.
+	// Also update the bbolt client store to have k2 instead of k1.
 	updated := testConfig(tempDir, 2, []string{"k2"})
-	updatedClients := testClients([]string{"k2"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), updatedClients)
 	writeConfigFile(t, configPath, updated)
+	// Delete old client, add new one in bbolt.
+	_ = stores.clientStore.Delete("client-1")
+	updatedClients := testClients([]string{"k2"})
+	seedClients(t, stores.clientStore, updatedClients)
 
 	req := httptest.NewRequest(http.MethodPost, "http://example.com/config/reload", nil)
 	rec := httptest.NewRecorder()
@@ -267,8 +316,10 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 
 	initial := testConfig(tempDir, 1, []string{"k1"})
 	initialClients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), initialClients)
 	writeConfigFile(t, configPath, initial)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, initialClients)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	manager := config.NewManager(configPath)
@@ -284,11 +335,9 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 
 	invalid := testConfig(tempDir, 1, []string{"k2"})
-	invalidClients := testClients([]string{"k2"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), invalidClients)
 	invalid.Targets[0].Endpoint = "not-a-valid-url"
 	writeConfigFile(t, configPath, invalid)
 
@@ -302,9 +351,6 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 
 	if _, ok := store.Authenticate("k1"); !ok {
 		t.Fatal("expected original key k1 to remain after rejected reload")
-	}
-	if _, ok := store.Authenticate("k2"); ok {
-		t.Fatal("expected new key k2 to be rejected with invalid proxy config")
 	}
 
 	current, err := manager.Current()
@@ -322,8 +368,10 @@ func TestHandlerDataClientsCRUD(t *testing.T) {
 
 	cfg := testConfig(tempDir, 1, []string{"k1"})
 	clients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), clients)
 	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	manager := config.NewManager(configPath)
@@ -336,7 +384,7 @@ func TestHandlerDataClientsCRUD(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/data/clients", nil))
@@ -380,12 +428,14 @@ func TestHandlerUsageSummary(t *testing.T) {
 
 	cfg := testConfig(tempDir, 1, []string{"k1"})
 	clients := testClients([]string{"k1"})
-	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), clients)
 	writeConfigFile(t, configPath, cfg)
 
-	usageStore := usage.NewStore(filepath.Join(tempDir, "usage_events.jsonl"))
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
+
+	// Record a usage event via bbolt store.
 	now := time.Now().UTC()
-	if err := usageStore.Record(usage.Event{Timestamp: now.Add(-10 * time.Minute), ClientName: "client-1", Model: "gpt-4o", InputTokens: 100, OutputTokens: 50}); err != nil {
+	if err := stores.usageStore.Record(usage.Event{Timestamp: now.Add(-10 * time.Minute), ClientName: "client-1", Model: "gpt-4o", InputTokens: 100, OutputTokens: 50}); err != nil {
 		t.Fatalf("record usage event: %v", err)
 	}
 
@@ -400,7 +450,7 @@ func TestHandlerUsageSummary(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, logger)
 
 	body := bytes.NewBufferString(`{"input_per_1m_tokens":10,"output_per_1m_tokens":20,"cached_input_per_1m_tokens":0}`)
 	rec := httptest.NewRecorder()
@@ -458,12 +508,8 @@ func testConfig(tempDir string, targetCount int, clientKeys []string) *config.Co
 			RequestTimeoutSeconds: 5,
 		},
 		Targets: targets,
-		DataFiles: config.DataFiles{
-			ClientsFile:     filepath.Join(tempDir, "clients.json"),
-			ModelCostsFile:  filepath.Join(tempDir, "model_costs.json"),
-			UsageEventsFile: filepath.Join(tempDir, "usage_events.jsonl"),
-			AdminUsersFile:  filepath.Join(tempDir, "admin_users.json"),
-			AdminAuditFile:  filepath.Join(tempDir, "admin_audit.jsonl"),
+		DataStore: config.DataStore{
+			DBPath: filepath.Join(tempDir, "test.db"),
 		},
 		AdminSession: config.AdminSessionConfig{
 			CookieName: "admin_sid",
@@ -490,13 +536,13 @@ func testClients(clientKeys []string) []config.Client {
 }
 
 func TestToUsageCostTableCatalogFallback(t *testing.T) {
-	// 构建一个小型 catalog 用于测试
+	// Build a small catalog for testing.
 	cat, err := catalog.New()
 	if err != nil {
 		t.Fatalf("catalog.New() error: %v", err)
 	}
 
-	// 场景 1: 仅 catalog（无自定义费用）——应使用 catalog default_cost
+	// Scenario 1: catalog only (no custom costs) — should use catalog default_cost
 	table := toUsageCostTable(nil, cat)
 	rate, ok := table.LookupCost("openai", "gpt-4o")
 	if !ok {
@@ -507,7 +553,7 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 	}
 	catalogInput := rate.InputPer1MTokens
 
-	// 场景 2: 自定义覆盖——应覆盖 catalog 默认值
+	// Scenario 2: custom override — should override catalog defaults
 	customCosts := []nosql.ModelCost{
 		{EndpointType: "openai", Model: "gpt-4o", InputPer1MTokens: 999, OutputPer1MTokens: 888},
 	}
@@ -520,7 +566,7 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 		t.Fatalf("expected custom rates (999, 888), got %+v", rate)
 	}
 
-	// 场景 3: catalog 无自定义——其他模型仍用 catalog 默认值
+	// Scenario 3: catalog without custom — other models still use catalog defaults
 	rate2, ok := table.LookupCost("openai", "gpt-4o-mini")
 	if !ok {
 		t.Fatal("expected catalog default cost for openai:gpt-4o-mini (not overridden)")
@@ -529,7 +575,7 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 		t.Fatalf("expected positive catalog default for gpt-4o-mini, got %+v", rate2)
 	}
 
-	// 场景 4: nil catalog——仅自定义费用
+	// Scenario 4: nil catalog — only custom costs
 	table = toUsageCostTable(customCosts, nil)
 	rate, ok = table.LookupCost("openai", "gpt-4o")
 	if !ok || rate.InputPer1MTokens != 999 {
@@ -540,19 +586,8 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 		t.Fatal("expected no cost for gpt-4o-mini with nil catalog and no custom entry")
 	}
 
-	// 确认 catalog 默认值确实不同于自定义值（说明覆盖是真正生效的）
+	// Confirm catalog default is different from custom value
 	if catalogInput == 999 {
 		t.Fatal("test setup issue: catalog default same as custom override value")
-	}
-}
-
-func writeClientsFile(t *testing.T, path string, clients []config.Client) {
-	t.Helper()
-	payload, err := json.Marshal(clients)
-	if err != nil {
-		t.Fatalf("failed to marshal clients: %v", err)
-	}
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
-		t.Fatalf("failed to write clients file: %v", err)
 	}
 }

@@ -25,13 +25,16 @@ import (
 
 // Handler wires administration endpoints.
 type Handler struct {
-	configManager *config.Manager
-	authStore     *auth.Store
-	proxyService  *proxy.Service
-	auditStore    *AuditStore
-	userStore     *UserStore
-	modelCatalog  *catalog.Catalog
-	logger        *slog.Logger
+	configManager  *config.Manager
+	authStore      *auth.Store
+	proxyService   *proxy.Service
+	auditStore     *nosql.AuditStore
+	userStore      *nosql.UserStore
+	clientStore    *nosql.ClientStore
+	modelCostStore *nosql.ModelCostStore
+	usageStore     *nosql.UsageStore
+	modelCatalog   *catalog.Catalog
+	logger         *slog.Logger
 }
 
 // NewHandler constructs an HTTP router exposing admin endpoints.
@@ -39,19 +42,25 @@ func NewHandler(
 	manager *config.Manager,
 	store *auth.Store,
 	service *proxy.Service,
-	auditStore *AuditStore,
-	userStore *UserStore,
+	auditStore *nosql.AuditStore,
+	userStore *nosql.UserStore,
+	clientStore *nosql.ClientStore,
+	modelCostStore *nosql.ModelCostStore,
+	usageStore *nosql.UsageStore,
 	modelCatalog *catalog.Catalog,
 	logger *slog.Logger,
 ) http.Handler {
 	h := &Handler{
-		configManager: manager,
-		authStore:     store,
-		proxyService:  service,
-		auditStore:    auditStore,
-		userStore:     userStore,
-		modelCatalog:  modelCatalog,
-		logger:        logger,
+		configManager:  manager,
+		authStore:      store,
+		proxyService:   service,
+		auditStore:     auditStore,
+		userStore:      userStore,
+		clientStore:    clientStore,
+		modelCostStore: modelCostStore,
+		usageStore:     usageStore,
+		modelCatalog:   modelCatalog,
+		logger:         logger,
 	}
 
 	r := chi.NewRouter()
@@ -191,7 +200,7 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify old password.
-	if _, err := h.userStore.Authenticate(session.Username, req.OldPassword); err != nil {
+	if _, err := AuthenticateUser(h.userStore, session.Username, req.OldPassword); err != nil {
 		writeJSON(w, http.StatusForbidden, errorResponse("原密码验证失败"))
 		return
 	}
@@ -203,7 +212,14 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.userStore.UpdatePasswordHash(session.Username, newHash); err != nil {
+	// Update the user's password hash via nosql store.
+	user, err := h.userStore.Get(session.Username)
+	if err != nil {
+		h.writeInternalError(w, "failed to get user", err)
+		return
+	}
+	user.PasswordHash = newHash
+	if err := h.userStore.Update(session.Username, user); err != nil {
 		h.writeInternalError(w, "failed to update password", err)
 		return
 	}
@@ -217,37 +233,22 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 	health := h.proxyService.TargetStatuses(now)
 	metrics := h.proxyService.MetricsSnapshot()
 
-	clientStore, err := h.currentClientStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load clients store", err)
-		return
-	}
-	clients, err := clientStore.List()
+	clients, err := h.clientStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list clients", err)
 		return
 	}
-	modelStore, err := h.currentModelCostStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load model costs store", err)
-		return
-	}
-	models, err := modelStore.List()
+	models, err := h.modelCostStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list model costs", err)
 		return
 	}
-	usageStore, err := h.currentUsageStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load usage store", err)
-		return
-	}
-	costs, err := modelStore.List()
+	costs, err := h.modelCostStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list model costs", err)
 		return
 	}
-	summary, err := usageStore.Summary(now, toUsageCostTable(costs, h.modelCatalog))
+	summary, err := h.usageStore.Summary(now, toUsageCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to summarize usage", err)
 		return
@@ -262,7 +263,7 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	// 72-hour request/success stats from usage events.
 	from72h := now.Add(-72 * time.Hour)
-	events72h, _ := usageStore.List(usage.Filter{From: &from72h, To: &now, Limit: 0})
+	events72h, _ := h.usageStore.List(usage.Filter{From: &from72h, To: &now, Limit: 0})
 	var reqs72h, success72h int64
 	for _, evt := range events72h {
 		reqs72h++
@@ -327,14 +328,14 @@ func (h *Handler) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use the existing clientStore (backed by bbolt, not file path).
 	tempStore := auth.NewStore()
-	clientStore := nosql.NewClientStore(cfg.DataFiles.ClientsFile)
-	clients, err := clientStore.List()
+	clients, err := h.clientStore.List()
 	if err != nil {
-		h.logger.Warn("admin reload rejected: invalid clients file",
+		h.logger.Warn("admin reload rejected: invalid clients",
 			"error", err,
 		)
-		writeJSON(w, http.StatusBadRequest, errorResponse("invalid clients file"))
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid clients"))
 		return
 	}
 
@@ -391,13 +392,7 @@ func (h *Handler) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListClients(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentClientStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load clients store", err)
-		return
-	}
-
-	clients, err := store.List()
+	clients, err := h.clientStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list clients", err)
 		return
@@ -410,19 +405,13 @@ func (h *Handler) handleListClients(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleCreateClient(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentClientStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load clients store", err)
-		return
-	}
-
 	var req config.Client
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid json body"))
 		return
 	}
 
-	if err := store.Create(req); err != nil {
+	if err := h.clientStore.Create(req); err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "already exists") {
 			status = http.StatusConflict
@@ -431,7 +420,7 @@ func (h *Handler) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.reloadAuthFromClientStore(store); err != nil {
+	if err := h.reloadAuthFromClientStore(); err != nil {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
 	}
@@ -441,12 +430,6 @@ func (h *Handler) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentClientStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load clients store", err)
-		return
-	}
-
 	name := chi.URLParam(r, "name")
 	if strings.TrimSpace(name) == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse("missing client name"))
@@ -459,7 +442,7 @@ func (h *Handler) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := store.Update(name, req); err != nil {
+	if err := h.clientStore.Update(name, req); err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -470,7 +453,7 @@ func (h *Handler) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.reloadAuthFromClientStore(store); err != nil {
+	if err := h.reloadAuthFromClientStore(); err != nil {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
 	}
@@ -480,19 +463,13 @@ func (h *Handler) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDeleteClient(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentClientStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load clients store", err)
-		return
-	}
-
 	name := chi.URLParam(r, "name")
 	if strings.TrimSpace(name) == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse("missing client name"))
 		return
 	}
 
-	if err := store.Delete(name); err != nil {
+	if err := h.clientStore.Delete(name); err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -501,7 +478,7 @@ func (h *Handler) handleDeleteClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.reloadAuthFromClientStore(store); err != nil {
+	if err := h.reloadAuthFromClientStore(); err != nil {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
 	}
@@ -511,13 +488,7 @@ func (h *Handler) handleDeleteClient(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListModelCosts(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentModelCostStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load model costs store", err)
-		return
-	}
-
-	models, err := store.List()
+	models, err := h.modelCostStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list model costs", err)
 		return
@@ -530,12 +501,6 @@ func (h *Handler) handleListModelCosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentModelCostStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load model costs store", err)
-		return
-	}
-
 	model := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "model")))
 	if model == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse("missing model"))
@@ -564,7 +529,7 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 	}
 	if originalEpType != "" && !strings.EqualFold(originalEpType, newEpType) {
 		// Ignore deletion errors (record may not exist under original key).
-		_ = store.DeleteByKey(originalEpType, model)
+		_ = h.modelCostStore.DeleteByKey(originalEpType, model)
 	}
 
 	cost := nosql.ModelCost{
@@ -574,7 +539,7 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 		OutputPer1MTokens:     req.OutputPer1MTokens,
 		CachedInputPer1MToken: req.CachedInputPer1MToken,
 	}
-	if err := store.Upsert(cost); err != nil {
+	if err := h.modelCostStore.Upsert(cost); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
@@ -588,12 +553,6 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleDeleteModelCost(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentModelCostStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load model costs store", err)
-		return
-	}
-
 	model := strings.TrimSpace(chi.URLParam(r, "model"))
 	if model == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse("missing model"))
@@ -603,9 +562,9 @@ func (h *Handler) handleDeleteModelCost(w http.ResponseWriter, r *http.Request) 
 	endpointType := r.URL.Query().Get("endpoint_type")
 	var deleteErr error
 	if endpointType != "" {
-		deleteErr = store.DeleteByKey(endpointType, model)
+		deleteErr = h.modelCostStore.DeleteByKey(endpointType, model)
 	} else {
-		deleteErr = store.Delete(model)
+		deleteErr = h.modelCostStore.Delete(model)
 	}
 	if deleteErr != nil {
 		status := http.StatusBadRequest
@@ -621,19 +580,13 @@ func (h *Handler) handleDeleteModelCost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleListUsageEvents(w http.ResponseWriter, r *http.Request) {
-	store, err := h.currentUsageStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load usage store", err)
-		return
-	}
-
 	filter, err := parseUsageFilter(r, true)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
 
-	events, err := store.List(filter)
+	events, err := h.usageStore.List(filter)
 	if err != nil {
 		h.writeInternalError(w, "failed to list usage events", err)
 		return
@@ -646,29 +599,18 @@ func (h *Handler) handleListUsageEvents(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleAggregateUsage(w http.ResponseWriter, r *http.Request) {
-	usageStore, err := h.currentUsageStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load usage store", err)
-		return
-	}
-	modelCostStore, err := h.currentModelCostStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load model costs store", err)
-		return
-	}
-
 	filter, err := parseUsageFilter(r, false)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
-	costs, err := modelCostStore.List()
+	costs, err := h.modelCostStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list model costs", err)
 		return
 	}
 
-	result, err := usageStore.Aggregate(filter, r.URL.Query().Get("group_by"), toUsageCostTable(costs, h.modelCatalog))
+	result, err := h.usageStore.Aggregate(filter, r.URL.Query().Get("group_by"), toUsageCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to aggregate usage", err)
 		return
@@ -678,24 +620,13 @@ func (h *Handler) handleAggregateUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
-	usageStore, err := h.currentUsageStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load usage store", err)
-		return
-	}
-	modelCostStore, err := h.currentModelCostStore()
-	if err != nil {
-		h.writeInternalError(w, "failed to load model costs store", err)
-		return
-	}
-
-	costs, err := modelCostStore.List()
+	costs, err := h.modelCostStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list model costs", err)
 		return
 	}
 
-	result, err := usageStore.Summary(time.Now().UTC(), toUsageCostTable(costs, h.modelCatalog))
+	result, err := h.usageStore.Summary(time.Now().UTC(), toUsageCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to summarize usage", err)
 		return
@@ -968,8 +899,7 @@ func (h *Handler) saveConfig(cfg *config.Config) error {
 }
 
 func (h *Handler) applyConfigRuntime(cfg *config.Config) error {
-	clientStore := nosql.NewClientStore(cfg.DataFiles.ClientsFile)
-	clients, err := clientStore.List()
+	clients, err := h.clientStore.List()
 	if err != nil {
 		return fmt.Errorf("load clients: %w", err)
 	}
@@ -1032,32 +962,8 @@ func (h *Handler) currentConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
-func (h *Handler) currentClientStore() (*nosql.ClientStore, error) {
-	cfg, err := h.currentConfig()
-	if err != nil {
-		return nil, err
-	}
-	return nosql.NewClientStore(cfg.DataFiles.ClientsFile), nil
-}
-
-func (h *Handler) currentModelCostStore() (*nosql.ModelCostStore, error) {
-	cfg, err := h.currentConfig()
-	if err != nil {
-		return nil, err
-	}
-	return nosql.NewModelCostStore(cfg.DataFiles.ModelCostsFile), nil
-}
-
-func (h *Handler) currentUsageStore() (*usage.Store, error) {
-	cfg, err := h.currentConfig()
-	if err != nil {
-		return nil, err
-	}
-	return usage.NewStore(cfg.DataFiles.UsageEventsFile), nil
-}
-
-func (h *Handler) reloadAuthFromClientStore(store *nosql.ClientStore) error {
-	clients, err := store.List()
+func (h *Handler) reloadAuthFromClientStore() error {
+	clients, err := h.clientStore.List()
 	if err != nil {
 		return err
 	}
@@ -1069,14 +975,14 @@ func (h *Handler) writeInternalError(w http.ResponseWriter, message string, err 
 	writeJSON(w, http.StatusInternalServerError, errorResponse("internal server error"))
 }
 
-func (h *Handler) listAuditEvents(limit int) ([]AuditEvent, error) {
+func (h *Handler) listAuditEvents(limit int) ([]nosql.AuditEvent, error) {
 	if h.auditStore == nil {
-		return []AuditEvent{}, nil
+		return []nosql.AuditEvent{}, nil
 	}
 	return h.auditStore.List(limit)
 }
 
-func (h *Handler) listAuditEventsFromRequest(r *http.Request) ([]AuditEvent, error) {
+func (h *Handler) listAuditEventsFromRequest(r *http.Request) ([]nosql.AuditEvent, error) {
 	limit := 50
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -1096,7 +1002,7 @@ func (h *Handler) recordAudit(r *http.Request, action, object, result, detail st
 	if session, ok := SessionFromContext(r.Context()); ok && session != nil && strings.TrimSpace(session.Username) != "" {
 		actor = session.Username
 	}
-	_ = h.auditStore.Record(AuditEvent{
+	_ = h.auditStore.Record(nosql.AuditEvent{
 		Timestamp: time.Now().UTC(),
 		Actor:     actor,
 		Action:    action,
@@ -1153,12 +1059,12 @@ func parseTimeValue(raw string) (*time.Time, error) {
 	return &t, nil
 }
 
-// toUsageCostTable 构建费用查找表。
-// 优先级：自定义 model_costs 覆盖 > catalog 内嵌默认价格。
+// toUsageCostTable builds a cost lookup table.
+// Priority: custom model_costs override > catalog embedded default prices.
 func toUsageCostTable(costs []nosql.ModelCost, cat *catalog.Catalog) usage.CostTable {
 	table := make(usage.CostTable)
 
-	// 第一层：从 catalog 填充默认价格作为基线
+	// Layer 1: Fill catalog default prices as baseline.
 	if cat != nil {
 		for _, entry := range cat.ListAll() {
 			if entry.DefaultCost == nil || entry.Model == "" {
@@ -1178,7 +1084,7 @@ func toUsageCostTable(costs []nosql.ModelCost, cat *catalog.Catalog) usage.CostT
 		}
 	}
 
-	// 第二层：自定义 model_costs 覆盖（优先级更高）
+	// Layer 2: Custom model_costs override (higher priority).
 	for _, cost := range costs {
 		model := strings.ToLower(strings.TrimSpace(cost.Model))
 		epType := strings.ToLower(strings.TrimSpace(cost.EndpointType))

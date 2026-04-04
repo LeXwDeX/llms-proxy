@@ -8,7 +8,7 @@
 - **endpoint_type + model 双维度费用与消费统计**：模型费用与消费事件均按上游类型维度追踪，支持精细化成本分析。
 - **后台目标管理（Target CRUD）**：通过管理接口和 Web UI 动态添加、修改、删除上游目标，无需重启服务。
 - 基于 JSON 的配置文件，并支持管理接口触发热加载。
-- 按客户端令牌划分访问权限，可限定允许访问的目标；客户端账户已拆分为 `./config/` 下的文件型 NoSQL 数据。
+- 按客户端令牌划分访问权限，可限定允许访问的目标；客户端账户存储在 bbolt 嵌入式数据库中。
 - 使用结构化日志，支持文件轮转，兼顾控制台输出。
 - 具备智能目标选择机制，遇到网络错误会重试并触发静默窗口。
 - 管理接口提供健康检查、指标统计、配置重载，以及网页化管理台与消费统计页。
@@ -76,7 +76,8 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
   > 注：`resource_path_prefix` 仅 `azure_openai` 类型必填；其他类型无需此字段。
 
   `allowed_models` 用于模型级路由和白名单。
-- `data_files`：文件型 NoSQL 数据路径，默认指向 `config/clients.json`、`config/model_costs.json`、`config/usage_events.jsonl`、`config/admin_users.json`、`config/admin_audit.jsonl`；客户端访问令牌、模型费用、消费事件、后台管理员账号与审计日志分别存放在这些文件中。
+- `data_store`：嵌入式 bbolt 数据库配置，`db_path` 指定单一 DB 文件路径（默认 `llms-proxy.db`，相对路径基于 `config.json` 所在目录解析）。所有运行时数据（客户端访问令牌、模型费用、消费事件、后台管理员账号、审计日志）统一存储在该 DB 文件中。
+- `data_files`（遗留）：旧版 JSON/JSONL 数据文件路径。仅在首次启动时用于自动迁移到 bbolt；迁移完成后此配置节可安全删除。旧文件在迁移后保留不删除，可用作备份。
 - `admin_session`：后台管理会话配置，包括 cookie 名称、签名密钥（`secret`）、会话有效期（`ttl_seconds`）、滑动过期（`sliding_expiration`）与安全 cookie 标志。
 - `logging`：日志等级及文件路径，轮转策略由 `internal/logging` 统一处理。
 
@@ -107,7 +108,7 @@ curl -X POST -b "llms_proxy_admin_session=<session-cookie>" \
 默认输出位置为 `logs/access.log` 与 `logs/error.log`。可在配置文件中调整路径或轮转策略，确保满足部署环境的磁盘与合规要求。
 
 ## 后台管理系统
-后台管理系统采用**独立账号密码**登录，与客户端代理鉴权完全分离。管理员账号存放在 `config/admin_users.json`，密码以 `sha256$<salt>$<hex>` 格式哈希存储。
+后台管理系统采用**独立账号密码**登录，与客户端代理鉴权完全分离。管理员账号存储在 bbolt 数据库中，密码以 `sha256$<salt>$<hex>` 格式哈希存储。
 
 - **登录入口**：浏览器访问 `http://localhost:8080/login`，输入管理员账号密码完成登录。
 - **会话管理**：登录后通过 cookie（`llms_proxy_admin_session`）维持会话，支持滑动过期与登出。
@@ -151,9 +152,10 @@ curl -X POST -b "llms_proxy_admin_session=<session-cookie>" \
 
 ## 部署提示
 - 参考 `deploy/systemd/llms-proxy.service` 的 systemd 模板进行进程托管。
-- 确认运行账号具备读取配置、写入日志的权限。
+- 确认运行账号具备读取配置、写入日志和数据库文件的权限。
+- 数据库文件（bbolt）路径由 `data_store.db_path` 指定，确保该路径可写。
 - 上线前按照 `docs/operations.md` 的检查清单核对环境。
-- 若在容器环境部署，请参考 `docs/docker-deploy.md`。
+- 若在容器环境部署，请参考 `docs/docker-deploy.md`。容器中 config 目录挂载为只读（`:ro`），数据目录（`/var/lib/llms-proxy`）需为可写卷。
 
 ## 常见问题与排查
 - 配置或上游错误可在 `logs/error.log` 中查看详情。

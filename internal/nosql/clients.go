@@ -4,89 +4,77 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
+
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/ycgame/llms-proxy/internal/config"
 )
 
-// ClientStore manages clients backed by a JSON file.
+// ClientStore manages clients backed by bbolt.
 type ClientStore struct {
-	mu   sync.RWMutex
-	path string
+	db *bolt.DB
 }
 
-// NewClientStore creates a new file-backed client store.
-func NewClientStore(path string) *ClientStore {
-	return &ClientStore{path: strings.TrimSpace(path)}
+// NewClientStore creates a new bbolt-backed client store.
+func NewClientStore(db *bolt.DB) *ClientStore {
+	return &ClientStore{db: db}
 }
 
-// Path returns current clients file path.
-func (s *ClientStore) Path() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.path
-}
-
-// SetPath updates clients file path.
-func (s *ClientStore) SetPath(path string) {
-	s.mu.Lock()
-	s.path = strings.TrimSpace(path)
-	s.mu.Unlock()
-}
-
-// List returns all clients from store.
+// List returns all clients from the store.
 func (s *ClientStore) List() ([]config.Client, error) {
-	s.mu.RLock()
-	path := s.path
-	s.mu.RUnlock()
-
-	clients, err := readClients(path)
+	var clients []config.Client
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketClients))
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var c config.Client
+			if err := json.Unmarshal(v, &c); err != nil {
+				return fmt.Errorf("decode client %q: %w", string(k), err)
+			}
+			clients = append(clients, c)
+			return nil
+		})
+	})
 	if err != nil {
 		return nil, err
 	}
 	return cloneClients(clients), nil
 }
 
-// Create appends a new client. It fails when name/access_key already exists.
+// Create appends a new client. It fails when name or access_key already exists.
 func (s *ClientStore) Create(client config.Client) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	path := s.path
-	clients, err := readClients(path)
-	if err != nil {
-		return err
-	}
-
 	if err := validateClient(client); err != nil {
 		return err
 	}
-	if hasClientName(clients, client.Name) {
-		return fmt.Errorf("client %q already exists", strings.TrimSpace(client.Name))
-	}
-	if hasClientAccessKey(clients, client.AccessKey) {
-		return errors.New("access_key already exists")
-	}
-
 	client = normalizeClient(client)
-	clients = append(clients, client)
-	return writeClients(path, clients)
+	key := strings.ToLower(client.Name)
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketClients))
+
+		// Check name uniqueness.
+		if b.Get([]byte(key)) != nil {
+			return fmt.Errorf("client %q already exists", client.Name)
+		}
+
+		// Check access_key uniqueness by scanning the bucket.
+		if err := checkAccessKeyUnique(b, "", client.AccessKey); err != nil {
+			return err
+		}
+
+		data, err := json.Marshal(client)
+		if err != nil {
+			return fmt.Errorf("encode client: %w", err)
+		}
+		return b.Put([]byte(key), data)
+	})
 }
 
 // Update updates one client by name.
 func (s *ClientStore) Update(name string, client config.Client) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	path := s.path
-	clients, err := readClients(path)
-	if err != nil {
-		return err
-	}
-
 	if err := validateClient(client); err != nil {
 		return err
 	}
@@ -95,146 +83,80 @@ func (s *ClientStore) Update(name string, client config.Client) error {
 	if name == "" {
 		return errors.New("name must not be empty")
 	}
-
-	idx := -1
-	for i := range clients {
-		if strings.EqualFold(strings.TrimSpace(clients[i].Name), name) {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return fmt.Errorf("client %q not found", name)
-	}
+	oldKey := strings.ToLower(name)
 
 	next := normalizeClient(client)
-	for i := range clients {
-		if i == idx {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(clients[i].Name), next.Name) {
-			return fmt.Errorf("client %q already exists", next.Name)
-		}
-		if strings.TrimSpace(clients[i].AccessKey) == next.AccessKey {
-			return errors.New("access_key already exists")
-		}
-	}
+	newKey := strings.ToLower(next.Name)
 
-	clients[idx] = next
-	return writeClients(path, clients)
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketClients))
+
+		// Check old record exists.
+		if b.Get([]byte(oldKey)) == nil {
+			return fmt.Errorf("client %q not found", name)
+		}
+
+		// If renaming, check new name doesn't conflict.
+		if newKey != oldKey {
+			if b.Get([]byte(newKey)) != nil {
+				return fmt.Errorf("client %q already exists", next.Name)
+			}
+		}
+
+		// Check access_key uniqueness (exclude the old record).
+		if err := checkAccessKeyUnique(b, oldKey, next.AccessKey); err != nil {
+			return err
+		}
+
+		// Delete old key if renamed.
+		if newKey != oldKey {
+			if err := b.Delete([]byte(oldKey)); err != nil {
+				return err
+			}
+		}
+
+		data, err := json.Marshal(next)
+		if err != nil {
+			return fmt.Errorf("encode client: %w", err)
+		}
+		return b.Put([]byte(newKey), data)
+	})
 }
 
 // Delete removes one client by name.
 func (s *ClientStore) Delete(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	path := s.path
-	clients, err := readClients(path)
-	if err != nil {
-		return err
-	}
-
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return errors.New("name must not be empty")
 	}
+	key := strings.ToLower(name)
 
-	next := make([]config.Client, 0, len(clients))
-	removed := false
-	for _, item := range clients {
-		if strings.EqualFold(strings.TrimSpace(item.Name), name) {
-			removed = true
-			continue
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketClients))
+		if b.Get([]byte(key)) == nil {
+			return fmt.Errorf("client %q not found", name)
 		}
-		next = append(next, normalizeClient(item))
-	}
-
-	if !removed {
-		return fmt.Errorf("client %q not found", name)
-	}
-
-	return writeClients(path, next)
+		return b.Delete([]byte(key))
+	})
 }
 
-func readClients(path string) ([]config.Client, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil, errors.New("clients file path is empty")
-	}
-
-	if err := ensureJSONFile(path, []byte("[]\n")); err != nil {
-		return nil, err
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read clients file: %w", err)
-	}
-
-	var clients []config.Client
-	if len(strings.TrimSpace(string(content))) == 0 {
-		return []config.Client{}, nil
-	}
-	if err := json.Unmarshal(content, &clients); err != nil {
-		return nil, fmt.Errorf("decode clients file: %w", err)
-	}
-
-	for i := range clients {
-		if err := validateClient(clients[i]); err != nil {
-			return nil, fmt.Errorf("clients[%d]: %w", i, err)
+// checkAccessKeyUnique scans the bucket to ensure no other client (excluding
+// excludeKey) uses the given access_key.
+func checkAccessKeyUnique(b *bolt.Bucket, excludeKey, accessKey string) error {
+	accessKey = strings.TrimSpace(accessKey)
+	return b.ForEach(func(k, v []byte) error {
+		if string(k) == excludeKey {
+			return nil
 		}
-		clients[i] = normalizeClient(clients[i])
-	}
-
-	for i := range clients {
-		for j := i + 1; j < len(clients); j++ {
-			if strings.EqualFold(clients[i].Name, clients[j].Name) {
-				return nil, fmt.Errorf("duplicate client name %q", clients[i].Name)
-			}
-			if clients[i].AccessKey == clients[j].AccessKey {
-				return nil, fmt.Errorf("duplicate access_key for clients %q and %q", clients[i].Name, clients[j].Name)
-			}
+		var c config.Client
+		if err := json.Unmarshal(v, &c); err != nil {
+			return nil // skip corrupt entries
 		}
-	}
-
-	return clients, nil
-}
-
-func writeClients(path string, clients []config.Client) error {
-	normalized := cloneClients(clients)
-	for i := range normalized {
-		normalized[i] = normalizeClient(normalized[i])
-	}
-
-	payload, err := json.MarshalIndent(normalized, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode clients file: %w", err)
-	}
-	payload = append(payload, '\n')
-
-	if err := writeAtomic(path, payload); err != nil {
-		return fmt.Errorf("write clients file: %w", err)
-	}
-	return nil
-}
-
-func hasClientName(clients []config.Client, name string) bool {
-	for _, item := range clients {
-		if strings.EqualFold(strings.TrimSpace(item.Name), strings.TrimSpace(name)) {
-			return true
+		if strings.TrimSpace(c.AccessKey) == accessKey {
+			return errors.New("access_key already exists")
 		}
-	}
-	return false
-}
-
-func hasClientAccessKey(clients []config.Client, key string) bool {
-	for _, item := range clients {
-		if strings.TrimSpace(item.AccessKey) == strings.TrimSpace(key) {
-			return true
-		}
-	}
-	return false
+		return nil
+	})
 }
 
 func normalizeClient(client config.Client) config.Client {
@@ -268,6 +190,9 @@ func validateClient(client config.Client) error {
 }
 
 func cloneClients(clients []config.Client) []config.Client {
+	if clients == nil {
+		return nil
+	}
 	cloned := make([]config.Client, len(clients))
 	for i := range clients {
 		cloned[i] = clients[i]
@@ -276,20 +201,4 @@ func cloneClients(clients []config.Client) []config.Client {
 		}
 	}
 	return cloned
-}
-
-func ensureJSONFile(path string, initial []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create parent dir: %w", err)
-	}
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.WriteFile(path, initial, 0o644); err != nil {
-		return fmt.Errorf("create json file: %w", err)
-	}
-	return nil
 }

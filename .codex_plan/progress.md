@@ -313,3 +313,188 @@
   - `docs/api-contract.md` 第 205 行：`azure_targets` → `targets`
 - 剩余的 `azure_targets`/`azure_api_key` 引用均为向后兼容说明，无需删除
 - `go build ./...` 通过
+
+## 2026-04-05（移除旧 JSON key 向后兼容 + 生产部署）
+
+### 代码变更
+- 删除 `Config.UnmarshalJSON`（27 行）和 `Target.UnmarshalJSON`（24 行）向后兼容方法
+- 更新 `config_test.go` 中 `TestLoadReadsFile` 测试：`azure_targets` → `targets`，`azure_api_key` → `api_key`
+- 更新文档去掉旧 key 兼容描述：`AGENTS.md`、`README.md`、`docs/operations.md`
+- `go test ./...` — 10 个包全部 PASS
+
+### 生产部署
+- SSH 到 192.168.33.110，`sed` 替换 `/DATA/AppData/azure_proxy/config/config.json`：`azure_targets` → `targets`，`azure_api_key` → `api_key`
+- `git pull` 到 commit `46d0871`
+- Docker 镜像重建成功（226 模型目录）
+- 容器重启成功，日志确认 `targets=4 clients=4` 配置加载正常
+
+### 验证结果
+- `GET /healthz` → 200 `{"status":"ok"}`
+- `GET /login` → 200（登录页正常渲染）
+- `GET /api/ping` (Bearer sk-st0868) → 200 `{"client":"孙涛","message":"pong"}`（客户端鉴权正常）
+- 代理转发：线上流量正常运行
+
+### Admin 登录 401 调查结论
+- 使用 `admin123` 登录返回 401，**不是代码问题**
+- 通过验证 sha256 哈希确认：服务器上 `admin_users.json` 中的密码已被用户手动修改过，不再是默认的 `admin123`
+- 审计日志证实 admin 账号最近多次成功登录（使用新密码），最近一次成功登录在 `2026-04-04T18:06:45Z`
+- **结论**：admin 登录功能正常，密码不匹配是预期行为（用户已改密码）
+
+### 命令与结果
+- `go clean -testcache && go test ./...` — 10 包 PASS
+- `git commit` — `46d0871`
+- `git push` — 推送到 origin/main 和 github
+- `docker compose build --no-cache` — 成功
+- `docker compose down && docker compose up -d` — 容器重启正常
+- `curl /healthz` — 200
+- `curl /api/ping` — 200
+
+### 阻塞与处理
+- 无阻塞。全部任务完成。
+
+---
+
+## 2026-04-05（bbolt 迁移阶段 1 详细规划）
+
+### 执行内容
+- 派发 explore 子 agent 对 5 个数据存储进行深度代码分析
+- 分析内容覆盖：
+  - 5 个 Store 的结构体、方法签名、I/O 模式、并发控制、辅助函数
+  - Handler 的工厂模式与 store 调用映射
+  - main.go 的 store 初始化与热加载影响
+  - proxy/service.go 的 Recorder 接口与 usage 采集链路
+- 识别核心痛点：Handler 每次请求 New store → mutex 形同虚设、5 种文件 I/O 不一致
+- 完成 9 个子任务的详细拆解（1.1-1.9），含文件变更清单、执行顺序、依赖关系图
+- 确定关键设计决策：
+  - bbolt key 设计（5 种 bucket 的 key 格式）
+  - 类型位置策略（AuditEvent → nosql，其余不动）
+  - UserStore 密码验证方案（CRUD 在 nosql，验证在 admin）
+  - 包依赖关系（nosql → config + usage + bbolt，无循环）
+- 更新三件套：task_plan.md（阶段 1 拆解 + 文件清单 + 风险）、findings.md（分析结论）、progress.md
+
+### 关键发现
+- Handler 的 `currentClientStore()` / `currentModelCostStore()` / `currentUsageStore()` 每次请求创建新实例 → 并发写入不安全（核心架构问题）
+- `writeAtomic` 在 nosql 和 admin 两个包重复实现
+- AuditStore 使用 `sync.Mutex`（不是 `RWMutex`），且 `readAll()` 释放锁后文件操作无保护
+- usage/store.go 中 `readAll()` 每次全量扫描 JSONL → 数据增长后性能不可持续
+
+### 命令与结果
+- 无代码变更或构建命令（本轮为规划活动）
+
+### 阻塞与处理
+- 无阻塞。规划完成，待用户确认后启动实现。
+
+---
+
+## 2026-04-05（bbolt 迁移阶段 1 实现）
+
+### 执行内容
+- 1.1 添加 bbolt 依赖：`go get go.etcd.io/bbolt@latest`
+- 1.2-1.9 派发 coder 子 agent 实施全部 store 重写与测试
+
+### 变更文件清单
+| 文件 | 操作 | 行数 |
+|------|------|------|
+| `internal/nosql/db.go` | 新增 | 44 |
+| `internal/nosql/clients.go` | 重写 | 204 |
+| `internal/nosql/model_costs.go` | 重写 | 163 |
+| `internal/nosql/audit.go` | 新增 | 96 |
+| `internal/nosql/users.go` | 新增 | 183 |
+| `internal/nosql/usage.go` | 新增 | 380 |
+| `internal/nosql/migrate.go` | 新增 | 424 |
+| `internal/nosql/db_test.go` | 新增 | 51 |
+| `internal/nosql/clients_test.go` | 重写 | 86 |
+| `internal/nosql/model_costs_test.go` | 重写 | 123 |
+| `internal/nosql/audit_test.go` | 新增 | 93 |
+| `internal/nosql/users_test.go` | 新增 | 132 |
+| `internal/nosql/usage_test.go` | 新增 | 168 |
+| `internal/nosql/migrate_test.go` | 新增 | 226 |
+| **合计 14 文件** | | **2373 行** |
+
+### 测试结果
+- `go test -v ./internal/nosql/...` — **20 个测试全部 PASS**
+  - DB: TestOpenDB, TestOpenDBInvalidPath
+  - Clients: TestClientStoreCRUD, TestClientStoreAccessKeyUniqueness, TestClientStoreCaseInsensitive
+  - ModelCosts: TestModelCostStoreUpsertAndDelete, TestModelCostStoreEndpointTypeDimension, TestModelCostStoreEmptyEndpointTypeDefaultsToAzureOpenAI
+  - Audit: TestAuditStoreRecordAndList, TestAuditStoreAutoFillFields, TestAuditStoreListLimit
+  - Users: TestUserStoreCRUD, TestUserStoreSeedDefaultUser, TestUserStoreDuplicateUsername
+  - Usage: TestUsageStoreRecordAndList, TestUsageStoreListFilter, TestUsageStoreAggregate, TestUsageStoreSummary
+  - Migrate: TestMigrateFromJSON, TestMigrateIdempotent, TestMigrateSkipsExisting
+- `go build ./internal/nosql/...` — 通过
+- `go build ./...` — 预期失败（admin/handler.go 仍使用旧 `NewClientStore(string)` 签名，属阶段 2-3 范围）
+
+### 关键实现点
+- bbolt key 设计已落地：clients/users 用小写名称，model_costs 用复合键，audit/usage 用时间有序键
+- UsageStore 实现 `usage.Recorder` 接口，聚合逻辑在 nosql 包内重新实现
+- MigrateFromJSON 支持 5 种数据源，幂等，单文件失败不中断
+- AuditEvent 在 nosql 包重新定义（暂与 admin 包并存）
+
+### 阻塞与处理
+- 无阻塞。阶段 1 完成。
+- 下一步：阶段 2（配置层适配）→ 阶段 3（启动层/业务层适配），解决 `go build ./...` 失败。
+
+---
+
+## 2026-04-05（bbolt 迁移阶段 2+3 实施）
+
+### 执行内容
+- 派发 coder 子 agent 合并执行阶段 2（配置层）+ 阶段 3（启动层/业务层）
+
+### 变更文件清单（12 个文件）
+| 文件 | 操作 | 要点 |
+|------|------|------|
+| `internal/config/config.go` | 修改 | 新增 `DataStore` 结构体，`DataFiles` 改为 `omitempty`，Validate 校验 DBPath |
+| `internal/config/config_test.go` | 修改 | 7 个测试加入 `DataStore` 字段 |
+| `internal/admin/audit.go` | **删除** | AuditEvent/AuditStore 已在 nosql 包 |
+| `internal/admin/users.go` | 重写 | 删除 UserStore + 文件 I/O，保留密码函数，新增 AuthenticateUser |
+| `internal/admin/portal.go` | 修改 | 类型改为 nosql.UserStore/AuditStore |
+| `internal/admin/handler.go` | **大规模重构** | Handler 注入 3 个 bbolt store，删除工厂方法，~15 处调用适配 |
+| `internal/usage/store.go` | 重写 | 删除 Store + 文件 I/O，保留类型定义和 Recorder 接口 |
+| `internal/usage/store_test.go` | 修改 | 删除依赖 Store 的测试 |
+| `internal/proxy/service.go` | 修改 | ApplyConfig 不再创建 usage.Store |
+| `internal/proxy/service_test.go` | 修改 | usage recorder 改用 nosql.UsageStore |
+| `cmd/proxy/main.go` | 全面改造 | OpenDB → 迁移 → 创建 5 store → SetUsageRecorder |
+| `test/integration/proxy_integration_test.go` | 修改 | bbolt DB + 10 参数 NewHandler |
+
+### 架构改进
+- **消除工厂模式**：Handler 从"每次请求创建 store"改为"启动时注入 store 实例"，解决并发写不安全的核心问题
+- **统一数据层**：所有 5 个存储统一使用 bbolt，单一 DB 文件
+- **清理重复代码**：admin.UserStore/AuditStore/writeAtomicFile 删除，nosql 包统一管理
+
+### 测试结果
+- `go build ./...` — ✅ 通过
+- `go test ./...` — ✅ 10 个包全部 PASS
+- `go test -tags integration ./test/integration/...` — ✅ PASS
+
+### 阻塞与处理
+- 无阻塞。阶段 2+3+4 完成。
+- 下一步：阶段 5（Docker）+ 阶段 6（文档）。
+
+---
+
+## 2026-04-05（bbolt 迁移阶段 5+6 完成）
+
+### 阶段 5：Docker 修复
+- `deploy/docker/Dockerfile`：新增 `/var/lib/llms-proxy` 数据目录（mkdir + chown + VOLUME 声明）
+- `docker-compose.yml`：config 挂载改为只读（`:ro`），新增 `./data:/var/lib/llms-proxy` 可写数据卷
+- 设计思路：config 只读（安全）、data 可写（bbolt DB）、logs 可写，三者分离
+
+### 阶段 6：文档同步
+- 派发 doc-writer 子 agent 更新 5 个文档文件
+- `AGENTS.md`：配置层 + 目录说明更新
+- `README.md`：配置说明 + 部署提示更新
+- `docs/operations.md`：全面重写（部署清单、文件布局、备份恢复、迁移说明）
+- `docs/api-contract.md`：数据来源引用更新
+- `docs/docker-deploy.md`：三卷挂载 + 迁移说明
+
+### 验证
+- `go build ./...` — ✅ 通过
+- `go test ./...` — ✅ 10 包 PASS
+
+### bbolt NoSQL 迁移全部 6 阶段已完成
+- 阶段 1：bbolt 核心基础设施 + 5 个 Store + 迁移工具 + 20 个测试 ✅
+- 阶段 2：配置层（DataStore + DataFiles omitempty）✅
+- 阶段 3：启动层/业务层（handler/main/proxy/admin/usage 全面适配）✅
+- 阶段 4：全量测试（10 包 + 集成测试 PASS）✅
+- 阶段 5：Docker（config:ro + data 卷分离）✅
+- 阶段 6：文档同步（5 个 .md 文件）✅

@@ -19,13 +19,7 @@ func TestConfigValidateSuccess(t *testing.T) {
 			APIKey:             "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
-		DataFiles: DataFiles{
-			ClientsFile:     "config/clients.json",
-			ModelCostsFile:  "config/model_costs.json",
-			UsageEventsFile: "config/usage_events.jsonl",
-			AdminUsersFile:  "config/admin_users.json",
-			AdminAuditFile:  "config/admin_audit.jsonl",
-		},
+		DataStore: DataStore{DBPath: "test.db"},
 		AdminSession: AdminSessionConfig{
 			CookieName: "admin_sid",
 			Secret:     "test-secret",
@@ -55,13 +49,7 @@ func TestConfigValidateAllowsBearerWithoutAPIKey(t *testing.T) {
 			ResourcePathPrefix: "/openai",
 			AllowBearer:        true,
 		}},
-		DataFiles: DataFiles{
-			ClientsFile:     "config/clients.json",
-			ModelCostsFile:  "config/model_costs.json",
-			UsageEventsFile: "config/usage_events.jsonl",
-			AdminUsersFile:  "config/admin_users.json",
-			AdminAuditFile:  "config/admin_audit.jsonl",
-		},
+		DataStore: DataStore{DBPath: "test.db"},
 		AdminSession: AdminSessionConfig{
 			CookieName: "admin_sid",
 			Secret:     "test-secret",
@@ -92,13 +80,7 @@ func TestConfigValidateAllowsOmittedAPIVersionField(t *testing.T) {
 			APIKey:             "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
-		DataFiles: DataFiles{
-			ClientsFile:     "config/clients.json",
-			ModelCostsFile:  "config/model_costs.json",
-			UsageEventsFile: "config/usage_events.jsonl",
-			AdminUsersFile:  "config/admin_users.json",
-			AdminAuditFile:  "config/admin_audit.jsonl",
-		},
+		DataStore: DataStore{DBPath: "test.db"},
 		AdminSession: AdminSessionConfig{
 			CookieName: "admin_sid",
 			Secret:     "test-secret",
@@ -141,6 +123,7 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 			APIKey:             "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
+		DataStore: DataStore{DBPath: "test.db"},
 		DataFiles: DataFiles{
 			ClientsFile:     "config/clients.json",
 			ModelCostsFile:  "config/model_costs.json",
@@ -162,6 +145,7 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 	cloned.Targets[0].Name = "secondary"
 	cloned.Targets[0].AllowedModels[0] = "other"
 	cloned.DataFiles.ClientsFile = "other/clients.json"
+	cloned.DataStore.DBPath = "other.db"
 
 	if cfg.Server.Bind != "0.0.0.0:8080" {
 		t.Errorf("original server bind mutated: %s", cfg.Server.Bind)
@@ -174,6 +158,9 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 	}
 	if cfg.DataFiles.ClientsFile != "config/clients.json" {
 		t.Errorf("original data_files mutated: %s", cfg.DataFiles.ClientsFile)
+	}
+	if cfg.DataStore.DBPath != "test.db" {
+		t.Errorf("original data_store mutated: %s", cfg.DataStore.DBPath)
 	}
 }
 
@@ -191,6 +178,9 @@ func TestLoadReadsFile(t *testing.T) {
 			"resource_path_prefix":"/openai",
 			"api_key":"key"
 		}],
+		"data_store":{
+			"db_path":"llms-proxy.db"
+		},
 		"data_files":{
 			"clients_file":"clients.json",
 			"model_costs_file":"model_costs.json",
@@ -277,13 +267,7 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 				Bind:                  "127.0.0.1:8080",
 				RequestTimeoutSeconds: 30,
 			},
-			DataFiles: DataFiles{
-				ClientsFile:     "config/clients.json",
-				ModelCostsFile:  "config/model_costs.json",
-				UsageEventsFile: "config/usage_events.jsonl",
-				AdminUsersFile:  "config/admin_users.json",
-				AdminAuditFile:  "config/admin_audit.jsonl",
-			},
+			DataStore: DataStore{DBPath: "test.db"},
 			AdminSession: AdminSessionConfig{
 				CookieName: "admin_sid",
 				Secret:     "test-secret",
@@ -370,13 +354,7 @@ func TestConfigValidateInvalidEndpointType(t *testing.T) {
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
 		}},
-		DataFiles: DataFiles{
-			ClientsFile:     "config/clients.json",
-			ModelCostsFile:  "config/model_costs.json",
-			UsageEventsFile: "config/usage_events.jsonl",
-			AdminUsersFile:  "config/admin_users.json",
-			AdminAuditFile:  "config/admin_audit.jsonl",
-		},
+		DataStore: DataStore{DBPath: "test.db"},
 		AdminSession: AdminSessionConfig{
 			CookieName: "admin_sid",
 			Secret:     "test-secret",

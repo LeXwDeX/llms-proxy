@@ -8,19 +8,21 @@ import (
 	"time"
 
 	"log/slog"
+
+	"github.com/ycgame/llms-proxy/internal/nosql"
 )
 
 // Portal exposes login/logout and session utilities for the admin backend.
 type Portal struct {
-	users    *UserStore
+	users    *nosql.UserStore
 	sessions *SessionManager
-	audit    *AuditStore
+	audit    *nosql.AuditStore
 	logger   *slog.Logger
 	loginT   *template.Template
 }
 
 // NewPortal creates a new admin portal handler helper.
-func NewPortal(users *UserStore, sessions *SessionManager, audit *AuditStore, logger *slog.Logger) *Portal {
+func NewPortal(users *nosql.UserStore, sessions *SessionManager, audit *nosql.AuditStore, logger *slog.Logger) *Portal {
 	return &Portal{
 		users:    users,
 		sessions: sessions,
@@ -63,7 +65,7 @@ func (p *Portal) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		next = "/admin"
 	}
 
-	user, err := p.users.Authenticate(username, password)
+	user, err := AuthenticateUser(p.users, username, password)
 	if err != nil {
 		p.recordAudit(r, username, "login", "failure", err.Error())
 		p.renderLoginPage(w, r, http.StatusUnauthorized, loginPageData{
@@ -131,7 +133,7 @@ func (p *Portal) recordAudit(r *http.Request, actor, action, result, detail stri
 	if actor == "" {
 		actor = "unknown"
 	}
-	_ = p.audit.Record(AuditEvent{
+	_ = p.audit.Record(nosql.AuditEvent{
 		Timestamp: time.Now().UTC(),
 		Actor:     actor,
 		Action:    action,

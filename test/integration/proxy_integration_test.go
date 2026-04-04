@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/logging"
+	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/proxy"
 )
 
@@ -26,24 +26,10 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	defer success.Close()
 
 	tempDir := t.TempDir()
-	clientsPath := filepath.Join(tempDir, "clients.json")
-	modelCostsPath := filepath.Join(tempDir, "model_costs.json")
-	usageEventsPath := filepath.Join(tempDir, "usage_events.jsonl")
 	clients := []config.Client{{
 		Name:      "integration",
 		AccessKey: "integration-token",
 	}}
-	if payload, err := json.Marshal(clients); err != nil {
-		t.Fatalf("marshal clients: %v", err)
-	} else if err := os.WriteFile(clientsPath, payload, 0o644); err != nil {
-		t.Fatalf("write clients file: %v", err)
-	}
-	if err := os.WriteFile(modelCostsPath, []byte("[]\n"), 0o644); err != nil {
-		t.Fatalf("write model costs file: %v", err)
-	}
-	if err := os.WriteFile(usageEventsPath, []byte{}, 0o644); err != nil {
-		t.Fatalf("write usage events file: %v", err)
-	}
 
 	cfg := &config.Config{
 		Server: config.ServerConfig{
@@ -64,12 +50,8 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 				APIKey:             "secondary-key",
 			},
 		},
-		DataFiles: config.DataFiles{
-			ClientsFile:     clientsPath,
-			ModelCostsFile:  modelCostsPath,
-			UsageEventsFile: usageEventsPath,
-			AdminUsersFile:  filepath.Join(tempDir, "admin_users.json"),
-			AdminAuditFile:  filepath.Join(tempDir, "admin_audit.jsonl"),
+		DataStore: config.DataStore{
+			DBPath: filepath.Join(tempDir, "test.db"),
 		},
 		AdminSession: config.AdminSessionConfig{
 			CookieName: "admin_sid",
@@ -94,6 +76,26 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	defer logManager.Close()
 
 	appLogger := logManager.App()
+
+	// Open bbolt DB and create stores.
+	db, err := nosql.OpenDB(filepath.Join(tempDir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	clientStore := nosql.NewClientStore(db)
+	modelCostStore := nosql.NewModelCostStore(db)
+	usageStore := nosql.NewUsageStore(db)
+	userStore := nosql.NewUserStore(db)
+	auditStore := nosql.NewAuditStore(db)
+
+	// Seed clients.
+	for _, c := range clients {
+		if err := clientStore.Create(c); err != nil {
+			t.Fatalf("seed client: %v", err)
+		}
+	}
 
 	proxyService, err := proxy.NewService(cfg, appLogger)
 	if err != nil {
@@ -128,7 +130,7 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	manager := config.NewManager("testdata/config.json")
 	manager.Replace(cfg)
 
-	adminHandler := admin.NewHandler(manager, store, proxyService, nil, nil, nil, appLogger)
+	adminHandler := admin.NewHandler(manager, store, proxyService, auditStore, userStore, clientStore, modelCostStore, usageStore, nil, appLogger)
 
 	t.Run("health endpoint", func(t *testing.T) {
 		rec := httptest.NewRecorder()

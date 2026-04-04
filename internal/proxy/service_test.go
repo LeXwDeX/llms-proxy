@@ -18,6 +18,7 @@ import (
 
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -1165,7 +1166,14 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	usagePath := filepath.Join(t.TempDir(), "usage_events.jsonl")
+	tmpDir := t.TempDir()
+	db, err := nosql.OpenDB(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	usageStore := nosql.NewUsageStore(db)
+
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Bind:                  "127.0.0.1:0",
@@ -1177,7 +1185,7 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
 		}},
-		DataFiles: config.DataFiles{UsageEventsFile: usagePath},
+		DataStore: config.DataStore{DBPath: filepath.Join(tmpDir, "test.db")},
 		Logging: config.LoggingConfig{
 			Level:     "info",
 			AccessLog: "logs/test-access.log",
@@ -1189,6 +1197,7 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	service.SetUsageRecorder(usageStore)
 
 	authStore := auth.NewStore()
 	if err := authStore.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
@@ -1208,7 +1217,6 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 
-	usageStore := usage.NewStore(usagePath)
 	events, err := usageStore.List(usage.Filter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list usage events: %v", err)

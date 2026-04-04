@@ -36,71 +36,42 @@
 - 阶段 1：complete
 - 阶段 2：complete
 - 阶段 3：complete
+- 阶段 4：complete
 
 ---
 
-# 追加任务：将下一步计划改写为正式需求文档
+# 追加任务：移除旧 JSON key 向后兼容 + 生产部署
 
 ## 目标
-- 将根目录 `下一步计划.md` 从“审阅性计划文档”改写为“正式需求文档”。
-- 把原始设想中不合理、容易失控或不够精确的部分改写为可执行需求边界。
+- 移除 `Config.UnmarshalJSON` 和 `Target.UnmarshalJSON` 中旧 JSON key（`azure_targets`/`azure_api_key`）的向后兼容代码。
+- 更新生产服务器配置文件，直接使用新 key（`targets`/`api_key`）。
+- 重建 Docker 镜像并部署到生产。
+- 调查 admin 登录 401 问题。
 
 ## 阶段拆解
-### 阶段 1：收敛边界
-- 基于已完成的代码现状核对，明确哪些原始表述需要修正。
-- 重点收敛：协议边界、配置兼容、后台最小可配置字段、模型默认值优先级。
 
-### 阶段 2：需求文档化
-- 按“背景、目标、修正清单、范围、功能需求、数据需求、兼容要求、非功能要求、验收标准”重写文档。
+### 阶段 1：代码清理
+- 删除 `Config.UnmarshalJSON` 和 `Target.UnmarshalJSON` 方法
+- 更新测试用例中的旧 JSON key
+- 更新文档中的旧 key 兼容描述
+- `go test ./...` 全部通过
 
-### 阶段 3：同步记录
-- 更新 session `plan.md` 与 `.codex_plan/findings.md`、`.codex_plan/progress.md`。
+### 阶段 2：生产配置更新
+- SSH 到 192.168.33.110 更新 `config.json`
+- `azure_targets` → `targets`，`azure_api_key` → `api_key`
 
-## 验收门禁
-- `下一步计划.md` 为正式需求文档而非审阅意见汇总。
-- 文档明确包含：范围、非目标、修正清单、功能需求、兼容性、验收标准。
-- 文档中不再保留“只改 URL 即可”或“只需 Key+密钥”等不准确表述。
+### 阶段 3：部署
+- 提交并推送代码
+- 服务器 git pull + Docker 重建 + 容器重启
 
-## 当前状态
-- 阶段 1：complete
-- 阶段 2：complete
-- 阶段 3：complete
-
----
-
-# 新任务：实现真正的后台管理系统
-
-## 目标
-- 基于既定设计，实际落地独立账号密码登录、session 会话、后台左侧导航式管理台，以及后台账号/会话数据源。
-- 将当前“客户端 token + API 列表页”模式分离出来，让后台成为真正可浏览、可登录、可管理的系统。
-
-## 阶段拆解
-### 阶段 1：实现准备
-- 梳理现有 admin / auth / config / main 路由，明确新增文件与改动边界。
-- 输出：`findings.md` 记录实现方案与迁移点。
-
-### 阶段 2：后端实现
-- 实现后台账号文件型存储、密码校验、session 管理与后台鉴权中间件。
-- 改造路由：`/login`、`/logout`、`/admin/*`、`/admin/api/*`。
-- 保证客户端代理鉴权与后台鉴权互不影响。
-
-### 阶段 3：前端与交互实现
-- 将后台页面改造成左侧导航式管理台，补齐总览、客户端、模型费用、消费统计、审计页面骨架与交互。
-- 增加登录页与会话过期跳转。
-
-### 阶段 4：测试、回归与文档
-- 补充/更新单元测试、集成测试、Docker 烟雾测试与操作文档。
+### 阶段 4：验证
+- healthz + API ping + admin 登录调查
 
 ## 验收门禁
-- 浏览器可通过 `/login` 登录并访问 `/admin`。
-- 未登录访问后台会被拦截或跳转登录页。
-- 后台页面不再表现为“单纯 API 面板”。
-- 客户端管理、模型费用、消费统计保留可用。
-
-## 风险与回流条件
-- **风险 1：** session/登录态不稳定。回流阶段 2 修复。
-- **风险 2：** 路由冲突影响现有代理。回流阶段 2 调整路由挂载顺序。
-- **风险 3：** 页面改造过大导致功能回退。回流阶段 3 优先恢复可用性。
+- `go test ./...` 全部通过
+- 代码中不存在旧 JSON key 向后兼容逻辑
+- 生产配置使用新 key，服务正常运行
+- admin 登录问题根因已查明
 
 ## 当前状态
 - 阶段 1：complete
@@ -392,15 +363,109 @@
 
 ## 阶段拆解
 
-### 阶段 1：bbolt 核心基础设施与全部存储实现
-- 添加 `go.etcd.io/bbolt` 依赖。
-- 在 `internal/nosql/db.go` 创建 DB 管理层：打开/关闭 bbolt、创建 5 个 bucket。
-- 重写 `internal/nosql/clients.go`：ClientStore 从 JSON 文件改为 bbolt bucket。
-- 重写 `internal/nosql/model_costs.go`：ModelCostStore 从 JSON 文件改为 bbolt bucket。
-- 新增 `internal/nosql/usage.go`：UsageStore 使用 bbolt bucket（替代 `internal/usage/store.go` 的文件 I/O）。
-- 新增 `internal/nosql/users.go`：UserStore 使用 bbolt bucket（替代 `internal/admin/users.go` 的文件 I/O）。
-- 新增 `internal/nosql/audit.go`：AuditStore 使用 bbolt bucket（替代 `internal/admin/audit.go` 的文件 I/O）。
-- 新增 `internal/nosql/migrate.go`：检测旧 JSON 文件并自动迁移到 bbolt。
+### 阶段 1：bbolt 核心基础设施与全部存储实现（详细拆解）
+
+#### 1.1 添加 bbolt 依赖
+- `go get go.etcd.io/bbolt`
+- 确认 `go build ./...` 通过
+- 验收：`go.mod` 和 `go.sum` 包含 bbolt 依赖
+
+#### 1.2 DB 管理层 — 新增 `internal/nosql/db.go`
+- 定义 5 个 bucket 常量：`BucketClients`, `BucketModelCosts`, `BucketUsageEvents`, `BucketAdminUsers`, `BucketAdminAudit`, `BucketMeta`
+- `OpenDB(path string) (*bbolt.DB, error)`：打开 bbolt 文件，创建所有 bucket
+- `CloseDB(db *bbolt.DB) error`：关闭 DB
+- bbolt 选项：`Timeout: 1s`（避免启动时死锁），`NoSync: false`（保证持久性）
+- 验收：可创建 DB 文件，打开后所有 bucket 存在
+
+#### 1.3 重写 ClientStore — 修改 `internal/nosql/clients.go`
+- 构造函数：`NewClientStore(db *bbolt.DB) *ClientStore`（不再接收 path）
+- 结构体字段：`db *bbolt.DB`（不再需要 `mu sync.RWMutex` 和 `path string`）
+- 删除 `Path()`, `SetPath()` 方法
+- 保持公开 API 不变：`List`, `Create`, `Update`, `Delete`
+- Key = `{name}`，Value = `json.Marshal(config.Client)`
+- 读操作使用 `db.View()`，写操作使用 `db.Update()`
+- 删除所有文件 I/O 函数：`readClients`, `writeClients`, `ensureJSONFile`
+- `writeAtomic` 函数暂保留（ModelCostStore 也在用），最终在 1.4 一起删除
+- 验收：`List/Create/Update/Delete` 操作 bbolt，不再操作文件系统
+- 单元测试：使用 `t.TempDir()` + `OpenDB()` 临时 DB
+
+#### 1.4 重写 ModelCostStore — 修改 `internal/nosql/model_costs.go`
+- 构造函数：`NewModelCostStore(db *bbolt.DB) *ModelCostStore`
+- 结构体字段：`db *bbolt.DB`
+- 删除 `Path()`, `SetPath()` 方法
+- 保持公开 API 不变：`List`, `Upsert`, `Delete`, `DeleteByKey`
+- Key = `{endpoint_type}:{model}`（复合键），Value = `json.Marshal(ModelCost)`
+- Delete（按 model 删除全部 endpoint_type）：遍历 bucket 删除所有后缀匹配 `:{model}` 的 key
+- 删除所有文件 I/O 函数：`readModelCosts`, `writeModelCosts`, `writeAtomic`, `ensureJSONFile`
+- 验收：同 1.3
+- 单元测试
+
+#### 1.5 新增 AuditStore — 新增 `internal/nosql/audit.go`
+- 将 `AuditEvent` 类型定义从 `internal/admin/audit.go` 迁移到 `internal/nosql/audit.go`
+- 构造函数：`NewAuditStore(db *bbolt.DB) *AuditStore`
+- 结构体字段：`db *bbolt.DB`
+- 公开 API：`Record(event AuditEvent) error`, `List(limit int) ([]AuditEvent, error)`
+- Key = `{RFC3339Nano}_{uuid}`，Value = `json.Marshal(AuditEvent)`
+- `Record`：如果 ID 为空则自动生成 uuid，如果 Timestamp 为零则取 now
+- `List`：使用 Cursor 反向遍历（`Last()` → `Prev()`），取前 N 条
+- 验收：追加与倒序查询正确
+- 单元测试
+
+#### 1.6 新增 UserStore — 新增 `internal/nosql/users.go`
+- 构造函数：`NewUserStore(db *bbolt.DB) *UserStore`
+- 结构体字段：`db *bbolt.DB`
+- 公开 API：
+  - `List() ([]config.AdminUser, error)` — 遍历 bucket
+  - `Get(username string) (config.AdminUser, error)` — 按 key 精确查找
+  - `Create(user config.AdminUser) error` — 校验 + 写入
+  - `Update(username string, user config.AdminUser) error` — 覆盖写
+  - `Delete(username string) error`
+  - `SeedDefaultUser(user config.AdminUser) error` — bucket 为空时写入（幂等）
+- Key = `{username}`，Value = `json.Marshal(config.AdminUser)`
+- **不包含密码验证逻辑**（`HashPassword`/`verifyPasswordHash` 保留在 admin 包）
+- admin 包保留 `Authenticate(store *nosql.UserStore, username, password string)` 包级函数
+- 验收：CRUD + Seed 正确
+- 单元测试
+
+#### 1.7 新增 UsageStore — 新增 `internal/nosql/usage.go`
+- **这是最复杂的 store**，需要实现 `usage.Recorder` 接口
+- 构造函数：`NewUsageStore(db *bbolt.DB) *UsageStore`
+- 结构体字段：`db *bbolt.DB`
+- 公开 API（完全对齐现有 `usage.Store`）：
+  - `Record(event usage.Event) error` — 实现 `usage.Recorder` 接口
+  - `List(filter usage.Filter) ([]usage.Event, error)` — 按时间范围+客户端+模型过滤
+  - `Aggregate(filter usage.Filter, groupBy string, costs usage.CostTable) (usage.AggregateResult, error)`
+  - `Summary(now time.Time, costs usage.CostTable) (usage.SummaryResult, error)`
+- Key = `{RFC3339Nano}_{uuid}`
+- 查询优化：利用 Cursor.Seek 定位时间范围起点，避免全量扫描
+- 包依赖：`nosql` 导入 `usage` 获取类型和接口（不产生循环）
+- `internal/usage/store.go` 中保留：类型定义（Event, Filter, CostTable, Totals 等）、接口（Recorder）、辅助函数（bucketStartFor, normalizeGroupBy, estimateEventCost 等）；删除：Store 结构体和所有文件 I/O 方法
+- 验收：Record/List/Aggregate/Summary 全部正确，且实现 `usage.Recorder` 接口
+- 单元测试
+
+#### 1.8 迁移工具 — 新增 `internal/nosql/migrate.go`
+- `MigrateFromJSON(db *bbolt.DB, dataFiles config.DataFiles) error`
+- 迁移流程：
+  1. 检查 `meta` bucket 中是否有 `migrated` 标记 → 有则跳过
+  2. 逐个检查旧 JSON 文件是否存在
+  3. 对每个存在的文件：读取 → 写入对应 bucket
+  4. 全部完成后在 `meta` bucket 写入 `{"migrated_at":"...", "source":"json_files"}`
+- 旧文件不删除（保留备份）
+- 单次事务完成所有迁移（保证原子性），如果数据量过大则按 bucket 分事务
+- 容错：单个文件迁移失败不影响其他文件，记录 warning 继续
+- 验收：从旧 JSON 文件成功迁移到 bbolt，迁移后数据完整，重复执行幂等
+- 单元测试
+
+#### 1.9 单元测试 — 新增/修改 `internal/nosql/*_test.go`
+- `db_test.go`：OpenDB/CloseDB/bucket 存在性
+- `clients_test.go`：改为 bbolt 版 CRUD 测试
+- `model_costs_test.go`：改为 bbolt 版 CRUD 测试
+- `audit_test.go`：Record + List 倒序
+- `users_test.go`：CRUD + SeedDefaultUser 幂等性
+- `usage_test.go`：Record + List + Aggregate + Summary + 时间范围查询
+- `migrate_test.go`：JSON→bbolt 迁移 + 幂等 + 容错
+- 每个测试使用 `t.TempDir()` 创建独立 DB，测试间完全隔离
+- 验收：`go test ./internal/nosql/...` 全部通过
 
 ### 阶段 2：配置层适配
 - `internal/config/config.go`：`DataFiles`（5 个路径字段）→ `DataStore`（`DBPath` 单一字段 + 可选 `MigrationDir` 指定旧 JSON 文件目录）。
@@ -449,12 +514,99 @@
 - **风险 5：** Docker 部署权限问题。回流阶段 5 调整用户/卷设置。
 
 ## 当前状态
-- 阶段 1：suspended（方案已设计，实现搁置待后续启动）
-- 阶段 2：pending
-- 阶段 3：pending
-- 阶段 4：pending
-- 阶段 5：pending
-- 阶段 6：pending
+- 阶段 1：complete（9 个子任务全部完成，20 个测试 PASS）
+  - 1.1 添加 bbolt 依赖：complete
+  - 1.2 DB 管理层 db.go：complete
+  - 1.3 重写 ClientStore：complete
+  - 1.4 重写 ModelCostStore：complete
+  - 1.5 新增 AuditStore（含 AuditEvent 迁移）：complete
+  - 1.6 新增 UserStore：complete
+  - 1.7 新增 UsageStore（最复杂）：complete
+  - 1.8 迁移工具 migrate.go：complete
+  - 1.9 单元测试：complete
+- 阶段 2：complete（DataStore 配置结构 + DataFiles omitempty 迁移兼容）
+- 阶段 3：complete（handler/main/proxy/admin/usage 全面适配）
+- 阶段 4：complete（go test ./... 10 包 PASS + 集成测试 PASS）
+- 阶段 5：complete（Dockerfile 新增 /var/lib/llms-proxy 数据目录，docker-compose config:ro + data 卷分离）
+- 阶段 6：complete（AGENTS.md/README.md/operations.md/api-contract.md/docker-deploy.md 全部更新）
+
+## 阶段 1 文件变更清单
+
+### 新增文件
+| 文件 | 说明 |
+|------|------|
+| `internal/nosql/db.go` | bbolt DB 管理层（OpenDB/CloseDB/bucket 常量） |
+| `internal/nosql/audit.go` | AuditStore（bbolt）+ AuditEvent 类型定义 |
+| `internal/nosql/users.go` | UserStore（bbolt）CRUD |
+| `internal/nosql/usage.go` | UsageStore（bbolt）实现 usage.Recorder |
+| `internal/nosql/migrate.go` | JSON→bbolt 自动迁移工具 |
+| `internal/nosql/db_test.go` | DB 管理层测试 |
+| `internal/nosql/audit_test.go` | AuditStore 测试 |
+| `internal/nosql/users_test.go` | UserStore 测试 |
+| `internal/nosql/usage_test.go` | UsageStore 测试 |
+| `internal/nosql/migrate_test.go` | 迁移测试 |
+
+### 修改文件
+| 文件 | 变更 |
+|------|------|
+| `go.mod` / `go.sum` | 添加 bbolt 依赖 |
+| `internal/nosql/clients.go` | 重写为 bbolt（删除文件 I/O） |
+| `internal/nosql/model_costs.go` | 重写为 bbolt（删除文件 I/O + writeAtomic） |
+| `internal/nosql/clients_test.go` | 适配 bbolt 版构造函数 |
+| `internal/nosql/model_costs_test.go` | 适配 bbolt 版构造函数 |
+
+### 阶段 1 不动的文件（后续阶段处理）
+| 文件 | 何时处理 | 原因 |
+|------|---------|------|
+| `internal/admin/handler.go` | 阶段 3 | 需要改构造函数和去工厂模式 |
+| `internal/admin/portal.go` | 阶段 3 | 适配新 UserStore 来源 |
+| `internal/admin/users.go` | 阶段 3 | 删除文件 I/O，保留密码函数 |
+| `internal/admin/audit.go` | 阶段 3 | 删除（逻辑已迁移到 nosql） |
+| `internal/usage/store.go` | 阶段 3 | 删除 Store/文件 I/O，保留类型定义 |
+| `internal/proxy/service.go` | 阶段 3 | 适配新 Recorder |
+| `internal/config/config.go` | 阶段 2 | 配置结构变更 |
+| `cmd/proxy/main.go` | 阶段 3 | 启动时初始化 bbolt DB |
+
+## 阶段 1 执行顺序与依赖
+
+```
+1.1 go get bbolt
+ │
+ ▼
+1.2 db.go（DB 管理层）
+ │
+ ├──▶ 1.3 clients.go（最简 CRUD，验证模式）
+ │
+ ├──▶ 1.4 model_costs.go（复合 key CRUD）
+ │
+ ├──▶ 1.5 audit.go（AuditEvent 迁移 + 追加式存储）
+ │
+ ├──▶ 1.6 users.go（CRUD + Seed）
+ │
+ └──▶ 1.7 usage.go（最复杂：Recorder + Aggregate）
+      │
+      ▼
+     1.8 migrate.go（依赖所有 store）
+      │
+      ▼
+     1.9 单元测试（每个子任务附带测试，最后统一验证）
+```
+
+1.3-1.6 可并行开发（无相互依赖），1.7 建议在 1.3 验证模式后再做。
+
+## 阶段 1 验收门禁
+- `go test ./internal/nosql/...` 全部通过
+- 每个 store 的 CRUD 测试覆盖正常路径、边界情况和错误路径
+- 迁移工具可从旧 JSON 文件完整迁移数据到 bbolt
+- 迁移幂等：重复执行不报错、不重复数据
+- 无循环导入：`nosql → config`✓、`nosql → usage`✓、`nosql → bbolt`✓
+- `go build ./...` 通过（即使旧代码暂未适配，nosql 包自身可编译）
+
+## 阶段 1 风险
+- **风险 1**：bbolt 在 WSL/Docker 环境下的 mmap 行为。缓解：CI 中跑 `go test`。
+- **风险 2**：UsageStore 全量遍历 bucket 性能。缓解：Cursor.Seek 按时间前缀定位。
+- **风险 3**：AuditEvent 类型迁移导致 admin 包编译失败。缓解：阶段 1 期间 admin 包可暂时 import nosql.AuditEvent（admin 已依赖 nosql），但阶段 3 才真正清理旧代码。
+- **风险 4**：usage 包的辅助函数（filterEvents, bucketStartFor 等）在 nosql/usage.go 中需要使用。缓解：先以 nosql 包内重新实现或将辅助函数导出到 usage 包。
 
 ---
 

@@ -11,13 +11,14 @@ This guide covers the preparation, deployment, and day-two operations for the Az
 - [ ] Collect production Azure OpenAI endpoints, model allowlists (`allowed_models`), and API keys.
 - [ ] If routing to **OpenAI** upstream, prepare an OpenAI API Key (starts with `sk-`).
 - [ ] If routing to **Claude** upstream, prepare an Anthropic API Key (starts with `sk-ant-`).
-- [ ] Generate client tokens for each team; scope `allowed_targets` appropriately and save them to `config/clients.json`.
+- [ ] Generate client tokens for each team; scope `allowed_targets` appropriately (clients are managed via the admin UI or API at `/admin/data/clients`).
 - [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions. Each entry in `targets` carries an `endpoint_type` field — accepted values are `azure_openai` (default), `openai`, `claude`, or `gemini`.
-- [ ] Review `config/model_costs.json` and populate model token fees before enabling the cost estimation page. Each cost record includes an `endpoint_type` field (defaults to `azure_openai` for backward compatibility).
-- [ ] **Configure admin credentials**: edit `config/admin_users.json` to replace the default `admin/admin123` account. Passwords must be hashed as `sha256$<salt>$<hex>`. **Never deploy the default password to production.**
+- [ ] Configure `data_store.db_path` — the path to the bbolt database file (default `llms-proxy.db`, relative to config directory). Ensure the service account has read/write access to this path.
+- [ ] (Migration) If upgrading from a file-based deployment, keep old `data_files` paths in config for one-time automatic migration. On first startup with bbolt, existing JSON/JSONL data will be imported. Old files are preserved as backups.
+- [ ] Model costs can be managed via the admin UI at `/admin/data/model-costs`. Each cost record includes an `endpoint_type` field (defaults to `azure_openai` for backward compatibility).
+- [ ] **Configure admin credentials**: the default admin account (`admin` / `admin123`) is seeded automatically when the user store is empty on first startup. **Change the password immediately in production** via the admin UI.
 - [ ] **Configure admin session**: set a strong `secret` in `config.admin_session` (at least 32 characters), and enable `secure_cookie: true` when running behind HTTPS.
 - [ ] Provision directories for logs (default `logs/`) and ensure the service account has read/write access.
-- [ ] Ensure the service account can read/write the `config/` NoSQL files (`clients.json`, `model_costs.json`, `usage_events.jsonl`, `admin_users.json`, `admin_audit.jsonl`).
 - [ ] Validate configuration locally:
   ```sh
   make test
@@ -32,17 +33,14 @@ This guide covers the preparation, deployment, and day-two operations for the Az
    ```
    Copy `bin/llms-proxy` to the target host if building elsewhere.
 
-2. **Install configuration, NoSQL data, and logs**
+2. **Install configuration, database, and logs**
     ```
-    /etc/llms-proxy/config.json
-    /etc/llms-proxy/config/clients.json
-    /etc/llms-proxy/config/model_costs.json
-    /etc/llms-proxy/config/usage_events.jsonl
-    /etc/llms-proxy/config/admin_users.json
-    /etc/llms-proxy/config/admin_audit.jsonl
+    /etc/llms-proxy/config.json       # Configuration (read-only at runtime)
+    /var/lib/llms-proxy/llms-proxy.db  # bbolt database (read-write)
     /var/log/llms-proxy/access.log
     /var/log/llms-proxy/error.log
     ```
+    Set `data_store.db_path` in `config.json` to point to the database file path (e.g., `/var/lib/llms-proxy/llms-proxy.db`). Ensure the directory exists and the service account has write access.
 
 3. **Systemd service**
    - Copy `deploy/systemd/llms-proxy.service` to `/etc/systemd/system/llms-proxy.service`.
@@ -69,7 +67,7 @@ This guide covers the preparation, deployment, and day-two operations for the Az
 Automate polling of admin endpoints or export metrics to Prometheus via a lightweight scraper.
 
 ## Configuration Reload Procedure
-1. Edit `config/config.json` and/or the file-backed data sources under `config/` (`clients.json`, `model_costs.json`), then validate JSON. Alternatively, manage targets through the admin UI at `/admin/data/targets` (supports full CRUD — create, read, update, delete).
+1. Edit `config/config.json` (targets, logging, etc.), then validate JSON. Alternatively, manage targets through the admin UI at `/admin/data/targets` (supports full CRUD — create, read, update, delete). Client and model cost data is stored in the bbolt database and managed via the admin UI or API; no file editing is needed for these.
 2. Trigger reload:
    ```sh
    curl -X POST -H "Authorization: Bearer <ops-token>" \
@@ -79,12 +77,12 @@ Automate polling of admin endpoints or export metrics to Prometheus via a lightw
 4. Roll back by restoring the previous JSON and re-running the reload command if needed.
 
 ## Consumption Tracking & Cost Estimation
-- Every successful proxy response will best-effort append a usage event to `config/usage_events.jsonl`.
-- Usage events power the `/admin/ui` statistics tab and the `/admin/data/usage/*` APIs.
+- Every successful proxy response will best-effort record a usage event to the bbolt database.
+- Usage events power the `/admin/` statistics tab and the `/admin/data/usage/*` APIs.
 - If a response does not carry usage data (for example, some streaming or non-standard upstream responses), the proxy skips recording rather than failing the request.
 - Cost tracking is keyed by **`endpoint_type` + `model`**. The same model name under different endpoint types (e.g., `gpt-4o` via `azure_openai` vs `openai`) is tracked and priced independently.
-- Model price adjustments should be made in `config/model_costs.json`; each record carries an `endpoint_type` field (default `azure_openai`, backward compatible). The admin UI (`/admin/data/model-costs`) supports managing cost entries per endpoint type.
-- The UI uses the file to estimate token cost for the selected time window.
+- Model price adjustments can be made via the admin UI (`/admin/data/model-costs`) or the REST API. Each record carries an `endpoint_type` field (default `azure_openai`, backward compatible).
+- The UI uses the cost data to estimate token cost for the selected time window.
 
 ## Incident Response
 1. **Client sees 403** – verify token mapping in `config/config.json` or check `allowed_targets`.
@@ -92,7 +90,7 @@ Automate polling of admin endpoints or export metrics to Prometheus via a lightw
 3. **Proxy unreachable** – check systemd status and logs; restart with `sudo systemctl restart llms-proxy`.
 4. **Log growth** – adjust logging config to use rotated paths or compress old logs (see `internal/logging` for options).
 5. **Client sees 400 model not supported** – verify request `model` is included in at least one target's `allowed_models`.
-6. **Statistics page shows zero/empty cost** – confirm `config/model_costs.json` contains the requested model name and non-zero per-token prices.
+6. **Statistics page shows zero/empty cost** – confirm model cost records exist in the database (via `/admin/data/model-costs`) with the correct model name and non-zero per-token prices.
 7. **Proxy returns upstream error** – verify the target's `endpoint_type` is set correctly (`azure_openai`, `openai`, `claude`, or `gemini`). Confirm the API key matches the upstream service (Azure keys for `azure_openai`, OpenAI `sk-` keys for `openai`, Anthropic `sk-ant-` keys for `claude`, Google `AIza` keys for `gemini`).
 8. **Claude / OpenAI / Gemini authentication failure** – check that the key format matches the target type. OpenAI keys use the `sk-` prefix; Anthropic (Claude) keys use the `sk-ant-` prefix; Google (Gemini) keys use the `AIza` prefix. A mismatch between key and `endpoint_type` will cause 401/403 from the upstream provider.
 
@@ -115,7 +113,7 @@ The project ships an **embedded model catalog** (`internal/catalog/data/models.j
 
 ### How the catalog is used
 - The catalog is compiled into the binary via `go:embed` — no external network calls are needed at runtime.
-- When a model cost entry is missing from `config/model_costs.json`, the admin UI can show the catalog's default cost as a reference.
+- When a model cost entry is missing from the database, the admin UI can show the catalog's default cost as a reference.
 - Model aliases (e.g., `claude-3.5-sonnet-20241022` → `claude-3-5-sonnet-20241022`) are resolved automatically.
 - Browse the catalog in the admin UI at `/admin/data/catalog` (all types) or `/admin/data/catalog/{endpoint_type}` (filtered).
 
@@ -139,8 +137,8 @@ The project ships an **embedded model catalog** (`internal/catalog/data/models.j
    ```
 
 > **Note:** The catalog provides *reference* pricing only. Production billing
-> should always rely on `config/model_costs.json` entries maintained by the
-> operations team.
+> should always rely on model cost entries maintained by the operations team
+> via the admin UI or API (`/admin/data/model-costs`).
 
 ## Training Notes
 - Share `docs/internal-training.md` with new operators.
@@ -148,9 +146,15 @@ The project ships an **embedded model catalog** (`internal/catalog/data/models.j
 - Maintain a secure vault for client tokens and Azure API keys; never commit them to version control.
 
 ## Admin Account Management
-- Admin accounts are stored in `config/admin_users.json`, separate from client proxy tokens.
-- Password format: `sha256$<salt>$<hex>` — generate via `echo -n "<salt><password>" | sha256sum`.
-- Default account: `admin` / `admin123`. **Must be changed before production deployment.**
+- Admin accounts are stored in the bbolt database, separate from client proxy tokens.
+- Password format: `sha256$<salt>$<hex>`.
+- Default account: `admin` / `admin123` is seeded automatically when the database is empty. **Must be changed before production deployment.**
 - Session cookie signing uses the `secret` value from `config.admin_session`; rotate this secret periodically.
-- Audit events (login, logout, config changes) are recorded to `config/admin_audit.jsonl` and viewable in the admin console's audit page.
-- To add a new admin: append a JSON object to `admin_users.json` with `username`, `password_hash`, and `role` fields, then reload config.
+- Audit events (login, logout, config changes) are recorded to the bbolt database and viewable in the admin console's audit page.
+- To add a new admin: use the admin API or manage accounts through the admin UI.
+
+## Data Backup & Recovery
+- **bbolt database**: the single DB file (configured via `data_store.db_path`) contains all runtime data. Back up this file regularly using filesystem snapshots or file copy while the service is stopped.
+- **Hot backup**: bbolt supports read transactions while the service is running, but for a consistent backup it is recommended to stop the service briefly or use filesystem-level snapshots.
+- **Recovery**: restore the DB file from backup and restart the service. The bbolt database is self-contained; no additional files are needed.
+- **Migration from JSON files**: if `data_files` paths are present in config and the bbolt database has not yet been migrated, the service will automatically import data on startup. This is a one-time, idempotent operation. Old JSON/JSONL files are preserved and can serve as an additional backup.

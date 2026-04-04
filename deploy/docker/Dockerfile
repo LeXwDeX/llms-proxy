@@ -32,8 +32,8 @@ LABEL org.opencontainers.image.title="LLMs Proxy" \
       org.opencontainers.image.source="https://github.com/ycgame/llms-proxy"
 
 RUN addgroup -S llmsproxy && adduser -S llmsproxy -G llmsproxy && \
-    mkdir -p /etc/llms-proxy /var/log/llms-proxy && \
-    chown -R llmsproxy:llmsproxy /etc/llms-proxy /var/log/llms-proxy
+    mkdir -p /etc/llms-proxy /var/log/llms-proxy /var/lib/llms-proxy && \
+    chown -R llmsproxy:llmsproxy /etc/llms-proxy /var/log/llms-proxy /var/lib/llms-proxy
 
 WORKDIR /app
 COPY --from=build /workspace/bin/llms-proxy /usr/local/bin/llms-proxy
@@ -41,7 +41,7 @@ COPY --from=build /workspace/bin/llms-proxy /usr/local/bin/llms-proxy
 USER llmsproxy:llmsproxy
 
 EXPOSE 8080
-VOLUME ["/etc/llms-proxy", "/var/log/llms-proxy"]
+VOLUME ["/etc/llms-proxy", "/var/log/llms-proxy", "/var/lib/llms-proxy"]
 
 ENTRYPOINT ["/usr/local/bin/llms-proxy"]
 CMD ["-config", "/etc/llms-proxy/config.json"]

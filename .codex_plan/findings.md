@@ -337,3 +337,94 @@
 - 旧 JSON 配置文件（使用 `azure_targets`/`azure_api_key`）仍可正常加载，无破坏性变更
 - Go 源码中不再存在任何 `AzureTarget`/`AzureTargets`/`AzureAPIKey` 标识符
 - `AGENTS.md` 等文档中仍有 `azure_targets` 描述，后续需同步更新
+
+---
+
+## bbolt NoSQL 迁移 — 阶段 1 详细分析
+
+### 现有 5 个存储的实现模式总结
+
+| Store | 位置 | 类型 | I/O 模式 | 锁类型 | 生命周期 |
+|-------|------|------|----------|--------|---------|
+| ClientStore | nosql/clients.go | JSON 数组 | 全量读写 | RWMutex | 短命（每次请求 New） |
+| ModelCostStore | nosql/model_costs.go | JSON 数组 | 全量读写 | RWMutex | 短命（每次请求 New） |
+| UsageStore | usage/store.go | JSONL | 追加写+全量读 | RWMutex | 中长（ApplyConfig 替换） |
+| UserStore | admin/users.go | JSON 数组 | 全量读写 | RWMutex | 长命（启动创建一次） |
+| AuditStore | admin/audit.go | JSONL | 追加写+全量读 | Mutex | 长命（启动创建一次） |
+
+### Handler 工厂模式问题（核心痛点）
+
+Handler 通过 `currentClientStore()`/`currentModelCostStore()`/`currentUsageStore()` 每次请求创建新 store 实例：
+- 各实例 mutex 互不相关 → **并发写入完全没有保护**
+- store 实例请求结束后丢弃 → 缓存策略无法生效
+- AuditStore 和 UserStore 是长生命周期的（启动时创建一次） → 不对称架构
+
+### writeAtomic 重复实现
+
+- `nosql.writeAtomic(path, payload)` 定义在 model_costs.go，被 clients.go 共享
+- `admin.writeAtomicFile(path, data)` 在 users.go 独立实现
+- 两者逻辑完全相同：写临时文件 → uuid 命名 → os.Rename
+
+### 包依赖关系（现状）
+
+```
+cmd/proxy/main.go → config, auth, proxy, admin, nosql, usage, catalog
+admin → config, auth, proxy, nosql, usage, catalog
+proxy → config, auth, usage
+nosql → config (Client, AdminUser 类型), uuid
+usage → (无内部依赖)
+```
+
+### bbolt 迁移后的包依赖关系（目标）
+
+```
+cmd/proxy/main.go → config, auth, proxy, admin, nosql, usage, catalog
+admin → config, auth, proxy, nosql, usage, catalog (admin 保留密码验证)
+proxy → config, auth, usage (不变)
+nosql → config, usage, bbolt, uuid (新增 usage 和 bbolt 依赖)
+usage → (不变，仅保留类型定义和接口)
+```
+
+### 关键设计决策
+
+1. **所有 bbolt store 接收 `*bbolt.DB`**，不再接收文件路径
+2. **5 个 bucket**：`clients`, `model_costs`, `usage_events`, `admin_users`, `admin_audit`
+3. **不再需要 mutex**：bbolt 内部事务安全（并发读 + 串行写）
+4. **不再需要 Path/SetPath**：热加载不影响 DB 路径
+5. **时间有序数据的 key**：`RFC3339Nano_uuid`，利用 bbolt B+tree 有序性支持时间范围查询
+
+### Key 设计
+
+| Bucket | Key 格式 | 示例 |
+|--------|---------|------|
+| clients | `{name}` | `"孙涛"` |
+| model_costs | `{endpoint_type}:{model}` | `"azure_openai:gpt-5.4-nano"` |
+| usage_events | `{RFC3339Nano}_{uuid}` | `"2026-04-05T18:10:53.799Z_f47ac10b..."` |
+| admin_users | `{username}` | `"admin"` |
+| admin_audit | `{RFC3339Nano}_{uuid}` | `"2026-04-05T18:10:53.799Z_a1b2c3d4..."` |
+
+### 类型位置决策
+
+| 类型 | 当前位置 | 目标位置 | 原因 |
+|------|---------|---------|------|
+| ModelCost | nosql | nosql（不变） | 已在正确位置 |
+| AuditEvent | admin | nosql | 避免 nosql → admin 循环依赖 |
+| Event, Filter, CostTable, Totals... | usage | usage（不变） | proxy 已依赖 usage 接口 |
+| Recorder 接口 | usage | usage（不变） | proxy 通过接口解耦 |
+| AdminUser | config | config（不变） | 多处引用 |
+| Client | config | config（不变） | 多处引用 |
+| HashPassword 等 | admin/users.go | admin（不变） | 非存储逻辑 |
+
+### UserStore 密码验证方案
+
+- nosql/users.go 只提供 CRUD：`List`, `Get(username)`, `Create`, `Update`, `Delete`, `SeedDefaultUser`
+- 密码验证逻辑保留在 admin 包（`HashPassword`, `verifyPasswordHash`）
+- admin 包提供上层 `Authenticate(username, password)` 函数，内部调用 `nosql.UserStore.Get()` + `verifyPasswordHash()`
+
+### 迁移策略
+
+1. 启动时检测 bbolt DB 是否存在且已初始化
+2. 如果 DB 各 bucket 为空但旧 JSON 文件存在 → 执行迁移
+3. 迁移完成后在 `meta` bucket 写入 `{"migrated_at": "...", "source": "json"}`
+4. 不删除旧 JSON 文件（保留作为备份）
+5. 迁移过程幂等：已有数据则跳过

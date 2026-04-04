@@ -22,7 +22,8 @@
 - 配置模型包括：
   - `server`：监听地址、请求超时；
   - `targets`：上游终端配置，每个目标包含 `endpoint_type`（`azure_openai` | `openai` | `claude` | `gemini`，默认 `azure_openai`）、端点地址、API Key、允许模型等；`resource_path_prefix` 仅 `azure_openai` 类型必填；
-  - `data_files`：文件式 NoSQL 数据路径（clients、model_costs、usage_events、admin_users、admin_audit）；
+  - `data_store`：嵌入式 bbolt 数据库配置（`db_path` 指定单一 DB 文件路径）；
+  - `data_files`（遗留，`omitempty`）：旧版 JSON/JSONL 数据文件路径，仅用于启动时自动迁移到 bbolt；迁移完成后可删除；
   - `admin_session`：管理后台会话配置；
   - `logging`：日志级别与日志文件路径。
 - `EndpointType` 常量与辅助函数（`NormalizeEndpointType`、`IsValidEndpointType`）定义在 `config` 包中，作为全局统一的类型标识。
@@ -106,7 +107,7 @@
   - `internal/proxy/`：核心转发逻辑（含多类型上游适配）。
   - `internal/admin/`：管理接口与 admin UI。
   - `internal/catalog/`：嵌入式模型元数据目录（`go:embed data/models.json`），支持按 `endpoint_type` 查询和别名解析。
-  - `internal/nosql/`：文件式 NoSQL 数据存储（clients、model_costs、admin_users 等）。
+  - `internal/nosql/`：bbolt 嵌入式 NoSQL 数据存储（clients、model_costs、usage_events、admin_users、admin_audit），单一 DB 文件，启动时支持从旧 JSON 文件自动迁移。
   - `internal/usage/`：用量事件记录与聚合统计。
   - `internal/middleware/`：请求 ID、panic 恢复、访问日志。
   - `internal/logging/`：错误日志、访问日志与轮转。

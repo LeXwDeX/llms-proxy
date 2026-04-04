@@ -40,11 +40,17 @@ func IsValidEndpointType(t string) bool {
 	return false
 }
 
+// DataStore configures the bbolt embedded database.
+type DataStore struct {
+	DBPath string `json:"db_path"`
+}
+
 // Config is the top-level configuration model matching config/config.json.
 type Config struct {
 	Server       ServerConfig       `json:"server"`
 	Targets      []Target           `json:"targets"`
-	DataFiles    DataFiles          `json:"data_files"`
+	DataStore    DataStore          `json:"data_store"`
+	DataFiles    DataFiles          `json:"data_files,omitempty"` // legacy, used for migration only
 	AdminSession AdminSessionConfig `json:"admin_session"`
 	Logging      LoggingConfig      `json:"logging"`
 }
@@ -190,12 +196,8 @@ func DefaultConfig() *Config {
 			RequestTimeoutSeconds: 300,
 		},
 		Targets: []Target{},
-		DataFiles: DataFiles{
-			ClientsFile:     "clients.json",
-			ModelCostsFile:  "model_costs.json",
-			UsageEventsFile: "usage_events.jsonl",
-			AdminUsersFile:  "admin_users.json",
-			AdminAuditFile:  "admin_audit.jsonl",
+		DataStore: DataStore{
+			DBPath: "llms-proxy.db",
 		},
 		AdminSession: AdminSessionConfig{
 			CookieName:        "llms_proxy_admin_session",
@@ -324,20 +326,8 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if strings.TrimSpace(c.DataFiles.ClientsFile) == "" {
-		problems = append(problems, "data_files.clients_file must not be empty")
-	}
-	if strings.TrimSpace(c.DataFiles.ModelCostsFile) == "" {
-		problems = append(problems, "data_files.model_costs_file must not be empty")
-	}
-	if strings.TrimSpace(c.DataFiles.UsageEventsFile) == "" {
-		problems = append(problems, "data_files.usage_events_file must not be empty")
-	}
-	if strings.TrimSpace(c.DataFiles.AdminUsersFile) == "" {
-		problems = append(problems, "data_files.admin_users_file must not be empty")
-	}
-	if strings.TrimSpace(c.DataFiles.AdminAuditFile) == "" {
-		problems = append(problems, "data_files.admin_audit_file must not be empty")
+	if strings.TrimSpace(c.DataStore.DBPath) == "" {
+		problems = append(problems, "data_store.db_path must not be empty")
 	}
 
 	if strings.TrimSpace(c.AdminSession.CookieName) == "" {
@@ -390,6 +380,7 @@ func resolveDataFilePaths(cfg *Config, baseDir string) {
 	if cfg == nil {
 		return
 	}
+	cfg.DataStore.DBPath = resolvePath(baseDir, cfg.DataStore.DBPath)
 	cfg.DataFiles.ClientsFile = resolvePath(baseDir, cfg.DataFiles.ClientsFile)
 	cfg.DataFiles.ModelCostsFile = resolvePath(baseDir, cfg.DataFiles.ModelCostsFile)
 	cfg.DataFiles.UsageEventsFile = resolvePath(baseDir, cfg.DataFiles.UsageEventsFile)

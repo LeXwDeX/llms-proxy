@@ -264,13 +264,6 @@ func (s *Service) ApplyConfig(cfg *config.Config) error {
 	s.targetOrder = order
 	s.mu.Unlock()
 
-	usagePath := strings.TrimSpace(cfg.DataFiles.UsageEventsFile)
-	if usagePath != "" {
-		s.SetUsageRecorder(usage.NewStore(usagePath))
-	} else {
-		s.SetUsageRecorder(nil)
-	}
-
 	s.setRequestTimeout(timeout)
 	return nil
 }
