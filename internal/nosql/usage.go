@@ -121,6 +121,41 @@ func (s *UsageStore) List(filter usage.Filter) ([]usage.Event, error) {
 	return events, nil
 }
 
+// Count returns total and success request counts within the given time range.
+// It is more efficient than List() because it only unmarshals the status_code
+// field and does not build a full event slice or apply a limit cap.
+func (s *UsageStore) Count(from, to time.Time) (total, success int64, err error) {
+	from = from.UTC()
+	to = to.UTC()
+	startKey := []byte(from.Format(time.RFC3339Nano))
+	endPrefix := to.Format(time.RFC3339Nano)
+
+	err = s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketUsageEvents))
+		if b == nil {
+			return nil
+		}
+		c := b.Cursor()
+		for k, v := c.Seek(startKey); k != nil; k, v = c.Next() {
+			if string(k) > endPrefix+"_\xff" {
+				break
+			}
+			total++
+			// Lightweight partial unmarshal for status_code only.
+			var partial struct {
+				StatusCode int `json:"status_code"`
+			}
+			if err := json.Unmarshal(v, &partial); err == nil {
+				if partial.StatusCode > 0 && partial.StatusCode < 500 {
+					success++
+				}
+			}
+		}
+		return nil
+	})
+	return
+}
+
 // Aggregate aggregates usage in requested time buckets.
 func (s *UsageStore) Aggregate(filter usage.Filter, groupBy string, costs usage.CostTable) (usage.AggregateResult, error) {
 	groupBy = usageNormalizeGroupBy(groupBy)

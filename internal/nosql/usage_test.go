@@ -124,6 +124,54 @@ func TestUsageStoreAggregate(t *testing.T) {
 	}
 }
 
+func TestUsageStoreCount(t *testing.T) {
+	db := testDB(t)
+	store := NewUsageStore(db)
+
+	base := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	events := []usage.Event{
+		{Timestamp: base.Add(-3 * time.Hour), ClientName: "alice", StatusCode: 200},
+		{Timestamp: base.Add(-2 * time.Hour), ClientName: "bob", StatusCode: 500},
+		{Timestamp: base.Add(-1 * time.Hour), ClientName: "alice", StatusCode: 200},
+		{Timestamp: base, ClientName: "bob", StatusCode: 429},
+		{Timestamp: base.Add(-5 * time.Hour), ClientName: "alice", StatusCode: 200}, // outside window
+	}
+	for _, evt := range events {
+		if err := store.Record(evt); err != nil {
+			t.Fatalf("record: %v", err)
+		}
+	}
+
+	// Count within a 4-hour window: should see 4 events (base-3h, base-2h, base-1h, base).
+	from := base.Add(-4 * time.Hour)
+	to := base.Add(time.Second)
+	total, success, err := store.Count(from, to)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if total != 4 {
+		t.Fatalf("expected 4 total, got %d", total)
+	}
+	// success: StatusCode 200 (2x) + 429 (1x, <500) = 3; StatusCode 500 is NOT success
+	if success != 3 {
+		t.Fatalf("expected 3 success, got %d", success)
+	}
+
+	// Count full range: should see all 5 events.
+	allFrom := base.Add(-6 * time.Hour)
+	allTo := base.Add(time.Second)
+	total, success, err = store.Count(allFrom, allTo)
+	if err != nil {
+		t.Fatalf("count all: %v", err)
+	}
+	if total != 5 {
+		t.Fatalf("expected 5 total, got %d", total)
+	}
+	if success != 4 {
+		t.Fatalf("expected 4 success, got %d", success)
+	}
+}
+
 func TestUsageStoreSummary(t *testing.T) {
 	db := testDB(t)
 	store := NewUsageStore(db)

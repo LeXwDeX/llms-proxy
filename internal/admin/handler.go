@@ -263,14 +263,7 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	// 72-hour request/success stats from usage events.
 	from72h := now.Add(-72 * time.Hour)
-	events72h, _ := h.usageStore.List(usage.Filter{From: &from72h, To: &now, Limit: 0})
-	var reqs72h, success72h int64
-	for _, evt := range events72h {
-		reqs72h++
-		if evt.StatusCode > 0 && evt.StatusCode < 500 {
-			success72h++
-		}
-	}
+	reqs72h, success72h, _ := h.usageStore.Count(from72h, now)
 	var successRate72h float64
 	if reqs72h > 0 {
 		successRate72h = float64(success72h) / float64(reqs72h) * 100
