@@ -21,7 +21,7 @@
 - `internal/config` 负责配置读取、校验、克隆和热加载缓存。
 - 配置模型包括：
   - `server`：监听地址、请求超时；
-  - `targets`：上游终端配置（向后兼容旧键名 `azure_targets`），每个目标包含 `endpoint_type`（`azure_openai` | `openai` | `claude` | `gemini`，默认 `azure_openai`）、端点地址、API Key、允许模型等；`resource_path_prefix` 仅 `azure_openai` 类型必填；
+  - `targets`：上游终端配置，每个目标包含 `endpoint_type`（`azure_openai` | `openai` | `claude` | `gemini`，默认 `azure_openai`）、端点地址、API Key、允许模型等；`resource_path_prefix` 仅 `azure_openai` 类型必填；
   - `data_files`：文件式 NoSQL 数据路径（clients、model_costs、usage_events、admin_users、admin_audit）；
   - `admin_session`：管理后台会话配置；
   - `logging`：日志级别与日志文件路径。

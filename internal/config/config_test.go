@@ -185,11 +185,11 @@ func TestLoadReadsFile(t *testing.T) {
 			"bind":"0.0.0.0:8080",
 			"request_timeout_seconds":10
 		},
-		"azure_targets":[{
+		"targets":[{
 			"name":"primary",
 			"endpoint":"https://example.com",
 			"resource_path_prefix":"/openai",
-			"azure_api_key":"key"
+			"api_key":"key"
 		}],
 		"data_files":{
 			"clients_file":"clients.json",

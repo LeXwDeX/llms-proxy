@@ -49,34 +49,6 @@ type Config struct {
 	Logging      LoggingConfig      `json:"logging"`
 }
 
-// UnmarshalJSON supports both the current "targets" key and the legacy
-// "azure_targets" key for backward compatibility with existing config files.
-func (c *Config) UnmarshalJSON(data []byte) error {
-	// Use a type alias to avoid infinite recursion.
-	type configAlias Config
-	var alias configAlias
-	if err := json.Unmarshal(data, &alias); err != nil {
-		return err
-	}
-	*c = Config(alias)
-
-	// If "targets" is empty, check for legacy "azure_targets".
-	if len(c.Targets) == 0 {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return err
-		}
-		if legacyData, ok := raw["azure_targets"]; ok {
-			var legacy []Target
-			if err := json.Unmarshal(legacyData, &legacy); err != nil {
-				return err
-			}
-			c.Targets = legacy
-		}
-	}
-	return nil
-}
-
 // DataFiles contains paths to file-backed NoSQL data.
 type DataFiles struct {
 	ClientsFile     string `json:"clients_file"`
@@ -119,33 +91,6 @@ type Target struct {
 	APIKey             string   `json:"api_key"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AllowedModels      []string `json:"allowed_models"`
-}
-
-// UnmarshalJSON supports both the current "api_key" key and the legacy
-// "azure_api_key" key for backward compatibility with existing config files.
-func (t *Target) UnmarshalJSON(data []byte) error {
-	type targetAlias Target
-	var alias targetAlias
-	if err := json.Unmarshal(data, &alias); err != nil {
-		return err
-	}
-	*t = Target(alias)
-
-	// If "api_key" is empty, check for legacy "azure_api_key".
-	if t.APIKey == "" {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return err
-		}
-		if legacyKey, ok := raw["azure_api_key"]; ok {
-			var key string
-			if err := json.Unmarshal(legacyKey, &key); err != nil {
-				return err
-			}
-			t.APIKey = key
-		}
-	}
-	return nil
 }
 
 // Client describes a consumer and its access rights.

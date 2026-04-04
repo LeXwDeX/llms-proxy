@@ -12,7 +12,7 @@ This guide covers the preparation, deployment, and day-two operations for the Az
 - [ ] If routing to **OpenAI** upstream, prepare an OpenAI API Key (starts with `sk-`).
 - [ ] If routing to **Claude** upstream, prepare an Anthropic API Key (starts with `sk-ant-`).
 - [ ] Generate client tokens for each team; scope `allowed_targets` appropriately and save them to `config/clients.json`.
-- [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions. Each entry in `targets` (legacy key `azure_targets` is also accepted) carries an `endpoint_type` field — accepted values are `azure_openai` (default), `openai`, `claude`, or `gemini`.
+- [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions. Each entry in `targets` carries an `endpoint_type` field — accepted values are `azure_openai` (default), `openai`, `claude`, or `gemini`.
 - [ ] Review `config/model_costs.json` and populate model token fees before enabling the cost estimation page. Each cost record includes an `endpoint_type` field (defaults to `azure_openai` for backward compatibility).
 - [ ] **Configure admin credentials**: edit `config/admin_users.json` to replace the default `admin/admin123` account. Passwords must be hashed as `sha256$<salt>$<hex>`. **Never deploy the default password to production.**
 - [ ] **Configure admin session**: set a strong `secret` in `config.admin_session` (at least 32 characters), and enable `secure_cookie: true` when running behind HTTPS.

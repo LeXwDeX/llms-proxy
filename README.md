@@ -64,7 +64,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 `config/config.json` 中的关键字段：
 
 - `server`：监听地址、对外基址、超时时间、请求体大小限制。
-- `targets`：上游目标列表（向后兼容旧键名 `azure_targets`），顺序决定主备优先级。每个目标可通过 `endpoint_type` 字段指定上游类型（默认 `azure_openai`），支持四种类型：
+- `targets`：上游目标列表，顺序决定主备优先级。每个目标可通过 `endpoint_type` 字段指定上游类型（默认 `azure_openai`），支持四种类型：
 
   | `endpoint_type`  | 说明 | 必填字段 |
   |-------------------|------|----------|
@@ -73,7 +73,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
   | `claude`          | Anthropic Claude API | `endpoint`（如 `https://api.anthropic.com`）、`api_key`（Anthropic API Key） |
   | `gemini`          | Google Gemini API | `endpoint`（如 `https://generativelanguage.googleapis.com/v1beta/openai`）、`api_key`（Google API Key） |
 
-  > 注：`resource_path_prefix` 仅 `azure_openai` 类型必填；其他类型无需此字段。旧配置中的 `azure_api_key` 字段仍可识别（向后兼容），新配置建议统一使用 `api_key`。
+  > 注：`resource_path_prefix` 仅 `azure_openai` 类型必填；其他类型无需此字段。
 
   `allowed_models` 用于模型级路由和白名单。
 - `data_files`：文件型 NoSQL 数据路径，默认指向 `config/clients.json`、`config/model_costs.json`、`config/usage_events.jsonl`、`config/admin_users.json`、`config/admin_audit.jsonl`；客户端访问令牌、模型费用、消费事件、后台管理员账号与审计日志分别存放在这些文件中。
