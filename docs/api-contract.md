@@ -202,7 +202,7 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
   ```
 
 ### `POST /admin/data/targets`
-- Creates a new upstream target. The new target is appended to `azure_targets` in `config.json` and applied at runtime.
+- Creates a new upstream target. The new target is appended to `targets` in `config.json` and applied at runtime.
 - Required fields: `name`, `endpoint`. Either `api_key` or `allow_bearer_passthrough: true` must be provided.
 - `resource_path_prefix` is required only for `azure_openai` targets.
 - `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`, `gemini`.

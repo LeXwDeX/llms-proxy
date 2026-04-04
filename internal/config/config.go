@@ -43,10 +43,38 @@ func IsValidEndpointType(t string) bool {
 // Config is the top-level configuration model matching config/config.json.
 type Config struct {
 	Server       ServerConfig       `json:"server"`
-	AzureTargets []AzureTarget      `json:"azure_targets"`
+	Targets      []Target           `json:"targets"`
 	DataFiles    DataFiles          `json:"data_files"`
 	AdminSession AdminSessionConfig `json:"admin_session"`
 	Logging      LoggingConfig      `json:"logging"`
+}
+
+// UnmarshalJSON supports both the current "targets" key and the legacy
+// "azure_targets" key for backward compatibility with existing config files.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	// Use a type alias to avoid infinite recursion.
+	type configAlias Config
+	var alias configAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*c = Config(alias)
+
+	// If "targets" is empty, check for legacy "azure_targets".
+	if len(c.Targets) == 0 {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		if legacyData, ok := raw["azure_targets"]; ok {
+			var legacy []Target
+			if err := json.Unmarshal(legacyData, &legacy); err != nil {
+				return err
+			}
+			c.Targets = legacy
+		}
+	}
+	return nil
 }
 
 // DataFiles contains paths to file-backed NoSQL data.
@@ -82,15 +110,42 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
-// AzureTarget represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, or Gemini).
-type AzureTarget struct {
+// Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, or Gemini).
+type Target struct {
 	Name               string   `json:"name"`
 	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini; default azure_openai
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
-	AzureAPIKey        string   `json:"azure_api_key"`
+	APIKey             string   `json:"api_key"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AllowedModels      []string `json:"allowed_models"`
+}
+
+// UnmarshalJSON supports both the current "api_key" key and the legacy
+// "azure_api_key" key for backward compatibility with existing config files.
+func (t *Target) UnmarshalJSON(data []byte) error {
+	type targetAlias Target
+	var alias targetAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*t = Target(alias)
+
+	// If "api_key" is empty, check for legacy "azure_api_key".
+	if t.APIKey == "" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		if legacyKey, ok := raw["azure_api_key"]; ok {
+			var key string
+			if err := json.Unmarshal(legacyKey, &key); err != nil {
+				return err
+			}
+			t.APIKey = key
+		}
+	}
+	return nil
 }
 
 // Client describes a consumer and its access rights.
@@ -189,7 +244,7 @@ func DefaultConfig() *Config {
 			Bind:                  "0.0.0.0:8080",
 			RequestTimeoutSeconds: 300,
 		},
-		AzureTargets: []AzureTarget{},
+		Targets: []Target{},
 		DataFiles: DataFiles{
 			ClientsFile:     "clients.json",
 			ModelCostsFile:  "model_costs.json",
@@ -294,8 +349,8 @@ func (c *Config) Validate() error {
 		problems = append(problems, "server.request_timeout_seconds must be greater than zero")
 	}
 
-	for i, target := range c.AzureTargets {
-		prefix := fmt.Sprintf("azure_targets[%d]", i)
+	for i, target := range c.Targets {
+		prefix := fmt.Sprintf("targets[%d]", i)
 
 		// Normalise and validate endpoint_type.
 		epType := NormalizeEndpointType(target.EndpointType)
@@ -314,8 +369,8 @@ func (c *Config) Validate() error {
 		if epType == EndpointTypeAzureOpenAI && strings.TrimSpace(target.ResourcePathPrefix) == "" {
 			problems = append(problems, prefix+" resource_path_prefix must not be empty for azure_openai targets")
 		}
-		if strings.TrimSpace(target.AzureAPIKey) == "" && !target.AllowBearer {
-			problems = append(problems, prefix+" azure_api_key must not be empty when allow_bearer_passthrough is false")
+		if strings.TrimSpace(target.APIKey) == "" && !target.AllowBearer {
+			problems = append(problems, prefix+" api_key must not be empty when allow_bearer_passthrough is false")
 		}
 		for j, m := range target.AllowedModels {
 			if strings.TrimSpace(m) == "" {
@@ -373,12 +428,12 @@ func (c *Config) Clone() *Config {
 	}
 
 	clone := *c
-	if len(c.AzureTargets) > 0 {
-		clone.AzureTargets = make([]AzureTarget, len(c.AzureTargets))
-		for i := range c.AzureTargets {
-			clone.AzureTargets[i] = c.AzureTargets[i]
-			if len(c.AzureTargets[i].AllowedModels) > 0 {
-				clone.AzureTargets[i].AllowedModels = append([]string(nil), c.AzureTargets[i].AllowedModels...)
+	if len(c.Targets) > 0 {
+		clone.Targets = make([]Target, len(c.Targets))
+		for i := range c.Targets {
+			clone.Targets[i] = c.Targets[i]
+			if len(c.Targets[i].AllowedModels) > 0 {
+				clone.Targets[i].AllowedModels = append([]string(nil), c.Targets[i].AllowedModels...)
 			}
 		}
 	}

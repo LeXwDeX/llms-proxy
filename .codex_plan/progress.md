@@ -261,3 +261,55 @@
 
 ## 2026-03-23（测试结果文档）
 - 已在仓库根目录新增 `下一步计划测试结果.md`，汇总 Docker build、Azure/Claude API 请求、关键修正点与结论。
+
+---
+
+## 2026-04-04（代码审查改进实施）
+
+### 阶段 1：Catalog 常量去重
+- 删除 `internal/catalog/catalog.go` 中 4 个重复 EndpointType 常量
+- `catalog_test.go` 改为导入 `config` 包引用常量
+- 无循环依赖（已确认 config 不导入 catalog）
+- `go test ./internal/catalog/` — PASS
+
+### 阶段 3：Switch default 防御性编码（先于阶段 2 执行，避免重名干扰）
+- `internal/proxy/service.go` forwardRequest endpoint_type switch：
+  - 将 `default: // azure_openai` 逻辑移到 `case config.EndpointTypeAzureOpenAI:`
+  - `default:` 改为返回 500 + `unsupported endpoint type` 错误
+- 更新 Service 注释：`forwards authenticated requests to Azure targets` → `upstream targets`
+- `go test ./internal/proxy/` — PASS
+
+### 阶段 2：命名规范化（coder 子 agent 执行）
+- 修改 10 个文件，涉及 config/proxy/admin/catalog/cmd/integration 6 个包
+- `config.AzureTarget` → `config.Target`
+- `config.AzureAPIKey` → `config.APIKey`（JSON tag `azure_api_key` → `api_key`）
+- `config.AzureTargets` → `config.Targets`（JSON tag `azure_targets` → `targets`）
+- 添加 `Config.UnmarshalJSON` 和 `Target.UnmarshalJSON` 向后兼容旧 JSON key
+- 修复集成测试中 `NewHandler` 缺少 `modelCatalog` 参数的预存问题
+
+### 阶段 4：测试验证
+- `go clean -testcache && go test ./...` — 10 个包全部 PASS
+- `grep -rn 'AzureTarget\|AzureTargets\|AzureAPIKey' --include='*.go'` — 无残留
+- 向后兼容：旧 JSON key（`azure_targets`/`azure_api_key`）通过 UnmarshalJSON 正常解析
+
+### 命令与结果
+- `go test ./internal/catalog/` — PASS
+- `go test ./internal/proxy/` — PASS
+- `go test ./...` — 10 包 PASS（清缓存后重验）
+- `grep -rn AzureTarget --include='*.go'` — 无输出
+
+### 阻塞与处理
+- 无阻塞。
+
+### 待处理项
+- 所有变更尚未提交到 Git
+
+## 2026-04-05（文档同步更新）
+- 搜索 4 个文件中 9 处旧命名引用（`azure_targets`/`azure_api_key` 作为当前配置名）
+- 已更新：
+  - `AGENTS.md` 第 24 行：`azure_targets` → `targets`（附兼容说明）
+  - `README.md` 第 67-76 行：`azure_targets` → `targets`，表格中 4 处 `azure_api_key` → `api_key`，重写兼容备注
+  - `docs/operations.md` 第 15 行：`azure_targets` → `targets`（附兼容说明）
+  - `docs/api-contract.md` 第 205 行：`azure_targets` → `targets`
+- 剩余的 `azure_targets`/`azure_api_key` 引用均为向后兼容说明，无需删除
+- `go build ./...` 通过

@@ -249,8 +249,8 @@ func TestHandlerReloadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected manager.Current to succeed, got %v", err)
 	}
-	if len(current.AzureTargets) != 2 {
-		t.Fatalf("expected manager cache to be updated to 2 targets, got %d", len(current.AzureTargets))
+	if len(current.Targets) != 2 {
+		t.Fatalf("expected manager cache to be updated to 2 targets, got %d", len(current.Targets))
 	}
 
 	if _, ok := store.Authenticate("k2"); !ok {
@@ -289,7 +289,7 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 	invalid := testConfig(tempDir, 1, []string{"k2"})
 	invalidClients := testClients([]string{"k2"})
 	writeClientsFile(t, filepath.Join(tempDir, "clients.json"), invalidClients)
-	invalid.AzureTargets[0].Endpoint = "not-a-valid-url"
+	invalid.Targets[0].Endpoint = "not-a-valid-url"
 	writeConfigFile(t, configPath, invalid)
 
 	req := httptest.NewRequest(http.MethodPost, "http://example.com/config/reload", nil)
@@ -311,8 +311,8 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected manager.Current to return cached config, got %v", err)
 	}
-	if len(current.AzureTargets) != 1 || current.AzureTargets[0].Endpoint != initial.AzureTargets[0].Endpoint {
-		t.Fatalf("expected manager cache to remain unchanged, got %#v", current.AzureTargets)
+	if len(current.Targets) != 1 || current.Targets[0].Endpoint != initial.Targets[0].Endpoint {
+		t.Fatalf("expected manager cache to remain unchanged, got %#v", current.Targets)
 	}
 }
 
@@ -441,13 +441,13 @@ func writeConfigFile(t *testing.T, path string, cfg *config.Config) {
 
 func testConfig(tempDir string, targetCount int, clientKeys []string) *config.Config {
 	_ = clientKeys
-	targets := make([]config.AzureTarget, 0, targetCount)
+	targets := make([]config.Target, 0, targetCount)
 	for i := 0; i < targetCount; i++ {
-		targets = append(targets, config.AzureTarget{
+		targets = append(targets, config.Target{
 			Name:               fmt.Sprintf("target-%d", i+1),
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-4o"},
 		})
 	}
@@ -457,7 +457,7 @@ func testConfig(tempDir string, targetCount int, clientKeys []string) *config.Co
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: targets,
+		Targets: targets,
 		DataFiles: config.DataFiles{
 			ClientsFile:     filepath.Join(tempDir, "clients.json"),
 			ModelCostsFile:  filepath.Join(tempDir, "model_costs.json"),

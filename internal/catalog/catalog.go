@@ -17,13 +17,8 @@ import (
 //go:embed data/models.json
 var embeddedData embed.FS
 
-// EndpointType 常量（与 config 包保持一致）
-const (
-	EndpointTypeAzureOpenAI = "azure_openai"
-	EndpointTypeOpenAI      = "openai"
-	EndpointTypeClaude      = "claude"
-	EndpointTypeGemini      = "gemini"
-)
+// EndpointType 常量统一在 internal/config 包中定义（config.EndpointTypeAzureOpenAI 等），
+// 本包不再重复定义，避免同步维护风险。
 
 // ModelEntry 是模型目录中的一条记录。
 type ModelEntry struct {

@@ -136,7 +136,7 @@ func (e *forwardAttemptError) Unwrap() error {
 	return e.err
 }
 
-// Service forwards authenticated requests to Azure targets.
+// Service forwards authenticated requests to upstream targets.
 type Service struct {
 	logger         *slog.Logger
 	httpClient     *http.Client
@@ -232,7 +232,7 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 }
 
 // UpdateTargets refreshes the known targets from configuration.
-func (s *Service) UpdateTargets(targets []config.AzureTarget) error {
+func (s *Service) UpdateTargets(targets []config.Target) error {
 	parsed, order, err := buildTargetStates(targets)
 	if err != nil {
 		return err
@@ -252,7 +252,7 @@ func (s *Service) ApplyConfig(cfg *config.Config) error {
 		return errors.New("proxy: config must not be nil")
 	}
 
-	parsed, order, err := buildTargetStates(cfg.AzureTargets)
+	parsed, order, err := buildTargetStates(cfg.Targets)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func (s *Service) currentUsageRecorder() usage.Recorder {
 	return s.usageRecorder
 }
 
-func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, []*targetState, error) {
+func buildTargetStates(targets []config.Target) (map[string]*targetState, []*targetState, error) {
 	if len(targets) == 0 {
 		return make(map[string]*targetState), nil, nil
 	}
@@ -330,7 +330,7 @@ func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, [
 			EndpointType:       config.NormalizeEndpointType(t.EndpointType),
 			Endpoint:           endpoint,
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
-			APIKey:             strings.TrimSpace(t.AzureAPIKey),
+			APIKey:             strings.TrimSpace(t.APIKey),
 			AllowBearer:        t.AllowBearer,
 			AllowedModels:      models,
 			allowedModelsSet:   modelSet,
@@ -339,7 +339,7 @@ func buildTargetStates(targets []config.AzureTarget) (map[string]*targetState, [
 			return nil, nil, fmt.Errorf("proxy: target name at index %d must not be empty", idx)
 		}
 		if info.APIKey == "" && !info.AllowBearer {
-			return nil, nil, fmt.Errorf("proxy: target %q missing azure_api_key and bearer passthrough not enabled", info.Name)
+			return nil, nil, fmt.Errorf("proxy: target %q missing api_key and bearer passthrough not enabled", info.Name)
 		}
 
 		nameKey := strings.ToLower(info.Name)
@@ -627,7 +627,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	case config.EndpointTypeGemini:
 		req.Header.Set("x-goog-api-key", target.APIKey)
-	default: // azure_openai
+	case config.EndpointTypeAzureOpenAI:
 		useBearer := target.AllowBearer && azureAuth != ""
 		if useBearer {
 			req.Header.Set("Authorization", azureAuth)
@@ -641,6 +641,13 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 				}
 			}
 			req.Header.Set("api-key", target.APIKey)
+		}
+	default:
+		cancel()
+		return nil, nil, &forwardAttemptError{
+			status:    http.StatusInternalServerError,
+			retryable: false,
+			err:       fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
 		}
 	}
 	req.Host = target.Endpoint.Host

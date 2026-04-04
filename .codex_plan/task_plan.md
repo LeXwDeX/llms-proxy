@@ -190,6 +190,56 @@
 - 阶段 2：complete
 - 阶段 3：complete
 
+---
+
+# 新任务：代码审查 + 发布部署
+
+## 目标
+- 审查当前未提交变更（middleware SSE Flush/Unwrap 修复），确认代码质量无问题。
+- 整体审查近期代码，确保无回归风险。
+- 编译 linux-amd64 二进制并部署到生产服务器。
+- **关键约束**：服务器 `/etc/llms-proxy/` 配置目录包含运行时数据，绝对不能覆盖。
+
+## 阶段拆解
+
+### 阶段 1：代码审查
+- Review `internal/middleware/middleware.go` 的 Flush/Unwrap 变更。
+- 整体审查近期代码质量（最近几次提交的 Gemini 支持等）。
+- 运行 `go test ./...` 确保测试通过。
+
+### 阶段 2：编译与提交
+- 提交 middleware 修复变更。
+- 交叉编译 `GOOS=linux GOARCH=amd64` 二进制。
+
+### 阶段 3：部署
+- SSH 到服务器。
+- 备份旧二进制 `/opt/llms-proxy/bin/llms-proxy`。
+- 上传新二进制（SCP/rsync），**仅替换二进制文件**。
+- **禁止操作** `/etc/llms-proxy/` 下的任何配置或数据文件。
+- 重启 systemd 服务 `systemctl restart llms-proxy`。
+
+### 阶段 4：验证
+- 检查服务启动日志 `journalctl -u llms-proxy`。
+- 验证 `/healthz` 端点可达。
+- 验证后台登录与基本功能正常。
+
+## 验收门禁
+- `go test ./...` 全部通过。
+- linux-amd64 二进制编译成功。
+- 服务器上服务正常运行，`/healthz` 返回 200。
+- 服务器上 `/etc/llms-proxy/` 配置与数据文件未被修改。
+
+## 风险与回流条件
+- **风险 1：** middleware 变更引入回归。回流阶段 1 修复。
+- **风险 2：** 部署后服务无法启动。回滚到旧二进制。
+- **风险 3：** 配置目录被意外覆盖。部署步骤严格限制为仅操作二进制。
+
+## 当前状态
+- 阶段 1：complete（代码审查完成，改进已实施为独立追加任务）
+- 阶段 2：pending
+- 阶段 3：pending
+- 阶段 4：pending
+
 ## 当前设计方向（已确认）
 - 后台登录采用**独立账号密码**，与客户端代理 token 解耦。
 - 默认使用 **session cookie** 维持后台登录态。
@@ -399,7 +449,7 @@
 - **风险 5：** Docker 部署权限问题。回流阶段 5 调整用户/卷设置。
 
 ## 当前状态
-- 阶段 1：in_progress
+- 阶段 1：suspended（方案已设计，实现搁置待后续启动）
 - 阶段 2：pending
 - 阶段 3：pending
 - 阶段 4：pending
@@ -441,3 +491,54 @@
 - 阶段 1：complete
 - 阶段 2：complete
 - 阶段 3：complete
+
+---
+
+# 追加任务：代码审查改进 — 命名规范化 + 防御性编码 + 常量去重
+
+## 目标
+- 基于代码审查结论，实施三项改进：
+  1. 消除 catalog 包中重复的 EndpointType 常量
+  2. 将 Azure 历史命名规范化为通用命名（保持 JSON 向后兼容）
+  3. 对 endpoint_type switch 增加防御性编码
+
+## 阶段拆解
+
+### 阶段 1：Catalog 常量去重
+- 删除 `internal/catalog/catalog.go` 中重复定义的 4 个 EndpointType 常量
+- 改为从 `internal/config` 包导入使用
+- 确认无循环依赖
+
+### 阶段 2：命名规范化
+- `config.AzureTarget` → `config.Target`
+- `config.AzureTarget.AzureAPIKey` → `config.Target.APIKey`，JSON tag `azure_api_key` → `api_key`
+- `config.Config.AzureTargets` → `config.Config.Targets`，JSON tag `azure_targets` → `targets`
+- 添加 `Config.UnmarshalJSON` 向后兼容旧 JSON key
+- 更新所有引用文件与注释
+
+### 阶段 3：Switch default 防御性编码
+- 将 azure_openai 逻辑从 `default:` 移到 `case config.EndpointTypeAzureOpenAI:`
+- `default:` 返回错误"unsupported endpoint type"
+
+### 阶段 4：测试验证
+- `go test ./...` 全部通过
+- 确认旧 JSON key 向后兼容
+
+## 验收门禁
+- `go test ./...` 全部通过
+- catalog 包改为导入 config 包的常量
+- 不再出现 `AzureTarget`/`AzureTargets`/`AzureAPIKey` 等旧命名
+- switch default 对未知 endpoint_type 返回错误
+- 旧 JSON key 仍可正常解析
+
+## 风险与回流条件
+- **风险 1：** 循环导入。概率极低。
+- **风险 2：** 大规模重命名遗漏。回流阶段 2 补充。
+- **风险 3：** JSON 向后兼容不完整。回流阶段 2 完善。
+- **风险 4：** switch default 变更拒绝合法请求。回流阶段 3 检查。
+
+## 当前状态
+- 阶段 1：complete
+- 阶段 2：complete
+- 阶段 3：complete
+- 阶段 4：complete

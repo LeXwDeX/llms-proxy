@@ -314,3 +314,26 @@
 - Docker build 成功。
 - Azure 与 Claude 的代理请求均成功打通。
 - 当前没有发现需要回流到代码层的额外问题。
+
+---
+
+## 代码审查改进：命名规范化 + 防御性编码 + 常量去重
+
+### 审查发现（已实施修复）
+1. **Catalog 常量去重**：`internal/catalog/catalog.go` 第 20-26 行重复定义了 4 个 EndpointType 常量，与 `internal/config/config.go` 完全相同。已删除冗余定义，改为注释指向 config 包。测试文件改为导入 config 包引用常量。
+2. **命名规范化**：
+   - `config.AzureTarget` → `config.Target`（Go 类型名）
+   - `config.AzureTarget.AzureAPIKey` → `config.Target.APIKey`（Go 字段名 + JSON tag `api_key`）
+   - `config.Config.AzureTargets` → `config.Config.Targets`（Go 字段名 + JSON tag `targets`）
+   - 通过 `Config.UnmarshalJSON` 和 `Target.UnmarshalJSON` 自定义反序列化，向后兼容旧 JSON key（`azure_targets`/`azure_api_key`）
+   - 使用 type-alias 技术避免 UnmarshalJSON 递归调用
+3. **Switch default 防御性编码**：`proxy/service.go` forwardRequest 中 endpoint_type switch 从 `default: // azure_openai` 改为显式 `case config.EndpointTypeAzureOpenAI:`，`default:` 返回 500 错误 `unsupported endpoint type`。
+
+### 集成测试修复
+- `test/integration/proxy_integration_test.go` 中 `admin.NewHandler` 调用缺少 `modelCatalog` 参数（预存问题），已补充 `nil` 修复。
+
+### 影响范围
+- 改动涉及 10 个 Go 源文件，跨 config/proxy/admin/catalog/cmd/integration 6 个包
+- 旧 JSON 配置文件（使用 `azure_targets`/`azure_api_key`）仍可正常加载，无破坏性变更
+- Go 源码中不再存在任何 `AzureTarget`/`AzureTargets`/`AzureAPIKey` 标识符
+- `AGENTS.md` 等文档中仍有 `azure_targets` 描述，后续需同步更新

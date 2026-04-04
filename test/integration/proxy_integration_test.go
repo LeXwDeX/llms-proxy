@@ -50,18 +50,18 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "primary",
 				Endpoint:           "http://127.0.0.1:1",
 				ResourcePathPrefix: "/",
-				AzureAPIKey:        "primary-key",
+				APIKey:             "primary-key",
 			},
 			{
 				Name:               "secondary",
 				Endpoint:           success.URL,
 				ResourcePathPrefix: "/",
-				AzureAPIKey:        "secondary-key",
+				APIKey:             "secondary-key",
 			},
 		},
 		DataFiles: config.DataFiles{
@@ -128,7 +128,7 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	manager := config.NewManager("testdata/config.json")
 	manager.Replace(cfg)
 
-	adminHandler := admin.NewHandler(manager, store, proxyService, nil, nil, appLogger)
+	adminHandler := admin.NewHandler(manager, store, proxyService, nil, nil, nil, appLogger)
 
 	t.Run("health endpoint", func(t *testing.T) {
 		rec := httptest.NewRecorder()

@@ -368,10 +368,10 @@ func (h *Handler) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.configManager.Replace(cfg)
-	h.recordAudit(r, "config_reload", path, "success", fmt.Sprintf("targets=%d clients=%d", len(cfg.AzureTargets), len(clients)))
+	h.recordAudit(r, "config_reload", path, "success", fmt.Sprintf("targets=%d clients=%d", len(cfg.Targets), len(clients)))
 	h.logger.Info("configuration reloaded via admin endpoint",
 		"path", path,
-		"targets", len(cfg.AzureTargets),
+		"targets", len(cfg.Targets),
 		"clients", len(clients),
 	)
 
@@ -383,7 +383,7 @@ func (h *Handler) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	}{
 		Status:     "ok",
 		ReloadedAt: time.Now(),
-		Targets:    len(cfg.AzureTargets),
+		Targets:    len(cfg.Targets),
 		Clients:    len(clients),
 	}
 
@@ -720,15 +720,15 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targets := make([]map[string]any, len(cfg.AzureTargets))
-	for i, t := range cfg.AzureTargets {
+	targets := make([]map[string]any, len(cfg.Targets))
+	for i, t := range cfg.Targets {
 		epType := config.NormalizeEndpointType(t.EndpointType)
 		targets[i] = map[string]any{
 			"name":                     t.Name,
 			"endpoint_type":            epType,
 			"endpoint":                 t.Endpoint,
 			"resource_path_prefix":     t.ResourcePathPrefix,
-			"has_api_key":              t.AzureAPIKey != "",
+			"has_api_key":              t.APIKey != "",
 			"allow_bearer_passthrough": t.AllowBearer,
 			"allowed_models":           t.AllowedModels,
 		}
@@ -788,23 +788,23 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, t := range cfg.AzureTargets {
+	for _, t := range cfg.Targets {
 		if strings.EqualFold(t.Name, name) {
 			writeJSON(w, http.StatusConflict, errorResponse(fmt.Sprintf("target %q already exists", name)))
 			return
 		}
 	}
 
-	newTarget := config.AzureTarget{
+	newTarget := config.Target{
 		Name:               name,
 		EndpointType:       epType,
 		Endpoint:           endpoint,
 		ResourcePathPrefix: rpp,
-		AzureAPIKey:        apiKey,
+		APIKey:             apiKey,
 		AllowBearer:        body.AllowBearer,
 		AllowedModels:      body.AllowedModels,
 	}
-	cfg.AzureTargets = append(cfg.AzureTargets, newTarget)
+	cfg.Targets = append(cfg.Targets, newTarget)
 
 	if err := h.saveConfig(cfg); err != nil {
 		h.writeInternalError(w, "failed to save config", err)
@@ -846,9 +846,9 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	found := false
-	for i := range cfg.AzureTargets {
-		if strings.EqualFold(cfg.AzureTargets[i].Name, name) {
-			t := &cfg.AzureTargets[i]
+	for i := range cfg.Targets {
+		if strings.EqualFold(cfg.Targets[i].Name, name) {
+			t := &cfg.Targets[i]
 			if body.EndpointType != "" {
 				epType := config.NormalizeEndpointType(body.EndpointType)
 				if !config.IsValidEndpointType(epType) {
@@ -869,13 +869,13 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			t.ResourcePathPrefix = rpp
 			if body.APIKey != nil {
-				t.AzureAPIKey = strings.TrimSpace(*body.APIKey)
+				t.APIKey = strings.TrimSpace(*body.APIKey)
 			}
 			t.AllowBearer = body.AllowBearer
 			t.AllowedModels = body.AllowedModels
 
 			// Validate: api_key must be non-empty when allow_bearer is false.
-			if t.AzureAPIKey == "" && !t.AllowBearer {
+			if t.APIKey == "" && !t.AllowBearer {
 				writeJSON(w, http.StatusBadRequest, errorResponse("api_key must not be empty when allow_bearer_passthrough is false"))
 				return
 			}
@@ -915,9 +915,9 @@ func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	next := make([]config.AzureTarget, 0, len(cfg.AzureTargets))
+	next := make([]config.Target, 0, len(cfg.Targets))
 	found := false
-	for _, t := range cfg.AzureTargets {
+	for _, t := range cfg.Targets {
 		if strings.EqualFold(t.Name, name) {
 			found = true
 			continue
@@ -930,7 +930,7 @@ func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg.AzureTargets = next
+	cfg.Targets = next
 
 	if err := h.saveConfig(cfg); err != nil {
 		h.writeInternalError(w, "failed to save config", err)

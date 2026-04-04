@@ -3,6 +3,8 @@ package catalog
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 func TestNew(t *testing.T) {
@@ -21,7 +23,7 @@ func TestNew(t *testing.T) {
 	for _, e := range all {
 		types[e.EndpointType] = true
 	}
-	for _, et := range []string{EndpointTypeOpenAI, EndpointTypeAzureOpenAI, EndpointTypeClaude} {
+	for _, et := range []string{config.EndpointTypeOpenAI, config.EndpointTypeAzureOpenAI, config.EndpointTypeClaude} {
 		if !types[et] {
 			t.Errorf("missing endpoint_type %q in catalog", et)
 		}

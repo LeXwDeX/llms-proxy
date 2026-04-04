@@ -12,11 +12,11 @@ func TestConfigValidateSuccess(t *testing.T) {
 			Bind:                  "127.0.0.1:8080",
 			RequestTimeoutSeconds: 30,
 		},
-		AzureTargets: []AzureTarget{{
+		Targets: []Target{{
 			Name:               "primary",
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
 		DataFiles: DataFiles{
@@ -49,7 +49,7 @@ func TestConfigValidateAllowsBearerWithoutAPIKey(t *testing.T) {
 			Bind:                  "127.0.0.1:8080",
 			RequestTimeoutSeconds: 30,
 		},
-		AzureTargets: []AzureTarget{{
+		Targets: []Target{{
 			Name:               "primary",
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
@@ -85,11 +85,11 @@ func TestConfigValidateAllowsOmittedAPIVersionField(t *testing.T) {
 			Bind:                  "127.0.0.1:8080",
 			RequestTimeoutSeconds: 30,
 		},
-		AzureTargets: []AzureTarget{{
+		Targets: []Target{{
 			Name:               "primary",
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
 		DataFiles: DataFiles{
@@ -118,9 +118,9 @@ func TestConfigValidateAllowsOmittedAPIVersionField(t *testing.T) {
 
 func TestConfigValidateErrors(t *testing.T) {
 	cfg := &Config{
-		Server:       ServerConfig{},
-		AzureTargets: []AzureTarget{{}},
-		Logging:      LoggingConfig{},
+		Server:  ServerConfig{},
+		Targets: []Target{{}},
+		Logging: LoggingConfig{},
 	}
 
 	if err := cfg.Validate(); err == nil {
@@ -134,11 +134,11 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 			Bind:                  "0.0.0.0:8080",
 			RequestTimeoutSeconds: 15,
 		},
-		AzureTargets: []AzureTarget{{
+		Targets: []Target{{
 			Name:               "primary",
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-4o"},
 		}},
 		DataFiles: DataFiles{
@@ -159,18 +159,18 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 	}
 
 	cloned.Server.Bind = "127.0.0.1:9999"
-	cloned.AzureTargets[0].Name = "secondary"
-	cloned.AzureTargets[0].AllowedModels[0] = "other"
+	cloned.Targets[0].Name = "secondary"
+	cloned.Targets[0].AllowedModels[0] = "other"
 	cloned.DataFiles.ClientsFile = "other/clients.json"
 
 	if cfg.Server.Bind != "0.0.0.0:8080" {
 		t.Errorf("original server bind mutated: %s", cfg.Server.Bind)
 	}
-	if cfg.AzureTargets[0].Name != "primary" {
-		t.Errorf("original target mutated: %s", cfg.AzureTargets[0].Name)
+	if cfg.Targets[0].Name != "primary" {
+		t.Errorf("original target mutated: %s", cfg.Targets[0].Name)
 	}
-	if cfg.AzureTargets[0].AllowedModels[0] != "gpt-4o" {
-		t.Errorf("original target allowed models mutated: %v", cfg.AzureTargets[0].AllowedModels)
+	if cfg.Targets[0].AllowedModels[0] != "gpt-4o" {
+		t.Errorf("original target allowed models mutated: %v", cfg.Targets[0].AllowedModels)
 	}
 	if cfg.DataFiles.ClientsFile != "config/clients.json" {
 		t.Errorf("original data_files mutated: %s", cfg.DataFiles.ClientsFile)
@@ -222,8 +222,8 @@ func TestLoadReadsFile(t *testing.T) {
 	if cfg.Server.Bind != "0.0.0.0:8080" {
 		t.Errorf("unexpected bind: %s", cfg.Server.Bind)
 	}
-	if len(cfg.AzureTargets) != 1 || cfg.AzureTargets[0].Name != "primary" {
-		t.Fatalf("unexpected targets: %#v", cfg.AzureTargets)
+	if len(cfg.Targets) != 1 || cfg.Targets[0].Name != "primary" {
+		t.Fatalf("unexpected targets: %#v", cfg.Targets)
 	}
 	if cfg.DataFiles.ClientsFile != filepath.Join(dir, "clients.json") {
 		t.Fatalf("expected clients file resolved to absolute path, got %q", cfg.DataFiles.ClientsFile)
@@ -300,11 +300,11 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 	// openai target: resource_path_prefix not required
 	t.Run("openai without resource_path_prefix", func(t *testing.T) {
 		cfg := base()
-		cfg.AzureTargets = []AzureTarget{{
+		cfg.Targets = []Target{{
 			Name:         "openai-target",
 			EndpointType: "openai",
 			Endpoint:     "https://api.openai.com",
-			AzureAPIKey:  "sk-test",
+			APIKey:       "sk-test",
 		}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("expected no validation error, got %v", err)
@@ -314,11 +314,11 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 	// claude target: resource_path_prefix not required
 	t.Run("claude without resource_path_prefix", func(t *testing.T) {
 		cfg := base()
-		cfg.AzureTargets = []AzureTarget{{
+		cfg.Targets = []Target{{
 			Name:         "claude-target",
 			EndpointType: "claude",
 			Endpoint:     "https://api.anthropic.com",
-			AzureAPIKey:  "sk-ant-test",
+			APIKey:       "sk-ant-test",
 		}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("expected no validation error, got %v", err)
@@ -328,11 +328,11 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 	// gemini target: resource_path_prefix not required
 	t.Run("gemini without resource_path_prefix", func(t *testing.T) {
 		cfg := base()
-		cfg.AzureTargets = []AzureTarget{{
+		cfg.Targets = []Target{{
 			Name:         "gemini-target",
 			EndpointType: "gemini",
 			Endpoint:     "https://generativelanguage.googleapis.com",
-			AzureAPIKey:  "AIza-test",
+			APIKey:       "AIza-test",
 		}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("expected no validation error, got %v", err)
@@ -342,10 +342,10 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 	// azure_openai target: resource_path_prefix required
 	t.Run("azure_openai without resource_path_prefix", func(t *testing.T) {
 		cfg := base()
-		cfg.AzureTargets = []AzureTarget{{
-			Name:        "azure-target",
-			Endpoint:    "https://example.com",
-			AzureAPIKey: "key",
+		cfg.Targets = []Target{{
+			Name:     "azure-target",
+			Endpoint: "https://example.com",
+			APIKey:   "key",
 		}}
 		err := cfg.Validate()
 		if err == nil {
@@ -363,12 +363,12 @@ func TestConfigValidateInvalidEndpointType(t *testing.T) {
 			Bind:                  "127.0.0.1:8080",
 			RequestTimeoutSeconds: 30,
 		},
-		AzureTargets: []AzureTarget{{
+		Targets: []Target{{
 			Name:               "bad-type",
 			EndpointType:       "gcp_vertex",
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 		}},
 		DataFiles: DataFiles{
 			ClientsFile:     "config/clients.json",

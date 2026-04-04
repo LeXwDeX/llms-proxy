@@ -85,7 +85,7 @@ func main() {
 		"effective_bind", bindAddr,
 		"config_log_level", cfg.Logging.Level,
 		"effective_log_level", logLevel,
-		"azure_targets", len(cfg.AzureTargets),
+		"targets", len(cfg.Targets),
 		"clients", len(clients),
 	)
 

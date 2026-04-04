@@ -52,18 +52,18 @@ func TestServiceFailoverOnTransportError(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "primary",
 				Endpoint:           "http://primary.local",
 				ResourcePathPrefix: "/",
-				AzureAPIKey:        "primary-key",
+				APIKey:             "primary-key",
 			},
 			{
 				Name:               "secondary",
 				Endpoint:           success.URL,
 				ResourcePathPrefix: "/",
-				AzureAPIKey:        "secondary-key",
+				APIKey:             "secondary-key",
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -140,18 +140,18 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "primary",
 				Endpoint:           "http://primary.local",
 				ResourcePathPrefix: "/",
-				AzureAPIKey:        "key",
+				APIKey:             "key",
 			},
 			{
 				Name:               "secondary",
 				Endpoint:           "http://secondary.local",
 				ResourcePathPrefix: "/",
-				AzureAPIKey:        "key2",
+				APIKey:             "key2",
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -199,12 +199,12 @@ func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 1,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "slow",
 				Endpoint:           slow.URL,
 				ResourcePathPrefix: "/",
-				AzureAPIKey:        "key",
+				APIKey:             "key",
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -274,11 +274,11 @@ func TestServiceRetriesOnUpstream503(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:               "image",
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-image-1"},
 		}},
 		Logging: config.LoggingConfig{
@@ -339,11 +339,11 @@ func TestServiceReturns503AfterExhaustingUpstream503Retries(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:               "image",
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-image-1"},
 		}},
 		Logging: config.LoggingConfig{
@@ -405,7 +405,7 @@ func TestServiceAllowsBearerPassthrough(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "bearer",
 				Endpoint:           upstream.URL,
@@ -463,12 +463,12 @@ func TestServiceRejectsDisallowedModel(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "restricted",
 				Endpoint:           upstream.URL,
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key",
+				APIKey:             "key",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -531,12 +531,12 @@ func TestServiceStripsAPIVersionAndInternalQueryParams(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "primary",
 				Endpoint:           upstream.URL,
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key",
+				APIKey:             "key",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -604,11 +604,11 @@ func TestServiceStripsUnsupportedFieldsForResponses(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:               "primary",
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-5.2"},
 		}},
 		Logging: config.LoggingConfig{
@@ -673,11 +673,11 @@ func TestServiceStripsUnsupportedFieldsForChatCompletions(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:               "primary",
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 			AllowedModels:      []string{"gpt-5.2"},
 		}},
 		Logging: config.LoggingConfig{
@@ -737,19 +737,19 @@ func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "t1",
 				Endpoint:           target1.URL,
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key1",
+				APIKey:             "key1",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           target2.URL,
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key2",
+				APIKey:             "key2",
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 		},
@@ -795,12 +795,12 @@ func TestServiceReturnsErrorWhenModelMissingAndAllowlistsConfigured(t *testing.T
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "t1",
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key1",
+				APIKey:             "key1",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -853,19 +853,19 @@ func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "t1",
 				Endpoint:           s1.URL,
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key1",
+				APIKey:             "key1",
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           s2.URL,
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key2",
+				APIKey:             "key2",
 				AllowedModels:      []string{"gpt-5.1"},
 			},
 		},
@@ -915,19 +915,19 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "t1",
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key1",
+				APIKey:             "key1",
 				AllowedModels:      []string{"gpt-4o", "gpt-5.1"},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key2",
+				APIKey:             "key2",
 				AllowedModels:      []string{"gpt-5.1", "gpt-4o-mini"},
 			},
 		},
@@ -986,12 +986,12 @@ func TestServiceListsModelsLocally(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "t1",
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key1",
+				APIKey:             "key1",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 		},
@@ -1042,19 +1042,19 @@ func TestServiceListsModelsLocallyRespectsAllowedTargets(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "t1",
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key1",
+				APIKey:             "key1",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key2",
+				APIKey:             "key2",
 				AllowedModels:      []string{"gpt-5.2"},
 			},
 		},
@@ -1103,19 +1103,19 @@ func TestServiceListsModelsLocallyRespectsRequestedTargetFilter(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{
+		Targets: []config.Target{
 			{
 				Name:               "t1",
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key1",
+				APIKey:             "key1",
 				AllowedModels:      []string{"gpt-4o"},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
-				AzureAPIKey:        "key2",
+				APIKey:             "key2",
 				AllowedModels:      []string{"gpt-5.2"},
 			},
 		},
@@ -1171,11 +1171,11 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:               "t1",
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "key",
+			APIKey:             "key",
 		}},
 		DataFiles: config.DataFiles{UsageEventsFile: usagePath},
 		Logging: config.LoggingConfig{
@@ -1288,11 +1288,11 @@ func TestServiceOpenAITargetSendsBearerAuth(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:          "openai",
 			EndpointType:  "openai",
 			Endpoint:      upstream.URL,
-			AzureAPIKey:   "sk-test-key",
+			APIKey:        "sk-test-key",
 			AllowedModels: []string{"gpt-4o"},
 		}},
 		Logging: config.LoggingConfig{
@@ -1354,11 +1354,11 @@ func TestServiceClaudeTargetSendsXAPIKey(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:          "claude",
 			EndpointType:  "claude",
 			Endpoint:      upstream.URL,
-			AzureAPIKey:   "sk-ant-test",
+			APIKey:        "sk-ant-test",
 			AllowedModels: []string{"claude-sonnet-4-20250514"},
 		}},
 		Logging: config.LoggingConfig{
@@ -1420,11 +1420,11 @@ func TestServiceOpenAITargetSkipsSanitize(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:          "openai",
 			EndpointType:  "openai",
 			Endpoint:      upstream.URL,
-			AzureAPIKey:   "sk-test",
+			APIKey:        "sk-test",
 			AllowedModels: []string{"gpt-5.2"},
 		}},
 		Logging: config.LoggingConfig{
@@ -1482,11 +1482,11 @@ func TestServiceGeminiTargetSendsGoogAPIKey(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:          "gemini",
 			EndpointType:  "gemini",
 			Endpoint:      upstream.URL,
-			AzureAPIKey:   "AIza-test-key",
+			APIKey:        "AIza-test-key",
 			AllowedModels: []string{"gemini-2.5-pro"},
 		}},
 		Logging: config.LoggingConfig{
@@ -1547,11 +1547,11 @@ func TestServiceClaudeGatewaySubPathPreserved(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:         "claude-gw",
 			EndpointType: "claude",
 			Endpoint:     gatewayBase,
-			AzureAPIKey:  "sk-ant-test",
+			APIKey:       "sk-ant-test",
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -1589,7 +1589,7 @@ func TestServiceClaudeGatewaySubPathPreserved(t *testing.T) {
 	}
 }
 
-func TestServiceAzureTargetDefaultEndpointType(t *testing.T) {
+func TestServiceTargetDefaultEndpointType(t *testing.T) {
 	// When endpoint_type is empty, it should default to azure_openai and use api-key header.
 	var seenAPIKey string
 	var seenAuth string
@@ -1606,11 +1606,11 @@ func TestServiceAzureTargetDefaultEndpointType(t *testing.T) {
 			Bind:                  "127.0.0.1:0",
 			RequestTimeoutSeconds: 5,
 		},
-		AzureTargets: []config.AzureTarget{{
+		Targets: []config.Target{{
 			Name:               "azure-default",
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
-			AzureAPIKey:        "azure-key-123",
+			APIKey:             "azure-key-123",
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
