@@ -1783,11 +1783,16 @@
             document.getElementById("usageTo").value = toLocalInput(new Date(r.to));
           } else {
             document.getElementById("customRangeInputs").style.display = "none";
+            /* Reset client filter so dropdown refreshes for the new time range */
+            document.getElementById("usageClientFilter").value = "";
             loadUsage();
           }
         });
       });
-      document.getElementById("applyCustomRange").addEventListener("click", function() { loadUsage(); });
+      document.getElementById("applyCustomRange").addEventListener("click", function() {
+        document.getElementById("usageClientFilter").value = "";
+        loadUsage();
+      });
 
       function populateUsageClientFilter(activeClients) {
         var sel = document.getElementById("usageClientFilter");

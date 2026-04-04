@@ -238,11 +238,6 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		h.writeInternalError(w, "failed to list clients", err)
 		return
 	}
-	models, err := h.modelCostStore.List()
-	if err != nil {
-		h.writeInternalError(w, "failed to list model costs", err)
-		return
-	}
 	costs, err := h.modelCostStore.List()
 	if err != nil {
 		h.writeInternalError(w, "failed to list model costs", err)
@@ -280,7 +275,7 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"requests_72h":     reqs72h,
 		"success_72h":      success72h,
 		"client_count":     len(clients),
-		"model_cost_count": len(models),
+		"model_cost_count": len(costs),
 		"requests": map[string]int64{
 			"total":    metrics.TotalRequests,
 			"success":  metrics.TotalSuccess,
