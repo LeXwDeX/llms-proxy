@@ -1440,8 +1440,6 @@
             state.targets = Array.isArray(results[2].targets) ? results[2].targets : [];
           }
           renderClients();
-          // Also populate usage page client filter dropdown
-          populateUsageClientFilter();
         } catch(e) {
           toast("加载客户端失败: " + e.message, "error");
         }
@@ -1791,29 +1789,26 @@
       });
       document.getElementById("applyCustomRange").addEventListener("click", function() { loadUsage(); });
 
-      function populateUsageClientFilter() {
+      function populateUsageClientFilter(activeClients) {
         var sel = document.getElementById("usageClientFilter");
         var current = sel.value;
         sel.innerHTML = "<option value=\"\">全部客户端</option>";
-        (state.clients || []).slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).forEach(function(c) {
+        var list = activeClients || [];
+        list.slice().sort(function(a,b){return String(a).localeCompare(String(b));}).forEach(function(name) {
           var opt = document.createElement("option");
-          opt.value = c.name;
-          opt.textContent = c.name;
+          opt.value = name;
+          opt.textContent = name;
           sel.appendChild(opt);
         });
-        sel.value = current;
+        if (current && list.indexOf(current) >= 0) {
+          sel.value = current;
+        } else {
+          sel.value = "";
+        }
       }
       document.getElementById("usageClientFilter").addEventListener("change", function() { loadUsage(); });
 
       async function loadUsage() {
-        // Ensure client filter dropdown is populated
-        if (!state.clients || !state.clients.length) {
-          try {
-            var cData = await api("/admin/data/clients");
-            state.clients = Array.isArray(cData.clients) ? cData.clients : [];
-            populateUsageClientFilter();
-          } catch(e) { /* ignore, filter will just show "全部客户端" */ }
-        }
         var range;
         if (activeRange === "custom") {
           try {
@@ -1835,6 +1830,12 @@
           ]);
           var mainAgg = results[0];
           var byDay = results[1];
+
+          /* Update client filter dropdown with clients that have data in this range */
+          if (!clientFilter) {
+            var activeNames = (mainAgg.by_client || []).map(function(c){ return c.key; });
+            populateUsageClientFilter(activeNames);
+          }
 
           /* Summary cards from aggregate totals (respects client filter) */
           var sp = mainAgg.totals || {};
