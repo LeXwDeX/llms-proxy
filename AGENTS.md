@@ -126,5 +126,52 @@
 - 修改日志或运维行为时，检查 `internal/logging` 与 `docs/operations.md`。
 - 避免在文档中写入真实密钥、令牌或环境专有敏感信息。
 
+## Docker 镜像构建与导出（QNAP NAS）
+
+### 背景
+本项目开发环境使用 Docker 29+（containerd image store，`io.containerd.snapshotter.v1`）。
+该模式下 `docker save` 默认输出 **OCI 格式**（含 `index.json`、`oci-layout`），
+QNAP Container Station 无法识别，必须转换为 **Docker 传统格式**（含 `repositories`、`<hash>/layer.tar`）。
+
+### 正确导出流程
+
+**前置条件**：需安装 `skopeo`（`apt-get install -y skopeo`）
+
+```bash
+# 1. 构建镜像（amd64，适用于 Intel/AMD QNAP）
+docker build -f deploy/docker/Dockerfile -t llms-proxy:latest .
+
+# 2. 导出为 OCI tar（中间步骤）
+docker buildx build \
+  --output type=oci,dest=/tmp/llms-proxy-oci.tar \
+  --provenance=false --sbom=false \
+  -t llms-proxy:latest \
+  -f deploy/docker/Dockerfile .
+
+# 3. 解压 OCI tar
+mkdir -p /tmp/llms-proxy-oci
+tar -xf /tmp/llms-proxy-oci.tar -C /tmp/llms-proxy-oci
+
+# 4. 用 skopeo 转换为 Docker 传统格式（QNAP 可识别）
+rm -f llms-proxy-latest.tar
+skopeo copy \
+  oci:/tmp/llms-proxy-oci \
+  docker-archive:llms-proxy-latest.tar:llms-proxy:latest
+```
+
+**验证格式**（应看到 `repositories` 文件和 `<hash>/layer.tar` 结构，不应有 `oci-layout`）：
+```bash
+tar -tf llms-proxy-latest.tar | head -20
+```
+
+### 导入到 QNAP
+- **Container Station UI**：镜像 → 导入 → 选择 `llms-proxy-latest.tar`
+- **SSH 命令行**：`docker load -i /share/Download/llms-proxy-latest.tar`
+
+### 注意事项
+- 导出文件使用 `.tar`（不压缩），不要用 `.tar.gz`；
+- `docker save` 直接导出在此环境下输出 OCI 格式，**不可直接用于 QNAP 导入**；
+- ARM 架构的 QNAP 需修改 Dockerfile 第 27 行 `GOARCH=amd64` → `GOARCH=arm64`，并在 `docker buildx build` 加 `--platform linux/arm64`。
+
 ## 适用范围
 本文件用于帮助后续维护者和自动化代理快速理解项目结构与业务边界；如实现发生变化，应同步更新本文件与对应设计文档。
