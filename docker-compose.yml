@@ -9,6 +9,7 @@ services:
     environment:
       - SERVER_BIND=0.0.0.0:8000
       - LOG_LEVEL=info
+      # - ADMIN_PASSWORD=your-secure-password  # 首次启动时的管理员密码，未设置则随机生成
     ports:
       - 8000:8000
     volumes:

@@ -725,13 +725,19 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Targets = append(cfg.Targets, newTarget)
 
-	if err := h.saveConfig(cfg); err != nil {
-		h.writeInternalError(w, "failed to save config", err)
+	if err := h.applyConfigRuntime(cfg); err != nil {
+		h.writeInternalError(w, "failed to apply config", err)
 		return
 	}
 
-	if err := h.applyConfigRuntime(cfg); err != nil {
-		h.logger.Warn("target created but runtime apply failed", "error", err)
+	if err := h.saveConfig(cfg); err != nil {
+		h.logger.Error("runtime config applied but save to disk failed; changes will be lost on restart", "error", err)
+		h.recordAudit(r, "create_target", name, "partial", "runtime applied but persist failed: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": "config applied at runtime but failed to persist to disk; changes will be lost on restart",
+		})
+		return
 	}
 
 	h.recordAudit(r, "create_target", name, "success", "")
@@ -808,13 +814,19 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.saveConfig(cfg); err != nil {
-		h.writeInternalError(w, "failed to save config", err)
+	if err := h.applyConfigRuntime(cfg); err != nil {
+		h.writeInternalError(w, "failed to apply config", err)
 		return
 	}
 
-	if err := h.applyConfigRuntime(cfg); err != nil {
-		h.logger.Warn("target updated but runtime apply failed", "error", err)
+	if err := h.saveConfig(cfg); err != nil {
+		h.logger.Error("runtime config applied but save to disk failed; changes will be lost on restart", "error", err)
+		h.recordAudit(r, "update_target", name, "partial", "runtime applied but persist failed: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": "config applied at runtime but failed to persist to disk; changes will be lost on restart",
+		})
+		return
 	}
 
 	h.recordAudit(r, "update_target", name, "success", "")
@@ -851,13 +863,19 @@ func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 
 	cfg.Targets = next
 
-	if err := h.saveConfig(cfg); err != nil {
-		h.writeInternalError(w, "failed to save config", err)
+	if err := h.applyConfigRuntime(cfg); err != nil {
+		h.writeInternalError(w, "failed to apply config", err)
 		return
 	}
 
-	if err := h.applyConfigRuntime(cfg); err != nil {
-		h.logger.Warn("target deleted but runtime apply failed", "error", err)
+	if err := h.saveConfig(cfg); err != nil {
+		h.logger.Error("runtime config applied but save to disk failed; changes will be lost on restart", "error", err)
+		h.recordAudit(r, "delete_target", name, "partial", "runtime applied but persist failed: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": "config applied at runtime but failed to persist to disk; changes will be lost on restart",
+		})
+		return
 	}
 
 	h.recordAudit(r, "delete_target", name, "success", "")

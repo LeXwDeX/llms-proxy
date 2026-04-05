@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -122,15 +124,46 @@ func main() {
 		os.Exit(1)
 	}
 	if len(existingAdmins) == 0 {
+		// Determine initial password: prefer ADMIN_PASSWORD env var, fallback to random.
+		initialPassword := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
+		passwordSource := "environment variable ADMIN_PASSWORD"
+		if initialPassword == "" {
+			randomBytes := make([]byte, 12)
+			if _, err := rand.Read(randomBytes); err != nil {
+				appLogger.Error("failed to generate random admin password", "error", err)
+				os.Exit(1)
+			}
+			initialPassword = hex.EncodeToString(randomBytes)
+			passwordSource = "random generation"
+		}
+		passwordHash, err := admin.HashPasswordWithRandomSalt(initialPassword)
+		if err != nil {
+			appLogger.Error("failed to hash admin password", "error", err)
+			os.Exit(1)
+		}
 		seedErr := userStore.SeedDefaultUser(config.AdminUser{
 			Username:     "admin",
-			PasswordHash: admin.HashPassword("admin123", "default-salt"),
+			PasswordHash: passwordHash,
 			Role:         "admin",
 		})
 		if seedErr != nil {
 			appLogger.Warn("failed to seed default admin user", "error", seedErr)
 		} else {
-			appLogger.Info("seeded default admin user (admin / admin123) — change the password immediately")
+			appLogger.Info("seeded default admin user",
+				"username", "admin",
+				"password_source", passwordSource,
+			)
+			if passwordSource != "environment variable ADMIN_PASSWORD" {
+				// Only print password to stderr when randomly generated (one-time visibility).
+				fmt.Fprintf(os.Stderr, "\n"+
+					"============================================================\n"+
+					"  INITIAL ADMIN PASSWORD (shown only once)\n"+
+					"  Username: admin\n"+
+					"  Password: %s\n"+
+					"  Or set ADMIN_PASSWORD env var before first start.\n"+
+					"============================================================\n\n",
+					initialPassword)
+			}
 		}
 	}
 
