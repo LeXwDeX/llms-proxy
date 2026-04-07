@@ -13,6 +13,6 @@ services:
     ports:
       - 8000:8000
     volumes:
-      - ./config:/etc/llms-proxy:ro
+      - ./config:/etc/llms-proxy
       - ./data:/var/lib/llms-proxy
       - ./logs:/var/log/llms-proxy

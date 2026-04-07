@@ -20,7 +20,7 @@ The container expects three mount points:
 
 | Mount Point | Purpose | Access Mode |
 |---|---|---|
-| `/etc/llms-proxy` | Configuration directory (`config.json`) | **Read-only** (`:ro`) |
+| `/etc/llms-proxy` | Configuration directory (`config.json`) | **Read-write** (admin 保存配置需要写入) |
 | `/var/lib/llms-proxy` | Data directory (bbolt database file) | **Read-write** |
 | `/var/log/llms-proxy` | Log directory (access/error logs) | **Read-write** |
 
@@ -34,14 +34,14 @@ cp config/config.json /opt/llms-proxy/config/config.json
 #   - Add real endpoints, keys, and tokens
 ```
 
-> **Key change**: the config directory is mounted read-only. All runtime data (clients, model costs, usage events, admin users, audit logs) is stored in the bbolt database file under `/var/lib/llms-proxy`. This separation ensures config immutability while allowing the service to write data.
+> **Note**: The config directory must be mounted **read-write** so the admin UI can persist target and configuration changes to `config.json`. If mounted as `:ro`, runtime changes will only take effect in memory and report the error: *"config applied at runtime but failed to persist to disk; changes will be lost on restart"*. All other runtime data (clients, model costs, usage events, admin users, audit logs) is stored in the bbolt database file under `/var/lib/llms-proxy`.
 
 ## 3. Run with `docker run`
 ```sh
 docker run -d \
   --name llms-proxy \
   -p 8000:8000 \
-  -v /opt/llms-proxy/config:/etc/llms-proxy:ro \
+  -v /opt/llms-proxy/config:/etc/llms-proxy \
   -v /opt/llms-proxy/data:/var/lib/llms-proxy \
   -v /opt/llms-proxy/logs:/var/log/llms-proxy \
   ycgame/llms-proxy:latest
@@ -60,7 +60,7 @@ The repository includes a ready-to-use compose file at `docker-compose.yml`.
 services:
   llms-proxy:
     volumes:
-      - ./config:/etc/llms-proxy:ro      # config read-only
+      - ./config:/etc/llms-proxy          # config read-write (admin needs to persist changes)
       - ./data:/var/lib/llms-proxy        # bbolt database (read-write)
       - ./logs:/var/log/llms-proxy        # logs (read-write)
 ```
