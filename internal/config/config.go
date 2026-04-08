@@ -97,6 +97,7 @@ type Target struct {
 	APIKey             string   `json:"api_key"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AllowedModels      []string `json:"allowed_models"`
+	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
 }
 
 // Client describes a consumer and its access rights.

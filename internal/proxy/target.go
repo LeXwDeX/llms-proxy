@@ -258,6 +258,7 @@ func buildTargetStates(targets []config.Target) (map[string]*targetState, []*tar
 			APIKey:             strings.TrimSpace(t.APIKey),
 			AllowBearer:        t.AllowBearer,
 			AllowedModels:      models,
+			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
 			allowedModelsSet:   modelSet,
 		}
 		if info.Name == "" {

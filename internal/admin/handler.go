@@ -642,6 +642,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 	targets := make([]map[string]any, len(cfg.Targets))
 	for i, t := range cfg.Targets {
 		epType := config.NormalizeEndpointType(t.EndpointType)
+		sseAutoAgg := t.SSEAutoAggregate == nil || *t.SSEAutoAggregate
 		targets[i] = map[string]any{
 			"name":                     t.Name,
 			"endpoint_type":            epType,
@@ -650,6 +651,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"has_api_key":              t.APIKey != "",
 			"allow_bearer_passthrough": t.AllowBearer,
 			"allowed_models":           t.AllowedModels,
+			"sse_auto_aggregate":       sseAutoAgg,
 		}
 	}
 
@@ -668,6 +670,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey             string   `json:"api_key"`
 		AllowBearer        bool     `json:"allow_bearer_passthrough"`
 		AllowedModels      []string `json:"allowed_models"`
+		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -722,6 +725,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey:             apiKey,
 		AllowBearer:        body.AllowBearer,
 		AllowedModels:      body.AllowedModels,
+		SSEAutoAggregate:   body.SSEAutoAggregate,
 	}
 	cfg.Targets = append(cfg.Targets, newTarget)
 
@@ -758,6 +762,7 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey             *string  `json:"api_key"`
 		AllowBearer        bool     `json:"allow_bearer_passthrough"`
 		AllowedModels      []string `json:"allowed_models"`
+		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -798,6 +803,9 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			t.AllowBearer = body.AllowBearer
 			t.AllowedModels = body.AllowedModels
+			if body.SSEAutoAggregate != nil {
+				t.SSEAutoAggregate = body.SSEAutoAggregate
+			}
 
 			// Validate: api_key must be non-empty when allow_bearer is false.
 			if t.APIKey == "" && !t.AllowBearer {

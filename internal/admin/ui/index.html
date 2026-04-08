@@ -678,12 +678,13 @@
                     <th>Endpoint</th>
                     <th>路径前缀</th>
                     <th>密钥状态</th>
+                    <th>SSE聚合</th>
                     <th>允许模型</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="targetsTableBody">
-                  <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+                  <tr class="empty-row"><td colspan="8">加载中...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1012,6 +1013,12 @@
           </label>
         </div>
         <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="tgtSSEAutoAgg" checked> SSE 自动聚合
+          </label>
+          <small style="color:var(--text-muted)">开启后，当客户端请求 non-streaming 但上游返回 SSE 时自动聚合为标准 JSON</small>
+        </div>
+        <div class="form-group">
           <label>允许模型 (逗号分隔)</label>
           <input class="form-control" id="tgtModels" placeholder="gpt-4o, gpt-4.5-mini">
           <div id="tgtModelSuggestions" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;"></div>
@@ -1279,7 +1286,7 @@
       function renderTargets() {
         var tb = document.getElementById("targetsTableBody");
         if (!state.targets.length) {
-          tb.innerHTML = "<tr class='empty-row'><td colspan='7'>暂无目标配置</td></tr>";
+          tb.innerHTML = "<tr class='empty-row'><td colspan='8'>暂无目标配置</td></tr>";
           return;
         }
         tb.innerHTML = state.targets.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(t) {
@@ -1288,12 +1295,16 @@
           var keyStatus = t.has_api_key
             ? "<span style='color:var(--success)'>✅ 已配置</span>"
             : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
+          var sseAgg = (t.sse_auto_aggregate !== false)
+            ? "<span style='color:var(--success)'>✅</span>"
+            : "<span style='color:var(--text-muted)'>⏸</span>";
           return "<tr><td>"+esc(t.name)+"</td>"
             +"<td><span class='badge' style='background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:4px;font-size:12px;'>"
             +esc(epTypeLabels[t.endpoint_type]||t.endpoint_type)+"</span></td>"
             +"<td style='max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+esc(t.endpoint)+"'>"+esc(t.endpoint)+"</td>"
             +"<td>"+esc(t.resource_path_prefix||"-")+"</td>"
             +"<td>"+keyStatus+"</td>"
+            +"<td>"+sseAgg+"</td>"
             +"<td>"+models+"</td>"
             +"<td><div class='btn-group'>"
             +"<button class='btn btn-sm' data-edit-tgt='"+esc(t.name)+"'>编辑</button>"
@@ -1361,6 +1372,7 @@
         document.getElementById("tgtRpp").value = (epType === "azure_openai") ? (t ? (t.resource_path_prefix || "/openai") : "/openai") : "";
         document.getElementById("tgtApiKey").value = "";
         document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
+        document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
         updateTargetFormVisibility();
         openModal("targetModal");
@@ -1388,6 +1400,7 @@
         var rpp = (epType === "azure_openai") ? document.getElementById("tgtRpp").value.trim() : "";
         var apiKey = document.getElementById("tgtApiKey").value.trim();
         var allowBearer = document.getElementById("tgtAllowBearer").checked;
+        var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
 
         if (!name) { toast("请填写名称", "error"); return; }
@@ -1400,7 +1413,8 @@
               endpoint: endpoint,
               resource_path_prefix: rpp,
               allow_bearer_passthrough: allowBearer,
-              allowed_models: models
+              allowed_models: models,
+              sse_auto_aggregate: sseAutoAgg
             };
             if (apiKey) { updateBody.api_key = apiKey; }
             await api("/admin/data/targets/"+encodeURIComponent(name), { method: "PUT", body: updateBody });
@@ -1409,7 +1423,8 @@
             await api("/admin/data/targets", { method: "POST", body: {
               name: name, endpoint_type: epType, endpoint: endpoint,
               resource_path_prefix: rpp, api_key: apiKey,
-              allow_bearer_passthrough: allowBearer, allowed_models: models
+              allow_bearer_passthrough: allowBearer, allowed_models: models,
+              sse_auto_aggregate: sseAutoAgg
             }});
             toast("目标已创建", "success");
           }

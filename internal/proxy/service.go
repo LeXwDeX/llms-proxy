@@ -50,6 +50,7 @@ type Target struct {
 	APIKey             string
 	AllowBearer        bool
 	AllowedModels      []string
+	SSEAutoAggregate   bool
 	allowedModelsSet   map[string]struct{}
 }
 
@@ -348,7 +349,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.writeResponse(w, r, state, resp, cancel, attempt, model)
+		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody)
 		requestOutcomeRecorded = true
 		return
 	}

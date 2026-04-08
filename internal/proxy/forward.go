@@ -203,11 +203,61 @@ func (s *Service) writeResponse(
 	cancel context.CancelFunc,
 	attempt int,
 	model string,
+	requestBody []byte,
 ) {
 	defer deferCancel(cancel)
 	defer resp.Body.Close()
 
 	target := state.Target()
+
+	// SSE 自动聚合：如果客户端请求 non-streaming 但上游返回了 SSE，聚合为标准 JSON
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		respCT := resp.Header.Get("Content-Type")
+		if shouldAggregateSSE(target, requestBody, respCT) {
+			sseBody, err := io.ReadAll(resp.Body)
+			if err == nil {
+				aggregated, newCT, aggErr := aggregateSSEResponse(sseBody)
+				if aggErr == nil {
+					s.logger.Info("aggregated SSE response to non-streaming JSON",
+						"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+						"target", targetName(target),
+						"original_size", len(sseBody),
+						"aggregated_size", len(aggregated),
+					)
+					// 替换响应头和body
+					for key, values := range resp.Header {
+						if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+							continue
+						}
+						for _, v := range values {
+							w.Header().Add(key, v)
+						}
+					}
+					w.Header().Set("Content-Type", newCT)
+					if target != nil {
+						w.Header().Set("X-Proxy-Target", target.Name)
+						w.Header().Set("X-Azure-Target", target.Name)
+					}
+					w.Header().Set("X-SSE-Aggregated", "true")
+					w.WriteHeader(resp.StatusCode)
+					w.Write(aggregated)
+
+					state.MarkSuccess(time.Now())
+					s.metrics.totalSuccess.Add(1)
+					// record usage from aggregated body
+					s.recordUsageEvent(r, target, resp.StatusCode, model, newCT, aggregated)
+					return
+				}
+				s.logger.Warn("SSE aggregation failed, falling back to raw response",
+					"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+					"target", targetName(target),
+					"error", aggErr,
+				)
+				// 聚合失败，用原始 SSE body 继续走正常流程
+				resp.Body = io.NopCloser(bytes.NewReader(sseBody))
+			}
+		}
+	}
 
 	for key, values := range resp.Header {
 		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
