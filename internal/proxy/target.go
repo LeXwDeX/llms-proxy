@@ -98,6 +98,7 @@ func (s *Service) selectTarget(
 	allowed map[string]struct{},
 	attempted map[string]struct{},
 	model string,
+	path string,
 	now time.Time,
 ) (*targetState, error) {
 	if requestedLower != "" {
@@ -111,6 +112,9 @@ func (s *Service) selectTarget(
 		if !modelAllowed(state.Target(), model) {
 			return nil, newSelectionError(http.StatusBadRequest, fmt.Sprintf("model %q not allowed for target %q", model, state.Target().Name))
 		}
+		if !PathSupportedByEndpointType(state.Target().EndpointType, path) {
+			return nil, newSelectionError(http.StatusBadRequest, fmt.Sprintf("target %q does not support path %q", state.Target().Name, path))
+		}
 		if _, tried := attempted[strings.ToLower(state.Target().Name)]; tried {
 			return nil, newSelectionError(http.StatusServiceUnavailable, "requested target already attempted")
 		}
@@ -120,7 +124,25 @@ func (s *Service) selectTarget(
 		return state, nil
 	}
 
-	candidate, mutedCandidate := s.findAvailableTargetWithModel(allowed, attempted, model, now)
+	// 连接粘连：优先复用上次成功路由的目标
+	if principal != nil && len(attempted) == 0 {
+		aKey := affinityKey(principal.Name, model)
+		if affinityTarget, ok := s.affinity.Get(aKey, now); ok {
+			if state, exists := s.targetByName(affinityTarget); exists {
+				t := state.Target()
+				nameKey := strings.ToLower(t.Name)
+				allowedOK := allowed == nil
+				if !allowedOK {
+					_, allowedOK = allowed[nameKey]
+				}
+				if t != nil && allowedOK && !state.IsMuted(now) && modelAllowed(t, model) && PathSupportedByEndpointType(t.EndpointType, path) {
+					return state, nil
+				}
+			}
+		}
+	}
+
+	candidate, mutedCandidate := s.findAvailableTargetWithModel(allowed, attempted, model, path, now)
 	if candidate != nil {
 		return candidate, nil
 	}
@@ -156,10 +178,10 @@ func (s *Service) targetSnapshot() []*targetState {
 }
 
 func (s *Service) findAvailableTarget(allowed map[string]struct{}, attempted map[string]struct{}, now time.Time) (*targetState, *targetState) {
-	return s.findAvailableTargetWithModel(allowed, attempted, "", now)
+	return s.findAvailableTargetWithModel(allowed, attempted, "", "", now)
 }
 
-func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, attempted map[string]struct{}, model string, now time.Time) (*targetState, *targetState) {
+func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, attempted map[string]struct{}, model string, path string, now time.Time) (*targetState, *targetState) {
 	var mutedCandidate *targetState
 	snapshot := s.targetSnapshot()
 	if len(snapshot) == 0 {
@@ -183,6 +205,9 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 			}
 		}
 		if !modelAllowed(state.Target(), model) {
+			continue
+		}
+		if !PathSupportedByEndpointType(state.Target().EndpointType, path) {
 			continue
 		}
 

@@ -36,6 +36,8 @@ type Service struct {
 	targetsByName map[string]*targetState
 	targetOrder   []*targetState
 
+	affinity *affinityMap
+
 	metrics   requestMetrics
 	startTime time.Time
 	rrCounter atomic.Uint64
@@ -44,7 +46,7 @@ type Service struct {
 // Target represents an upstream endpoint with runtime metadata.
 type Target struct {
 	Name               string
-	EndpointType       string // azure_openai | openai | claude | gemini
+	EndpointType       string // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini
 	Endpoint           *url.URL
 	ResourcePathPrefix string
 	APIKey             string
@@ -107,6 +109,7 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		},
 		quietPeriod:   60 * time.Second,
 		targetsByName: make(map[string]*targetState),
+		affinity:      newAffinityMap(),
 		startTime:     time.Now(),
 	}
 	service.setRequestTimeout(time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second)
@@ -256,7 +259,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		attempt++
-		state, err := s.selectTarget(principal, requestedLower, allowed, attempted, model, time.Now())
+		state, err := s.selectTarget(principal, requestedLower, allowed, attempted, model, r.URL.Path, time.Now())
 		if err != nil {
 			var selErr *selectionError
 			if errors.As(err, &selErr) {
@@ -373,6 +376,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody)
+		// 更新连接粘连
+		if principal != nil && target != nil {
+			s.affinity.Set(affinityKey(principal.Name, model), strings.ToLower(target.Name), time.Now())
+		}
 		requestOutcomeRecorded = true
 		return
 	}

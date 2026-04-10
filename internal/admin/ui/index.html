@@ -930,6 +930,9 @@
             <option value="openai">OpenAI</option>
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
+            <option value="wangsu_openai">网宿 OpenAI</option>
+            <option value="wangsu_claude">网宿 Claude</option>
+            <option value="wangsu_gemini">网宿 Gemini</option>
           </select>
         </div>
         <div class="form-group">
@@ -993,6 +996,9 @@
             <option value="openai">OpenAI</option>
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
+            <option value="wangsu_openai">网宿 OpenAI</option>
+            <option value="wangsu_claude">网宿 Claude</option>
+            <option value="wangsu_gemini">网宿 Gemini</option>
           </select>
         </div>
         <div class="form-group">
@@ -1275,7 +1281,7 @@
       document.getElementById("refreshOverviewBtn").addEventListener("click", function() { loadOverview(); });
 
       /* ===== Targets ===== */
-      var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude","gemini":"Gemini"};
+      var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude","gemini":"Gemini","wangsu_openai":"网宿 OpenAI","wangsu_claude":"网宿 Claude","wangsu_gemini":"网宿 Gemini"};
       async function loadTargets() {
         try {
           var data = await api("/admin/data/targets");
@@ -1521,7 +1527,7 @@
         targets.forEach(function(t) {
           var tag = document.createElement("span");
           var isSelected = !!selectedSet[t.name.toLowerCase()];
-          var epLabel = ({"azure_openai":"Azure","openai":"OpenAI","claude":"Claude","gemini":"Gemini"})[t.endpoint_type || "azure_openai"] || t.endpoint_type || "";
+          var epLabel = ({"azure_openai":"Azure","openai":"OpenAI","claude":"Claude","gemini":"Gemini","wangsu_openai":"网宿OAI","wangsu_claude":"网宿Claude","wangsu_gemini":"网宿Gemini"})[t.endpoint_type || "azure_openai"] || t.endpoint_type || "";
           tag.textContent = t.name;
           tag.title = epLabel + " — " + (t.endpoint || "");
           tag.dataset.target = t.name;

@@ -121,6 +121,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	case config.EndpointTypeGemini:
 		req.Header.Set("x-goog-api-key", target.APIKey)
+	case config.EndpointTypeWangsuOpenAI:
+		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+	case config.EndpointTypeWangsuClaude:
+		req.Header.Set("x-api-key", target.APIKey)
+		if req.Header.Get("anthropic-version") == "" {
+			req.Header.Set("anthropic-version", "2023-06-01")
+		}
+	case config.EndpointTypeWangsuGemini:
+		req.Header.Set("x-goog-api-key", target.APIKey)
 	case config.EndpointTypeAzureOpenAI:
 		useBearer := target.AllowBearer && azureAuth != ""
 		if useBearer {

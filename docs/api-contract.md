@@ -1,6 +1,6 @@
 # API Contract & Error Codes
 
-This document describes the externally visible HTTP contract that the proxy exposes to internal clients and operators. The proxy supports multiple upstream endpoint types: **Azure OpenAI**, **OpenAI**, and **Claude (Anthropic)**. All endpoints speak JSON over HTTP/1.1. Unless noted otherwise, responses adopt UTF-8 encoding.
+This document describes the externally visible HTTP contract that the proxy exposes to internal clients and operators. The proxy supports multiple upstream endpoint types: **Azure OpenAI**, **OpenAI**, **Claude (Anthropic)**, **Gemini (Google)**, **Wangsu OpenAI**, **Wangsu Claude**, and **Wangsu Gemini**. All endpoints speak JSON over HTTP/1.1. Unless noted otherwise, responses adopt UTF-8 encoding.
 
 ## Authentication
 - Client requests **must** include `Authorization: Bearer <access-key>`.
@@ -29,7 +29,7 @@ This document describes the externally visible HTTP contract that the proxy expo
   ```
 
 ### Proxy Pass-through (`/**`)
-- Any other path mounted beneath `/` forwards to the configured upstream (Azure OpenAI, OpenAI, or Claude).
+- Any other path mounted beneath `/` forwards to the configured upstream (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
 - Clients should call the proxy with OpenAI-style paths (for example `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations`).
 - The upstream target is selected automatically; clients may opt-in to a specific backend by:
   - Header: `X-Proxy-Target: <target-name>`
@@ -43,7 +43,12 @@ This document describes the externally visible HTTP contract that the proxy expo
   - `openai` — injects `Authorization: Bearer <key>`.
   - `claude` — injects `x-api-key: <key>` and sets `anthropic-version: 2023-06-01` if not already present.
   - `gemini` — injects `x-goog-api-key: <key>`.
-- **Azure parameter whitelist filtering** (stripping unsupported request body fields) is applied **only** to `azure_openai` targets. Requests to `openai`, `claude`, and `gemini` targets forward the original body unmodified.
+  - `wangsu_openai` — injects `Authorization: Bearer <key>` (same as `openai`).
+  - `wangsu_claude` — injects `x-api-key: <key>` and sets `anthropic-version: 2023-06-01` (same as `claude`).
+  - `wangsu_gemini` — injects `x-goog-api-key: <key>` (same as `gemini`).
+- **Azure parameter whitelist filtering** (stripping unsupported request body fields) is applied **only** to `azure_openai` targets. Requests to `openai`, `claude`, `gemini`, and Wangsu variant targets forward the original body unmodified.
+- **Path compatibility**: Target selection checks path compatibility by `endpoint_type`. `wangsu_openai` only supports `/chat/completions`, `/images/generations`, and `/embeddings`; targets whose `endpoint_type` is incompatible with the request path are automatically skipped during selection. All other endpoint types accept any path.
+- **Connection affinity**: Requests from the same client with the same model are preferentially routed to the same target, improving upstream token cache (KV cache / prompt cache) hit rates. Affinity entries have a TTL of 5 minutes with lazy expiration. When the affinity target is unavailable or path-incompatible, routing falls back to round-robin selection.
 - The proxy removes internal/legacy query params before forwarding: `target`, `api-version`, `api_version`, `api-key`.
 - Successful responses set **both** `X-Proxy-Target: <target-name>` and `X-Azure-Target: <target-name>` so callers can identify the chosen backend. (`X-Azure-Target` is retained for backward compatibility with older clients.)
 - Streaming responses are relayed chunk-by-chunk (`io.Copy`), preserving status codes and headers except for hop-by-hop headers.
@@ -205,7 +210,7 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 - Creates a new upstream target. The new target is appended to `targets` in `config.json` and applied at runtime.
 - Required fields: `name`, `endpoint`. Either `api_key` or `allow_bearer_passthrough: true` must be provided.
 - `resource_path_prefix` is required only for `azure_openai` targets.
-- `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`, `gemini`.
+- `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`, `gemini`, `wangsu_openai`, `wangsu_claude`, `wangsu_gemini`.
 - Request body example:
   ```json
   {

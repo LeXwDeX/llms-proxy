@@ -12,14 +12,17 @@ import (
 )
 
 const (
-	EndpointTypeAzureOpenAI = "azure_openai"
-	EndpointTypeOpenAI      = "openai"
-	EndpointTypeClaude      = "claude"
-	EndpointTypeGemini      = "gemini"
+	EndpointTypeAzureOpenAI  = "azure_openai"
+	EndpointTypeOpenAI       = "openai"
+	EndpointTypeClaude       = "claude"
+	EndpointTypeGemini       = "gemini"
+	EndpointTypeWangsuOpenAI = "wangsu_openai"
+	EndpointTypeWangsuClaude = "wangsu_claude"
+	EndpointTypeWangsuGemini = "wangsu_gemini"
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
-var ValidEndpointTypes = []string{EndpointTypeAzureOpenAI, EndpointTypeOpenAI, EndpointTypeClaude, EndpointTypeGemini}
+var ValidEndpointTypes = []string{EndpointTypeAzureOpenAI, EndpointTypeOpenAI, EndpointTypeClaude, EndpointTypeGemini, EndpointTypeWangsuOpenAI, EndpointTypeWangsuClaude, EndpointTypeWangsuGemini}
 
 // NormalizeEndpointType returns a canonical endpoint type; empty defaults to azure_openai.
 func NormalizeEndpointType(t string) string {
@@ -88,10 +91,10 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
-// Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, or Gemini).
+// Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
 type Target struct {
 	Name               string   `json:"name"`
-	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini; default azure_openai
+	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini; default azure_openai
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	APIKey             string   `json:"api_key"`

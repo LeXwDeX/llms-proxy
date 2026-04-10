@@ -882,16 +882,19 @@ func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	store := auth.NewStore()
-	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
-		t.Fatalf("load clients: %v", err)
-	}
-	principal, ok := store.Authenticate("token")
-	if !ok {
-		t.Fatal("expected principal")
-	}
-
+	// Use distinct client names to avoid affinity stickiness collapsing all
+	// requests to a single target.
 	for i := 0; i < 6; i++ {
+		clientName := fmt.Sprintf("tester-%d", i)
+		store := auth.NewStore()
+		if err := store.LoadFromConfig(testAuthClients(clientName, "token")); err != nil {
+			t.Fatalf("load clients: %v", err)
+		}
+		principal, ok := store.Authenticate("token")
+		if !ok {
+			t.Fatal("expected principal")
+		}
+
 		body := bytes.NewBufferString(`{"model":"gpt-5.1","input":"hi"}`)
 		req := httptest.NewRequest(http.MethodPost, "/openai/deployments/gpt-5.1/chat/completions", body)
 		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
@@ -1802,4 +1805,213 @@ func testAuthClients(name, accessKey string, allowedTargets ...string) []config.
 		client.AllowedTargets = append([]string(nil), allowedTargets...)
 	}
 	return []config.Client{client}
+}
+
+func TestSelectTargetPathFiltering(t *testing.T) {
+	t1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Target", "t1")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer t1.Close()
+	t2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Target", "t2")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer t2.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "openai-t1",
+				EndpointType:  "openai",
+				Endpoint:      t1.URL,
+				APIKey:        "key1",
+				AllowedModels: []string{"gpt-4o"},
+			},
+			{
+				Name:          "wangsu-t2",
+				EndpointType:  "wangsu_openai",
+				Endpoint:      t2.URL,
+				APIKey:        "key2",
+				AllowedModels: []string{"gpt-4o"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	// /v1/responses → only openai-t1 supports this
+	body := bytes.NewBufferString(`{"model":"gpt-4o","input":"hi"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/v1/responses expected 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("X-Proxy-Target"); got != "openai-t1" {
+		t.Fatalf("/v1/responses expected target openai-t1, got %q", got)
+	}
+
+	// /v1/chat/completions → both support this, just ensure it succeeds
+	body2 := bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body2)
+	req2 = req2.WithContext(auth.WithPrincipal(req2.Context(), principal))
+	rr2 := httptest.NewRecorder()
+	service.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("/v1/chat/completions expected 200, got %d", rr2.Code)
+	}
+}
+
+func TestSelectTargetAffinity(t *testing.T) {
+	counts := map[string]int{}
+	makeServer := func(name string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			counts[name]++
+			w.WriteHeader(http.StatusOK)
+		}))
+	}
+	s1 := makeServer("t1")
+	defer s1.Close()
+	s2 := makeServer("t2")
+	defer s2.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "t1",
+				EndpointType:  "openai",
+				Endpoint:      s1.URL,
+				APIKey:        "key1",
+				AllowedModels: []string{"gpt-4o"},
+			},
+			{
+				Name:          "t2",
+				EndpointType:  "openai",
+				Endpoint:      s2.URL,
+				APIKey:        "key2",
+				AllowedModels: []string{"gpt-4o"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	// First request establishes affinity
+	body := bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", rr.Code)
+	}
+	firstTarget := rr.Header().Get("X-Proxy-Target")
+
+	// Subsequent requests should stick to the same target
+	for i := 0; i < 5; i++ {
+		body := bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i+2, rr.Code)
+		}
+		if got := rr.Header().Get("X-Proxy-Target"); got != firstTarget {
+			t.Fatalf("request %d: expected sticky target %q, got %q", i+2, firstTarget, got)
+		}
+	}
+}
+
+func TestSelectTargetExplicitPathIncompatible(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "wangsu",
+				EndpointType:  "wangsu_openai",
+				Endpoint:      "http://example.com",
+				APIKey:        "key",
+				AllowedModels: []string{"gpt-4o"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-4o","input":"hi"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", body)
+	req.Header.Set("X-Proxy-Target", "wangsu")
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for path-incompatible explicit target, got %d", rr.Code)
+	}
 }
