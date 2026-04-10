@@ -193,6 +193,10 @@ func (m *Manager) Replace(cfg *Config) {
 // DefaultConfig returns a minimal valid configuration suitable for first-time
 // startup.  The system can boot with zero upstream targets; users add targets
 // later via the admin UI.
+//
+// Paths use the container-standard absolute directories that match the
+// Dockerfile VOLUME declarations so that the auto-generated config works
+// out of the box in Docker / QNAP environments.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -201,7 +205,7 @@ func DefaultConfig() *Config {
 		},
 		Targets: []Target{},
 		DataStore: DataStore{
-			DBPath: "llms-proxy.db",
+			DBPath: "/var/lib/llms-proxy/llms-proxy.db",
 		},
 		AdminSession: AdminSessionConfig{
 			CookieName:        "llms_proxy_admin_session",
@@ -212,8 +216,8 @@ func DefaultConfig() *Config {
 		},
 		Logging: LoggingConfig{
 			Level:     "info",
-			AccessLog: "logs/access.log",
-			ErrorLog:  "logs/error.log",
+			AccessLog: "/var/log/llms-proxy/access.log",
+			ErrorLog:  "/var/log/llms-proxy/error.log",
 		},
 	}
 }
@@ -390,6 +394,8 @@ func resolveDataFilePaths(cfg *Config, baseDir string) {
 	cfg.DataFiles.UsageEventsFile = resolvePath(baseDir, cfg.DataFiles.UsageEventsFile)
 	cfg.DataFiles.AdminUsersFile = resolvePath(baseDir, cfg.DataFiles.AdminUsersFile)
 	cfg.DataFiles.AdminAuditFile = resolvePath(baseDir, cfg.DataFiles.AdminAuditFile)
+	cfg.Logging.AccessLog = resolvePath(baseDir, cfg.Logging.AccessLog)
+	cfg.Logging.ErrorLog = resolvePath(baseDir, cfg.Logging.ErrorLog)
 }
 
 func resolvePath(baseDir, path string) string {
