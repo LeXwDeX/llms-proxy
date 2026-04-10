@@ -145,39 +145,91 @@ QNAP Container Station 无法识别，必须转换为 **Docker 传统格式**（
 **前置条件**：需安装 `skopeo`（`apt-get install -y skopeo`）
 
 ```bash
-# 1. 构建镜像（amd64，适用于 Intel/AMD QNAP）
-docker build -f deploy/docker/Dockerfile -t llms-proxy:latest .
-
-# 2. 导出为 OCI tar（中间步骤）
+# 1. 导出为 OCI tar（中间步骤）
 docker buildx build \
   --output type=oci,dest=/tmp/llms-proxy-oci.tar \
   --provenance=false --sbom=false \
   -t llms-proxy:latest \
   -f deploy/docker/Dockerfile .
 
-# 3. 解压 OCI tar
-mkdir -p /tmp/llms-proxy-oci
+# 2. 解压 OCI tar
+rm -rf /tmp/llms-proxy-oci && mkdir -p /tmp/llms-proxy-oci
 tar -xf /tmp/llms-proxy-oci.tar -C /tmp/llms-proxy-oci
 
-# 4. 用 skopeo 转换为 Docker 传统格式（QNAP 可识别）
+# 3. 用 skopeo 转换为 Docker 传统格式
 rm -f llms-proxy-latest.tar
 skopeo copy \
   oci:/tmp/llms-proxy-oci \
   docker-archive:llms-proxy-latest.tar:llms-proxy:latest
+
+# 4. 修复镜像名（必须执行，否则 QNAP 导入后名字显示 <none>）
+#    skopeo 会在 repositories/manifest.json 中写入 docker.io/library/llms-proxy，
+#    QNAP Container Station 只认不带 registry 前缀的短名，必须去掉前缀。
+python3 - <<'EOF'
+import tarfile, json, io
+
+src = "llms-proxy-latest.tar"
+dst = "llms-proxy-latest-fixed.tar"
+
+with tarfile.open(src, "r") as tin, tarfile.open(dst, "w") as tout:
+    for member in tin.getmembers():
+        f = tin.extractfile(member)
+        if member.name == "repositories":
+            data = json.load(f)
+            fixed = {k.replace("docker.io/library/", ""): v for k, v in data.items()}
+            content = json.dumps(fixed).encode()
+            info = tarfile.TarInfo(name="repositories")
+            info.size = len(content)
+            tout.addfile(info, io.BytesIO(content))
+        elif member.name == "manifest.json":
+            data = json.load(f)
+            for entry in data:
+                entry["RepoTags"] = [t.replace("docker.io/library/", "") for t in entry.get("RepoTags", [])]
+            content = json.dumps(data).encode()
+            info = tarfile.TarInfo(name="manifest.json")
+            info.size = len(content)
+            tout.addfile(info, io.BytesIO(content))
+        else:
+            tout.addfile(member, f) if f is not None else tout.addfile(member)
+
+import os; os.replace(dst, src)
+print("完成，验证：", end="")
+EOF
+
+# 5. 验证：应输出 {"llms-proxy": {"latest": "..."}}（不含 docker.io/library 前缀）
+tar -xOf llms-proxy-latest.tar repositories
 ```
 
-**验证格式**（应看到 `repositories` 文件和 `<hash>/layer.tar` 结构，不应有 `oci-layout`）：
+**验证格式**（应看到 `repositories`、`<hash>/layer.tar`，不应有 `oci-layout`；本机可直接 docker load 验证）：
 ```bash
 tar -tf llms-proxy-latest.tar | head -20
+docker load -i llms-proxy-latest.tar   # 应输出：Loaded image: llms-proxy:latest
 ```
 
 ### 导入到 QNAP
 - **Container Station UI**：镜像 → 导入 → 选择 `llms-proxy-latest.tar`
 - **SSH 命令行**：`docker load -i /share/Download/llms-proxy-latest.tar`
 
+### QNAP compose 挂载要求
+容器使用 bbolt 数据库（`/var/lib/llms-proxy`），**三个目录必须全部挂载**，缺任何一个都会导致启动失败：
+
+```yaml
+volumes:
+  - /path/to/config:/etc/llms-proxy        # 配置文件
+  - /path/to/data:/var/lib/llms-proxy      # bbolt 数据库（不能省略）
+  - /path/to/logs:/var/log/llms-proxy      # 日志
+```
+
+启动前在 QNAP SSH 上提前建好所有目录：
+```bash
+mkdir -p /path/to/config /path/to/data /path/to/logs
+```
+
 ### 注意事项
 - 导出文件使用 `.tar`（不压缩），不要用 `.tar.gz`；
 - `docker save` 直接导出在此环境下输出 OCI 格式，**不可直接用于 QNAP 导入**；
+- skopeo 输出的 `repositories`/`manifest.json` 含 `docker.io/library/` 前缀，**必须执行步骤 4 修复**，否则 QNAP 导入后镜像名和版本均显示 `<none>`；
+- 容器用户 `llmsproxy` 固定为 uid=1000/gid=1000，QNAP 宿主机挂载目录的属主须为同一用户（即登录 QNAP 的当前用户，通常 uid=1000）；
 - ARM 架构的 QNAP 需修改 Dockerfile 第 27 行 `GOARCH=amd64` → `GOARCH=arm64`，并在 `docker buildx build` 加 `--platform linux/arm64`。
 
 ## 适用范围
