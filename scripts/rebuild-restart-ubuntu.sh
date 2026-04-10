@@ -33,6 +33,12 @@ echo "[info] 服务名: ${SERVICE_NAME}"
 echo "[step] 停止并清理旧容器"
 "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" down --remove-orphans
 
+echo "[step] 修复挂载目录权限"
+mkdir -p "${ROOT_DIR}/config" "${ROOT_DIR}/data" "${ROOT_DIR}/logs"
+chmod 777 "${ROOT_DIR}/config" "${ROOT_DIR}/data" "${ROOT_DIR}/logs"
+# config.json 也需要可写（容器内以 llmsproxy 用户运行）
+[[ -f "${ROOT_DIR}/config/config.json" ]] && chmod 666 "${ROOT_DIR}/config/config.json"
+
 echo "[step] 重新构建镜像"
 BUILD_ARGS=()
 if [[ "${NO_CACHE,,}" == "1" || "${NO_CACHE,,}" == "true" || "${NO_CACHE,,}" == "yes" ]]; then

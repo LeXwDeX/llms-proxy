@@ -32,7 +32,14 @@ if [ -d "$BACKUP_DIR" ]; then
   echo "==> 已恢复 config/ 数据"
 fi
 
-# 4. 重建并启动容器
+# 4. 确保挂载目录存在且容器用户可写
+echo "==> 修复挂载目录权限..."
+mkdir -p "$APP_DIR/config" "$APP_DIR/data" "$APP_DIR/logs"
+chmod 777 "$APP_DIR/config" "$APP_DIR/data" "$APP_DIR/logs"
+# config.json 也需要可写（容器内以 llmsproxy 用户运行）
+[ -f "$APP_DIR/config/config.json" ] && chmod 666 "$APP_DIR/config/config.json"
+
+# 5. 重建并启动容器
 echo "==> 重建容器..."
 docker compose up --build -d
 
