@@ -299,7 +299,30 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			forwardBody = sanitizedBody
 		}
 
+		// 对非 Azure target 的 multipart 请求，自动转换为 JSON。
+		// 部分上游网关（如 aigateway）只接受 application/json，不支持 multipart/form-data。
+		// Azure 端点保持原样透传 multipart（原生支持）。
+		var origContentType string
+		if target.EndpointType != config.EndpointTypeAzureOpenAI && needsMultipartConvert(r) {
+			if converted, newCT, convErr := convertMultipartToJSON(r, bodyBytes); convErr == nil {
+				forwardBody = converted
+				origContentType = r.Header.Get("Content-Type")
+				r.Header.Set("Content-Type", newCT)
+			} else {
+				s.logger.Warn("multipart→JSON conversion failed, forwarding original",
+					"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+					"target", target.Name,
+					"error", convErr,
+				)
+			}
+		}
+
 		resp, cancel, fErr := s.forwardRequestWith503Retry(r, state, forwardBody)
+
+		// 恢复原始 Content-Type（支持重试时路由到其他 target，如 Azure 需原始 multipart）
+		if origContentType != "" {
+			r.Header.Set("Content-Type", origContentType)
+		}
 		if fErr != nil {
 			deferCancel(cancel)
 
