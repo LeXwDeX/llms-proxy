@@ -20,6 +20,23 @@ var embeddedData embed.FS
 // EndpointType 常量统一在 internal/config 包中定义（config.EndpointTypeAzureOpenAI 等），
 // 本包不再重复定义，避免同步维护风险。
 
+// wangsuToCanonical 将网宿 endpoint_type 映射到对应的官方类型，
+// 使 catalog 查询和枚举时可复用官方模型数据。
+var wangsuToCanonical = map[string]string{
+	"wangsu_openai": "openai",
+	"wangsu_claude": "claude",
+	"wangsu_gemini": "gemini",
+}
+
+// canonicalEndpointType 返回 endpoint_type 对应的 catalog 查询类型。
+// 网宿类型降级为官方类型；其余原样返回。
+func canonicalEndpointType(epType string) string {
+	if canonical, ok := wangsuToCanonical[epType]; ok {
+		return canonical
+	}
+	return epType
+}
+
 // ModelEntry 是模型目录中的一条记录。
 type ModelEntry struct {
 	EndpointType string   `json:"endpoint_type"`
@@ -92,11 +109,12 @@ func newFromData(data []byte) (*Catalog, error) {
 
 // Lookup 按 endpoint_type + model 查找模型信息。
 // 先尝试精确匹配，再尝试别名匹配。查找不区分大小写。
+// 网宿类型自动降级到对应官方类型进行查找。
 func (c *Catalog) Lookup(endpointType, model string) *ModelEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	endpointType = strings.ToLower(strings.TrimSpace(endpointType))
+	endpointType = canonicalEndpointType(strings.ToLower(strings.TrimSpace(endpointType)))
 	model = strings.ToLower(strings.TrimSpace(model))
 
 	key := endpointType + ":" + model
@@ -125,11 +143,12 @@ func (c *Catalog) LookupDefaultCost(endpointType, model string) *Cost {
 }
 
 // ListByEndpointType 返回指定 endpoint_type 的所有模型（副本）。
+// 网宿类型自动降级到对应官方类型进行枚举。
 func (c *Catalog) ListByEndpointType(endpointType string) []ModelEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	endpointType = strings.ToLower(strings.TrimSpace(endpointType))
+	endpointType = canonicalEndpointType(strings.ToLower(strings.TrimSpace(endpointType)))
 	var result []ModelEntry
 	for _, e := range c.entries {
 		if e.EndpointType == endpointType {
@@ -150,11 +169,12 @@ func (c *Catalog) ListAll() []ModelEntry {
 
 // ResolveAlias 尝试将别名解析为规范模型名。
 // 如果 model 不是别名，则原样返回（小写化后）。
+// 网宿类型自动降级到对应官方类型进行解析。
 func (c *Catalog) ResolveAlias(endpointType, model string) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	endpointType = strings.ToLower(strings.TrimSpace(endpointType))
+	endpointType = canonicalEndpointType(strings.ToLower(strings.TrimSpace(endpointType)))
 	model = strings.ToLower(strings.TrimSpace(model))
 
 	key := endpointType + ":" + model
