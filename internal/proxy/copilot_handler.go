@@ -92,14 +92,20 @@ func (s *Service) handleCopilotRequest(
 	// 6. 构建上游请求（使用账户动态 API 端点 + 客户端原始路径）
 	// 上游路径跟随客户端请求路径，不强制改写为 /chat/completions，
 	// 使得 /responses、/embeddings 等路径可以直接透传给 Copilot 上游。
-	// Copilot 上游不接受 /v1/ 前缀（/v1/chat/completions → 404），需去除。
+	//
+	// Copilot 上游路径规则不统一：
+	//   - /chat/completions : 不接受 /v1 前缀（/v1/chat/completions → 404）
+	//   - /responses        : 有无 /v1 均可
+	//   - /v1/messages      : 必须保留 /v1 前缀（/messages → 404，Anthropic 原生格式）
+	// 因此仅对非 /v1/messages 路径去除 /v1 前缀。
 	baseURL := copilot.CopilotIndividualBase
 	if account.APIBaseURL != "" {
 		baseURL = strings.TrimRight(account.APIBaseURL, "/")
 	}
-	// 去掉客户端路径的 /v1 前缀（Copilot 上游路径不含此前缀）
 	requestPath := r.URL.Path
-	requestPath = strings.TrimPrefix(requestPath, "/v1")
+	if !strings.HasPrefix(requestPath, "/v1/messages") {
+		requestPath = strings.TrimPrefix(requestPath, "/v1")
+	}
 	if requestPath == "" {
 		requestPath = "/chat/completions"
 	}
