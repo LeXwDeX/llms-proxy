@@ -1,6 +1,11 @@
 package copilot
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
 )
@@ -111,6 +116,107 @@ func ListAvailableModels() []ModelInfo {
 // IsFreeModel 判断模型是否为免费模型（乘数为 0）。
 func IsFreeModel(model string) bool {
 	return GetMultiplier(model) == 0
+}
+
+// copilotModelsAPIResponse 表示 Copilot models API 的响应结构。
+type copilotModelsAPIResponse struct {
+	Models []copilotModelEntry `json:"models"`
+}
+
+type copilotModelEntry struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// 额外信息（如果有的话）
+	Capabilities struct {
+		Type string `json:"type"`
+	} `json:"capabilities"`
+}
+
+// FetchModelsFromAPI 从 Copilot API 获取当前账户实际可用的模型列表。
+// 需要一个有效的 Copilot access token（非 OAuth token）。
+// 返回与本地乘数表合并后的 ModelInfo 列表——只包含 API 返回的模型。
+func FetchModelsFromAPI(ctx context.Context, httpClient *http.Client, copilotToken string, modelsURL string) ([]ModelInfo, error) {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	if modelsURL == "" {
+		modelsURL = CopilotModelsURL
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建 models 请求: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+copilotToken)
+	req.Header.Set("Accept", "application/json")
+	ApplyEditorHeaders(req)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送 models 请求: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取 models 响应: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("models 请求失败: status=%d, body=%s", resp.StatusCode, string(body))
+	}
+
+	// 尝试两种格式：{ "models": [...] } 或直接 [...]
+	var entries []copilotModelEntry
+
+	var apiResp copilotModelsAPIResponse
+	if err := json.Unmarshal(body, &apiResp); err == nil && len(apiResp.Models) > 0 {
+		entries = apiResp.Models
+	} else {
+		// 可能直接是数组
+		if err2 := json.Unmarshal(body, &entries); err2 != nil {
+			return nil, fmt.Errorf("解析 models 响应: %w (原始: %w)", err2, err)
+		}
+	}
+
+	// 用 API 返回的模型列表与本地乘数表合并
+	var models []ModelInfo
+	for _, entry := range entries {
+		name := entry.ID
+		if name == "" {
+			name = entry.Name
+		}
+		if name == "" {
+			continue
+		}
+
+		multiplier := GetMultiplier(name)
+		models = append(models, ModelInfo{
+			Name:       name,
+			Multiplier: multiplier,
+			Category:   classifyModel(multiplier),
+		})
+	}
+
+	// 按 Category 优先级排序
+	categoryOrder := map[string]int{
+		"免费":  0,
+		"低消耗": 1,
+		"标准":  2,
+		"高消耗": 3,
+	}
+	sort.Slice(models, func(i, j int) bool {
+		ci := categoryOrder[models[i].Category]
+		cj := categoryOrder[models[j].Category]
+		if ci != cj {
+			return ci < cj
+		}
+		return models[i].Name < models[j].Name
+	})
+
+	return models, nil
 }
 
 // classifyModel 根据乘数分类模型。

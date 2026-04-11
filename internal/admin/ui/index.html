@@ -1009,7 +1009,7 @@
                       <th>#</th>
                       <th>GitHub 用户名</th>
                       <th>状态</th>
-                      <th>额度剩余</th>
+                      <th>已使用额度</th>
                       <th>最后同步</th>
                       <th>操作</th>
                     </tr>
@@ -2369,12 +2369,13 @@
         return "<span class='acct-badge " + esc(status) + "'>" + esc(label) + "</span>";
       }
 
-      function quotaBar(pct) {
-        var p = Number(pct || 0);
-        var color = p > 50 ? "#22c55e" : p > 20 ? "#f59e0b" : "#ef4444";
+      function quotaBar(remainPct) {
+        var remaining = Number(remainPct || 0);
+        var used = Math.max(0, 100 - remaining);
+        var color = used < 50 ? "#22c55e" : used < 80 ? "#f59e0b" : "#ef4444";
         return "<div class='quota-bar-wrap'>"
-          + "<div class='quota-bar'><div class='quota-bar-inner' style='width:" + p.toFixed(1) + "%;background:" + color + ";'></div></div>"
-          + "<span class='quota-pct'>" + p.toFixed(1) + "%</span>"
+          + "<div class='quota-bar'><div class='quota-bar-inner' style='width:" + used.toFixed(1) + "%;background:" + color + ";'></div></div>"
+          + "<span class='quota-pct'>" + used.toFixed(1) + "%</span>"
           + "</div>";
       }
 

@@ -1775,10 +1775,41 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func (h *Handler) handleListCopilotModels(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) handleListCopilotModels(w http.ResponseWriter, r *http.Request) {
+	// 尝试从 Copilot API 动态获取可用模型（需要至少一个 active 账户的 token）
+	if h.copilotService != nil && h.copilotAcctStore != nil {
+		accounts, err := h.copilotAcctStore.List()
+		if err == nil {
+			for _, acct := range accounts {
+				if acct.Status != nosql.AccountStatusActive || acct.OAuthToken == "" {
+					continue
+				}
+				// 获取 copilot access token
+				token, err := h.copilotService.GetToken(r.Context(), acct.ID)
+				if err != nil {
+					continue
+				}
+				models, err := copilot.FetchModelsFromAPI(r.Context(), nil, token, "")
+				if err != nil {
+					h.logger.Warn("从 Copilot API 获取模型列表失败，降级为本地列表",
+						"account_id", acct.ID, "error", err)
+					continue
+				}
+				writeJSON(w, http.StatusOK, map[string]any{
+					"models": models,
+					"count":  len(models),
+					"source": "copilot_api",
+				})
+				return
+			}
+		}
+	}
+
+	// 降级：返回本地硬编码乘数表
 	models := copilot.ListAvailableModels()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"models": models,
 		"count":  len(models),
+		"source": "local",
 	})
 }
