@@ -2,7 +2,6 @@ package copilot
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -12,11 +11,18 @@ import (
 )
 
 func TestSyncQuotaFromGitHub(t *testing.T) {
-	// 构造正常响应
-	response := gitHubCopilotUserResponse{
-		CopilotPlan: "individual",
-	}
-	response.QuotaSnapshots.PremiumInteractions.PercentRemaining = 85.5
+	// 构造新版 snake_case 格式响应（与实际 GitHub API 一致）
+	responseBody := `{
+		"copilot_plan": "individual",
+		"quota_reset_date_utc": "2026-05-01T00:00:00.000Z",
+		"quota_snapshots": {
+			"premium_interactions": {
+				"percent_remaining": 85.5,
+				"unlimited": false,
+				"entitlement": 300
+			}
+		}
+	}`
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 验证请求头
@@ -43,7 +49,7 @@ func TestSyncQuotaFromGitHub(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		w.Write([]byte(responseBody))
 	}))
 	defer server.Close()
 
@@ -58,6 +64,48 @@ func TestSyncQuotaFromGitHub(t *testing.T) {
 	}
 	if info.CopilotPlan != "individual" {
 		t.Errorf("CopilotPlan = %q, want %q", info.CopilotPlan, "individual")
+	}
+	if info.ResetAt != "2026-05-01T00:00:00.000Z" {
+		t.Errorf("ResetAt = %q, want %q", info.ResetAt, "2026-05-01T00:00:00.000Z")
+	}
+	if info.Entitlement != 300 {
+		t.Errorf("Entitlement = %d, want 300", info.Entitlement)
+	}
+}
+
+func TestSyncQuotaFromGitHub_NegativeRemaining(t *testing.T) {
+	// Business 账户超额使用时返回负数 percent_remaining
+	responseBody := `{
+		"copilot_plan": "business",
+		"quota_reset_date_utc": "2026-05-01T00:00:00.000Z",
+		"quota_snapshots": {
+			"premium_interactions": {
+				"percent_remaining": -532.2,
+				"quota_remaining": -1596.6,
+				"unlimited": false,
+				"entitlement": 300,
+				"overage_permitted": true
+			}
+		}
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(responseBody))
+	}))
+	defer server.Close()
+
+	mgr := NewQuotaManager(server.Client(), server.URL, nil)
+	info, err := mgr.SyncQuotaFromGitHub(context.Background(), "test-token")
+	if err != nil {
+		t.Fatalf("SyncQuotaFromGitHub() error = %v", err)
+	}
+
+	if info.PercentRemaining != -532.2 {
+		t.Errorf("PercentRemaining = %v, want -532.2", info.PercentRemaining)
+	}
+	if info.CopilotPlan != "business" {
+		t.Errorf("CopilotPlan = %q, want %q", info.CopilotPlan, "business")
 	}
 }
 
@@ -152,17 +200,17 @@ func TestDeductQuota(t *testing.T) {
 			expectedPercent: 50.0 - (0.33/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
-			name:           "扣减后不低于 0",
+			name:           "允许扣减为负数（超额使用）",
 			model:          "claude-opus-4.5",
 			initialPercent: 0.5,
-			// 扣减量 = (3 / 300) * 100 = 1.0，0.5 - 1.0 = -0.5 → 0
-			expectedPercent: 0.0,
+			// 扣减量 = (3 / 300) * 100 = 1.0，0.5 - 1.0 = -0.5
+			expectedPercent: -0.5,
 		},
 		{
-			name:            "已经是 0 不变负",
+			name:            "从 0 继续扣减为负",
 			model:           "claude-sonnet-4",
 			initialPercent:  0.0,
-			expectedPercent: 0.0,
+			expectedPercent: 0.0 - (1.0/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
 			name:              "带 copilot_ 前缀",
@@ -198,11 +246,6 @@ func TestDeductQuota(t *testing.T) {
 			// 使用小误差比较浮点数
 			if math.Abs(account.QuotaPercentRemaining-tt.expectedPercent) > 1e-9 {
 				t.Errorf("额度 = %v, 期望 %v", account.QuotaPercentRemaining, tt.expectedPercent)
-			}
-
-			// 验证不低于 0
-			if account.QuotaPercentRemaining < 0 {
-				t.Errorf("额度不应低于 0, got %v", account.QuotaPercentRemaining)
 			}
 		})
 	}

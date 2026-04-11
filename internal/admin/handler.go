@@ -1784,15 +1784,25 @@ func (h *Handler) handleListCopilotModels(w http.ResponseWriter, r *http.Request
 				if acct.Status != nosql.AccountStatusActive || acct.OAuthToken == "" {
 					continue
 				}
-				// 获取 copilot access token
+				// 获取 copilot access token（也会刷新并保存 APIBaseURL）
 				token, err := h.copilotService.GetToken(r.Context(), acct.ID)
 				if err != nil {
 					continue
 				}
-				models, err := copilot.FetchModelsFromAPI(r.Context(), nil, token, "")
+				// 重新读取账户以获取更新后的 APIBaseURL
+				refreshedAcct, err := h.copilotAcctStore.Get(acct.ID)
+				if err != nil {
+					refreshedAcct = &acct
+				}
+				// 动态构造 models URL
+				modelsURL := copilot.CopilotModelsURL // 默认 individual
+				if refreshedAcct.APIBaseURL != "" {
+					modelsURL = strings.TrimRight(refreshedAcct.APIBaseURL, "/") + "/models"
+				}
+				models, err := copilot.FetchModelsFromAPI(r.Context(), nil, token, modelsURL)
 				if err != nil {
 					h.logger.Warn("从 Copilot API 获取模型列表失败，降级为本地列表",
-						"account_id", acct.ID, "error", err)
+						"account_id", acct.ID, "models_url", modelsURL, "error", err)
 					continue
 				}
 				writeJSON(w, http.StatusOK, map[string]any{

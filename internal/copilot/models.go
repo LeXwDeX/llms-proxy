@@ -22,6 +22,7 @@ const ModelPrefix = "copilot_"
 
 // ModelMultipliers 定义所有已知模型的 premium request 乘数。
 // key 为小写模型名。
+// 数据来源：https://docs.github.com/en/copilot/managing-copilot/monitoring-usage-and-entitlements/about-premium-requests
 var ModelMultipliers = map[string]float64{
 	// 免费模型（乘数 0）
 	"gpt-4.1":     0,
@@ -36,14 +37,16 @@ var ModelMultipliers = map[string]float64{
 	"gpt-5.4-mini":     0.33,
 
 	// 标准模型（乘数 1）
-	"claude-sonnet-4":   1,
-	"claude-sonnet-4.5": 1,
-	"claude-sonnet-4.6": 1,
-	"gemini-2.5-pro":    1,
-	"gemini-3.1-pro":    1,
-	"gpt-5.1":           1,
-	"gpt-5.2":           1,
-	"gpt-5.4":           1,
+	"claude-sonnet-4":        1,
+	"claude-sonnet-4.5":      1,
+	"claude-sonnet-4.6":      1,
+	"gemini-2.5-pro":         1,
+	"gemini-3.1-pro":         1,
+	"gemini-3.1-pro-preview": 1,
+	"gpt-5.1":                1,
+	"gpt-5.2":                1,
+	"gpt-5.3-codex":          1,
+	"gpt-5.4":                1,
 
 	// 高消耗模型（乘数 >1）
 	"claude-opus-4.5": 3,
@@ -119,23 +122,40 @@ func IsFreeModel(model string) bool {
 }
 
 // copilotModelsAPIResponse 表示 Copilot models API 的响应结构。
+// Individual 返回 { "models": [...] }
+// Business 返回 { "data": [...], "object": "list" }
 type copilotModelsAPIResponse struct {
 	Models []copilotModelEntry `json:"models"`
+	Data   []copilotModelEntry `json:"data"`
+	Object string              `json:"object"`
 }
 
 type copilotModelEntry struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Version string `json:"version"`
-	// 额外信息（如果有的话）
+	Vendor  string `json:"vendor"`
+	Preview bool   `json:"preview"`
+
+	// model_picker_enabled 标记用户是否可以选择该模型
+	ModelPickerEnabled  bool   `json:"model_picker_enabled"`
+	ModelPickerCategory string `json:"model_picker_category"` // versatile, powerful
+
 	Capabilities struct {
-		Type string `json:"type"`
+		Type string `json:"type"` // chat, embeddings
 	} `json:"capabilities"`
+
+	SupportedEndpoints []string `json:"supported_endpoints"`
+
+	Policy *struct {
+		State string `json:"state"` // enabled, disabled
+	} `json:"policy,omitempty"`
 }
 
 // FetchModelsFromAPI 从 Copilot API 获取当前账户实际可用的模型列表。
 // 需要一个有效的 Copilot access token（非 OAuth token）。
-// 返回与本地乘数表合并后的 ModelInfo 列表——只包含 API 返回的模型。
+// 自动适配 Individual（models 数组）和 Business（data 数组）响应格式。
+// 只返回 model_picker_enabled=true、capabilities.type="chat" 的模型。
 func FetchModelsFromAPI(ctx context.Context, httpClient *http.Client, copilotToken string, modelsURL string) ([]ModelInfo, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -168,22 +188,37 @@ func FetchModelsFromAPI(ctx context.Context, httpClient *http.Client, copilotTok
 		return nil, fmt.Errorf("models 请求失败: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
-	// 尝试两种格式：{ "models": [...] } 或直接 [...]
+	// 尝试结构化解析（支持 models / data / 直接数组三种格式）
 	var entries []copilotModelEntry
 
 	var apiResp copilotModelsAPIResponse
-	if err := json.Unmarshal(body, &apiResp); err == nil && len(apiResp.Models) > 0 {
-		entries = apiResp.Models
-	} else {
-		// 可能直接是数组
-		if err2 := json.Unmarshal(body, &entries); err2 != nil {
-			return nil, fmt.Errorf("解析 models 响应: %w (原始: %w)", err2, err)
+	if err := json.Unmarshal(body, &apiResp); err == nil {
+		if len(apiResp.Data) > 0 {
+			entries = apiResp.Data // Business 格式
+		} else if len(apiResp.Models) > 0 {
+			entries = apiResp.Models // Individual 格式
 		}
 	}
 
-	// 用 API 返回的模型列表与本地乘数表合并
+	// 兜底：可能直接是数组
+	if len(entries) == 0 {
+		if err2 := json.Unmarshal(body, &entries); err2 != nil {
+			return nil, fmt.Errorf("解析 models 响应: %w", err2)
+		}
+	}
+
+	// 过滤：只保留 model_picker_enabled=true 且 capabilities.type="chat" 的模型
 	var models []ModelInfo
 	for _, entry := range entries {
+		// 跳过非 picker 模型
+		if !entry.ModelPickerEnabled {
+			continue
+		}
+		// 跳过非 chat 类型（如 embeddings）
+		if entry.Capabilities.Type != "" && entry.Capabilities.Type != "chat" {
+			continue
+		}
+
 		name := entry.ID
 		if name == "" {
 			name = entry.Name

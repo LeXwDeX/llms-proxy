@@ -89,8 +89,11 @@ func (s *Service) handleCopilotRequest(
 		forwardBody = replaceModelInBody(body, upstreamModel)
 	}
 
-	// 6. 构建上游请求
-	upstreamURL := copilot.CopilotChatURL
+	// 6. 构建上游请求（使用账户动态 API 端点）
+	upstreamURL := copilot.CopilotChatURL // 默认 individual
+	if account.APIBaseURL != "" {
+		upstreamURL = strings.TrimRight(account.APIBaseURL, "/") + "/chat/completions"
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 	defer cancel()
 

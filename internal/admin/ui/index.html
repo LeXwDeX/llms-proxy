@@ -2371,11 +2371,14 @@
 
       function quotaBar(remainPct) {
         var remaining = Number(remainPct || 0);
-        var used = Math.max(0, 100 - remaining);
-        var color = used < 50 ? "#22c55e" : used < 80 ? "#f59e0b" : "#ef4444";
+        var used = 100 - remaining; // 可超过 100（如 632.2%）
+        var displayUsed = Math.max(0, used);
+        var barWidth = Math.min(displayUsed, 100); // 进度条最大 100%
+        var color = displayUsed < 50 ? "#22c55e" : displayUsed < 80 ? "#f59e0b" : "#ef4444";
+        var label = displayUsed >= 100 ? displayUsed.toFixed(0) + "%" : displayUsed.toFixed(1) + "%";
         return "<div class='quota-bar-wrap'>"
-          + "<div class='quota-bar'><div class='quota-bar-inner' style='width:" + used.toFixed(1) + "%;background:" + color + ";'></div></div>"
-          + "<span class='quota-pct'>" + used.toFixed(1) + "%</span>"
+          + "<div class='quota-bar'><div class='quota-bar-inner' style='width:" + barWidth.toFixed(1) + "%;background:" + color + ";'></div></div>"
+          + "<span class='quota-pct'>" + label + "</span>"
           + "</div>";
       }
 

@@ -31,9 +31,11 @@ const (
 
 // QuotaInfo 表示从 GitHub API 获取的额度信息
 type QuotaInfo struct {
-	PercentRemaining float64 `json:"percent_remaining"` // 0-100
-	ResetAt          string  `json:"reset_at"`          // RFC3339
+	PercentRemaining float64 `json:"percent_remaining"` // 可为负数（超额使用）
+	ResetAt          string  `json:"reset_at"`          // RFC3339 或 YYYY-MM-DD
 	CopilotPlan      string  `json:"copilot_plan"`
+	Unlimited        bool    `json:"unlimited"`   // business 的 chat/completions 为 true
+	Entitlement      int     `json:"entitlement"` // 月度总额度（premium requests）
 }
 
 // QuotaManager 管理 Copilot 账户额度
@@ -66,13 +68,77 @@ func NewQuotaManager(httpClient *http.Client, quotaURL string, logger *slog.Logg
 }
 
 // gitHubCopilotUserResponse 表示 GitHub Copilot user API 的响应结构。
+// API 同时返回驼峰和蛇形字段名，此处两种都标注以保证兼容。
 type gitHubCopilotUserResponse struct {
-	CopilotPlan    string `json:"copilotPlan"`
-	QuotaSnapshots struct {
-		PremiumInteractions struct {
-			PercentRemaining float64 `json:"percentRemaining"`
-		} `json:"premiumInteractions"`
-	} `json:"quotaSnapshots"`
+	// copilot_plan / copilotPlan
+	CopilotPlan string `json:"copilot_plan"`
+
+	// quota_reset_date_utc（RFC3339）
+	QuotaResetDateUTC string `json:"quota_reset_date_utc"`
+	// quota_reset_date（YYYY-MM-DD）
+	QuotaResetDate string `json:"quota_reset_date"`
+
+	// 新版 snake_case 格式（实际 API 使用）
+	QuotaSnapshots *quotaSnapshotsSnake `json:"quota_snapshots,omitempty"`
+
+	// 旧版 camelCase 格式（兼容）
+	QuotaSnapshotsCamel *quotaSnapshotsCamel `json:"quotaSnapshots,omitempty"`
+}
+
+// snake_case 格式的快照
+type quotaSnapshotsSnake struct {
+	PremiumInteractions *quotaEntrySnake `json:"premium_interactions,omitempty"`
+	Chat                *quotaEntrySnake `json:"chat,omitempty"`
+}
+
+type quotaEntrySnake struct {
+	PercentRemaining float64 `json:"percent_remaining"`
+	QuotaRemaining   float64 `json:"quota_remaining"`
+	Unlimited        bool    `json:"unlimited"`
+	Entitlement      int     `json:"entitlement"`
+	Remaining        int     `json:"remaining"`
+	OverageCount     int     `json:"overage_count"`
+	OveragePermitted bool    `json:"overage_permitted"`
+}
+
+// camelCase 格式的快照（向后兼容）
+type quotaSnapshotsCamel struct {
+	PremiumInteractions *quotaEntryCamel `json:"premiumInteractions,omitempty"`
+}
+
+type quotaEntryCamel struct {
+	PercentRemaining float64 `json:"percentRemaining"`
+}
+
+// extractQuotaInfo 从 API 响应中提取额度信息，自动处理新旧格式。
+func (r *gitHubCopilotUserResponse) extractQuotaInfo() *QuotaInfo {
+	info := &QuotaInfo{
+		CopilotPlan: r.CopilotPlan,
+	}
+
+	// 优先使用 quota_reset_date_utc（精确到时间），其次 quota_reset_date
+	if r.QuotaResetDateUTC != "" {
+		info.ResetAt = r.QuotaResetDateUTC
+	} else if r.QuotaResetDate != "" {
+		info.ResetAt = r.QuotaResetDate
+	}
+
+	// 优先使用新版 snake_case 格式
+	if r.QuotaSnapshots != nil && r.QuotaSnapshots.PremiumInteractions != nil {
+		pi := r.QuotaSnapshots.PremiumInteractions
+		info.PercentRemaining = pi.PercentRemaining
+		info.Unlimited = pi.Unlimited
+		info.Entitlement = pi.Entitlement
+		return info
+	}
+
+	// 兜底：旧版 camelCase 格式
+	if r.QuotaSnapshotsCamel != nil && r.QuotaSnapshotsCamel.PremiumInteractions != nil {
+		info.PercentRemaining = r.QuotaSnapshotsCamel.PremiumInteractions.PercentRemaining
+		return info
+	}
+
+	return info
 }
 
 // SyncQuotaFromGitHub 从 GitHub API 同步单个账户的额度。
@@ -113,16 +179,13 @@ func (m *QuotaManager) SyncQuotaFromGitHub(ctx context.Context, oauthToken strin
 		return nil, fmt.Errorf("解析额度查询响应: %w", err)
 	}
 
-	return &QuotaInfo{
-		PercentRemaining: result.QuotaSnapshots.PremiumInteractions.PercentRemaining,
-		CopilotPlan:      result.CopilotPlan,
-	}, nil
+	return result.extractQuotaInfo(), nil
 }
 
 // DeductQuota 根据模型乘数扣减账户额度（本地计算）。
 // 扣减量 = (multiplier / DefaultMonthlyPremiumRequests) * 100（百分比）
 // 如果模型免费（乘数=0），不扣减。
-// 扣减后 percentRemaining < 0 则设为 0。
+// 允许 percentRemaining 为负数以反映超额使用。
 func DeductQuota(account *nosql.CopilotAccount, model string) {
 	multiplier := GetMultiplier(model)
 	if multiplier == 0 {
@@ -131,9 +194,6 @@ func DeductQuota(account *nosql.CopilotAccount, model string) {
 
 	deduction := (multiplier / DefaultMonthlyPremiumRequests) * 100
 	account.QuotaPercentRemaining -= deduction
-	if account.QuotaPercentRemaining < 0 {
-		account.QuotaPercentRemaining = 0
-	}
 }
 
 // IsQuotaExhausted 检查账户额度是否耗尽。

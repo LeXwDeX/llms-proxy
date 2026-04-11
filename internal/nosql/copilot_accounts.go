@@ -33,6 +33,7 @@ type CopilotAccount struct {
 	OAuthToken            string `json:"oauth_token"`              // gho_* 持久化 token
 	CopilotToken          string `json:"copilot_token"`            // 短期 copilot access token
 	CopilotTokenExpiresAt int64  `json:"copilot_token_expires_at"` // unix timestamp
+	APIBaseURL            string `json:"api_base_url,omitempty"`   // 动态 API 端点（business/individual）
 
 	// Device Flow 临时字段（仅 pending_auth 状态有值）
 	DeviceCode          string `json:"device_code,omitempty"`

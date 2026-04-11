@@ -138,6 +138,7 @@ func (s *CopilotService) CompleteAuth(ctx context.Context, accountID string) err
 	account.GitHubUsername = username
 	account.CopilotToken = tokenResp.Token
 	account.CopilotTokenExpiresAt = tokenResp.ExpiresAt
+	account.APIBaseURL = tokenResp.APIBaseURL()
 
 	// 清除 Device Flow 临时字段
 	account.DeviceCode = ""

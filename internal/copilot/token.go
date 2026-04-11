@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,8 +15,45 @@ import (
 
 // CopilotTokenResponse 表示 Copilot token 请求的响应。
 type CopilotTokenResponse struct {
-	Token     string `json:"token"`
-	ExpiresAt int64  `json:"expires_at"`
+	Token      string            `json:"token"`
+	ExpiresAt  int64             `json:"expires_at"`
+	Endpoints  *CopilotEndpoints `json:"endpoints,omitempty"` // 动态 API 端点
+	SKU        string            `json:"sku,omitempty"`       // 如 copilot_for_business_seat_quota
+	Individual bool              `json:"individual"`          // true = 个人版, false = 企业版
+}
+
+// CopilotEndpoints 表示 Copilot token 响应中的端点列表。
+type CopilotEndpoints struct {
+	API           string `json:"api"`
+	Proxy         string `json:"proxy"`
+	OriginTracker string `json:"origin-tracker"`
+	Telemetry     string `json:"telemetry"`
+}
+
+// ChatCompletionsURL 返回 chat/completions 的完整 URL。
+// Business: https://api.business.githubcopilot.com/chat/completions
+// Individual: https://api.individual.githubcopilot.com/chat/completions
+func (r *CopilotTokenResponse) ChatCompletionsURL() string {
+	if r.Endpoints != nil && r.Endpoints.API != "" {
+		return strings.TrimRight(r.Endpoints.API, "/") + "/chat/completions"
+	}
+	return CopilotChatURL
+}
+
+// ModelsURL 返回 models 列表的完整 URL。
+func (r *CopilotTokenResponse) ModelsURL() string {
+	if r.Endpoints != nil && r.Endpoints.API != "" {
+		return strings.TrimRight(r.Endpoints.API, "/") + "/models"
+	}
+	return CopilotModelsURL
+}
+
+// APIBaseURL 返回 API base URL（不带尾部斜杠）。
+func (r *CopilotTokenResponse) APIBaseURL() string {
+	if r.Endpoints != nil && r.Endpoints.API != "" {
+		return strings.TrimRight(r.Endpoints.API, "/")
+	}
+	return "https://api.individual.githubcopilot.com"
 }
 
 // TokenManager 管理 Copilot access token 的获取和刷新。
@@ -128,9 +166,10 @@ func (m *TokenManager) EnsureValidToken(ctx context.Context, account *nosql.Copi
 		return "", fmt.Errorf("刷新 copilot token: %w", err)
 	}
 
-	// 写回 store
+	// 写回 store（包含 API base URL）
 	refreshed.CopilotToken = tokenResp.Token
 	refreshed.CopilotTokenExpiresAt = tokenResp.ExpiresAt
+	refreshed.APIBaseURL = tokenResp.APIBaseURL()
 	if err := store.Update(refreshed.ID, *refreshed); err != nil {
 		return "", fmt.Errorf("更新账户 copilot token: %w", err)
 	}
@@ -138,6 +177,7 @@ func (m *TokenManager) EnsureValidToken(ctx context.Context, account *nosql.Copi
 	// 更新调用者的账户引用
 	account.CopilotToken = tokenResp.Token
 	account.CopilotTokenExpiresAt = tokenResp.ExpiresAt
+	account.APIBaseURL = tokenResp.APIBaseURL()
 
 	return tokenResp.Token, nil
 }
