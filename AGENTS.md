@@ -207,8 +207,36 @@ docker load -i llms-proxy-latest.tar   # 应输出：Loaded image: llms-proxy:la
 ```
 
 ### 导入到 QNAP
-- **Container Station UI**：镜像 → 导入 → 选择 `llms-proxy-latest.tar`
-- **SSH 命令行**：`docker load -i /share/Download/llms-proxy-latest.tar`
+
+> ⚠️ **重要：必须用 SSH `docker load`，禁止用 Container Station UI 导入**
+>
+> Container Station 3 UI 导入存在已知缺陷：即使 tar 文件内 `manifest.json` 的 `RepoTags`
+> 和 `repositories` 均格式正确、无多余前缀，UI 导入后镜像名和版本仍会显示 `<none>:<none>`。
+> 本地 `docker load` 验证通过（`Loaded image: llms-proxy:latest`）不代表 QNAP UI 导入正常。
+> **唯一可靠方法是通过 SSH 用 `docker load` 命令导入。**
+>
+> ✅ **已验证（2026-04-12）**：按上述完整流程（buildx → skopeo → 前缀修复 → SSH docker load）
+> 导入 QNAP 后，镜像名和版本号显示正常（`llms-proxy:latest`），方案可复用。
+
+**正确导入步骤：**
+
+```bash
+# 1. 把 tar 文件传到 QNAP（从开发机执行，替换实际路径）
+scp llms-proxy-latest.tar admin@<QNAP-IP>:/share/homes/admin/
+
+# 2. SSH 登录 QNAP
+ssh admin@<QNAP-IP>
+
+# 3. 在 QNAP 上执行 docker load（需要切换到 root 或有 docker 权限的用户）
+docker load -i /share/homes/admin/llms-proxy-latest.tar
+# 应输出：Loaded image: llms-proxy:latest
+
+# 4. 验证
+docker images | grep llms-proxy
+
+# 5. 删除临时 tar 文件
+rm /share/homes/admin/llms-proxy-latest.tar
+```
 
 ### QNAP compose 挂载要求
 容器使用 bbolt 数据库（`/var/lib/llms-proxy`），**三个目录必须全部挂载**，缺任何一个都会导致启动失败：
@@ -227,8 +255,9 @@ mkdir -p /path/to/config /path/to/data /path/to/logs
 
 ### 注意事项
 - 导出文件使用 `.tar`（不压缩），不要用 `.tar.gz`；
-- `docker save` 直接导出在此环境下输出 OCI 格式，**不可直接用于 QNAP 导入**；
+- `docker save` 直接导出在此环境下输出 OCI 格式（含 `oci-layout`+`blobs/sha256/` 路径），**不可直接用于 QNAP 导入**；
 - skopeo 输出的 `repositories`/`manifest.json` 含 `docker.io/library/` 前缀，**必须执行步骤 4 修复**，否则 QNAP 导入后镜像名和版本均显示 `<none>`；
+- 即使步骤 4 修复后 tar 文件格式已完全正确（本机 `docker load` 验证通过），**Container Station 3 UI 导入仍会丢失 tag**，必须用 SSH `docker load`；
 - 容器用户 `llmsproxy` 固定为 uid=1000/gid=1000，QNAP 宿主机挂载目录的属主须为同一用户（即登录 QNAP 的当前用户，通常 uid=1000）；
 - ARM 架构的 QNAP 需修改 Dockerfile 第 27 行 `GOARCH=amd64` → `GOARCH=arm64`，并在 `docker buildx build` 加 `--platform linux/arm64`。
 
