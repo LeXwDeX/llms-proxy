@@ -62,3 +62,7 @@ WINDSURF.md
 
 # One-time migration scripts (not part of the project)
 migrate-to-bbolt.sh
+
+# AI
+graphify-out/
+.graphify_*
