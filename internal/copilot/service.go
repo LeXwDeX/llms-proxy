@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/ycgame/llms-proxy/internal/nosql"
@@ -20,6 +22,11 @@ type CopilotService struct {
 	tokenManager *TokenManager
 	httpClient   *http.Client
 	logger       *slog.Logger
+
+	// 模型元数据内存缓存
+	modelCache   []CopilotModelDetail
+	modelCacheMu sync.RWMutex
+	modelCacheAt time.Time
 }
 
 // NewCopilotService 创建服务。
@@ -246,4 +253,87 @@ func (s *CopilotService) fetchGitHubUsername(ctx context.Context, oauthToken str
 	}
 
 	return result.Login, nil
+}
+
+// modelCacheTTL 模型缓存有效期。
+const modelCacheTTL = 10 * time.Minute
+
+// GetCachedModels 返回缓存的完整模型元数据。
+// 如果缓存不超过 10 分钟则直接返回，否则自动刷新。
+func (s *CopilotService) GetCachedModels(ctx context.Context) ([]CopilotModelDetail, error) {
+	s.modelCacheMu.RLock()
+	if len(s.modelCache) > 0 && time.Since(s.modelCacheAt) < modelCacheTTL {
+		cached := make([]CopilotModelDetail, len(s.modelCache))
+		copy(cached, s.modelCache)
+		s.modelCacheMu.RUnlock()
+		return cached, nil
+	}
+	s.modelCacheMu.RUnlock()
+
+	return s.refreshModelCacheInternal(ctx)
+}
+
+// RefreshModelCache 强制刷新模型缓存。
+func (s *CopilotService) RefreshModelCache(ctx context.Context) error {
+	_, err := s.refreshModelCacheInternal(ctx)
+	return err
+}
+
+// refreshModelCacheInternal 使用第一个可用账户的 token 刷新模型缓存。
+func (s *CopilotService) refreshModelCacheInternal(ctx context.Context) ([]CopilotModelDetail, error) {
+	accounts, err := s.accountStore.List()
+	if err != nil {
+		return nil, fmt.Errorf("列出账户: %w", err)
+	}
+
+	for _, acct := range accounts {
+		if (acct.Status != nosql.AccountStatusActive && acct.Status != nosql.AccountStatusQuotaExceeded) || acct.OAuthToken == "" {
+			continue
+		}
+
+		token, err := s.tokenManager.EnsureValidToken(ctx, &acct, s.accountStore)
+		if err != nil {
+			s.logger.Warn("刷新模型缓存：获取 token 失败，尝试下一个账户",
+				"account_id", acct.ID, "error", err)
+			continue
+		}
+
+		// 重新读取以获取更新后的 APIBaseURL
+		refreshed, err := s.accountStore.Get(acct.ID)
+		if err != nil {
+			refreshed = &acct
+		}
+
+		modelsURL := CopilotModelsURL
+		if refreshed.APIBaseURL != "" {
+			modelsURL = strings.TrimRight(refreshed.APIBaseURL, "/") + "/models"
+		}
+
+		details, err := FetchModelDetails(ctx, s.httpClient, token, modelsURL)
+		if err != nil {
+			s.logger.Warn("刷新模型缓存：获取模型列表失败，尝试下一个账户",
+				"account_id", acct.ID, "models_url", modelsURL, "error", err)
+			continue
+		}
+
+		s.modelCacheMu.Lock()
+		s.modelCache = details
+		s.modelCacheAt = time.Now()
+		s.modelCacheMu.Unlock()
+
+		s.logger.Info("模型缓存已刷新", "count", len(details))
+		return details, nil
+	}
+
+	// 所有账户都失败了，尝试返回旧缓存
+	s.modelCacheMu.RLock()
+	defer s.modelCacheMu.RUnlock()
+	if len(s.modelCache) > 0 {
+		s.logger.Warn("所有账户刷新失败，返回过期缓存", "cache_age", time.Since(s.modelCacheAt))
+		cached := make([]CopilotModelDetail, len(s.modelCache))
+		copy(cached, s.modelCache)
+		return cached, nil
+	}
+
+	return nil, fmt.Errorf("无可用账户刷新模型缓存")
 }

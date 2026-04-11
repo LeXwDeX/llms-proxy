@@ -1809,46 +1809,18 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleListCopilotModels(w http.ResponseWriter, r *http.Request) {
-	// 尝试从 Copilot API 动态获取可用模型（需要至少一个有 token 的账户）
-	if h.copilotService != nil && h.copilotAcctStore != nil {
-		accounts, err := h.copilotAcctStore.List()
+	// 尝试通过缓存获取完整模型元数据
+	if h.copilotService != nil {
+		models, err := h.copilotService.GetCachedModels(r.Context())
 		if err == nil {
-			for _, acct := range accounts {
-				// 允许 active 和 quota_exceeded 状态（额度耗尽仍可查询模型列表）
-				if (acct.Status != nosql.AccountStatusActive && acct.Status != nosql.AccountStatusQuotaExceeded) || acct.OAuthToken == "" {
-					continue
-				}
-				// 获取 copilot access token（也会刷新并保存 APIBaseURL）
-				token, err := h.copilotService.GetToken(r.Context(), acct.ID)
-				if err != nil {
-					h.logger.Warn("获取 Copilot token 失败，跳过该账户",
-						"account_id", acct.ID, "status", acct.Status, "error", err)
-					continue
-				}
-				// 重新读取账户以获取更新后的 APIBaseURL
-				refreshedAcct, err := h.copilotAcctStore.Get(acct.ID)
-				if err != nil {
-					refreshedAcct = &acct
-				}
-				// 动态构造 models URL
-				modelsURL := copilot.CopilotModelsURL // 默认 individual
-				if refreshedAcct.APIBaseURL != "" {
-					modelsURL = strings.TrimRight(refreshedAcct.APIBaseURL, "/") + "/models"
-				}
-				models, err := copilot.FetchModelsFromAPI(r.Context(), nil, token, modelsURL)
-				if err != nil {
-					h.logger.Warn("从 Copilot API 获取模型列表失败，降级为本地列表",
-						"account_id", acct.ID, "models_url", modelsURL, "error", err)
-					continue
-				}
-				writeJSON(w, http.StatusOK, map[string]any{
-					"models": models,
-					"count":  len(models),
-					"source": "copilot_api",
-				})
-				return
-			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"models": models,
+				"count":  len(models),
+				"source": "copilot_api",
+			})
+			return
 		}
+		h.logger.Warn("从缓存获取 Copilot 模型失败，降级为本地列表", "error", err)
 	}
 
 	// 降级：返回本地硬编码乘数表
@@ -1886,7 +1858,7 @@ func (h *Handler) handleListCopilotPoolModels(w http.ResponseWriter, r *http.Req
 	type acctModels struct {
 		AccountID string
 		Username  string
-		Models    []copilot.ModelInfo
+		Models    []copilot.CopilotModelDetail
 	}
 	var perAccount []acctModels
 
@@ -1913,7 +1885,7 @@ func (h *Handler) handleListCopilotPoolModels(w http.ResponseWriter, r *http.Req
 			modelsURL = strings.TrimRight(refreshed.APIBaseURL, "/") + "/models"
 		}
 
-		models, err := copilot.FetchModelsFromAPI(r.Context(), nil, token, modelsURL)
+		models, err := copilot.FetchModelDetails(r.Context(), nil, token, modelsURL)
 		if err != nil {
 			h.logger.Warn("获取账户模型列表失败，跳过",
 				"pool", poolName, "account_id", acct.ID, "models_url", modelsURL, "error", err)
@@ -1930,7 +1902,7 @@ func (h *Handler) handleListCopilotPoolModels(w http.ResponseWriter, r *http.Req
 	if len(perAccount) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"pool":          poolName,
-			"models":        []copilot.ModelInfo{},
+			"models":        []copilot.CopilotModelDetail{},
 			"count":         0,
 			"account_count": 0,
 			"source":        "no_available_accounts",
@@ -1939,25 +1911,25 @@ func (h *Handler) handleListCopilotPoolModels(w http.ResponseWriter, r *http.Req
 	}
 
 	// 计算交集：以第一个账户的模型为基准，保留所有账户都有的模型
-	intersection := make(map[string]copilot.ModelInfo)
+	intersection := make(map[string]copilot.CopilotModelDetail)
 	for _, m := range perAccount[0].Models {
-		intersection[m.Name] = m
+		intersection[m.ID] = m
 	}
 
 	for i := 1; i < len(perAccount); i++ {
 		otherSet := make(map[string]bool)
 		for _, m := range perAccount[i].Models {
-			otherSet[m.Name] = true
+			otherSet[m.ID] = true
 		}
-		for name := range intersection {
-			if !otherSet[name] {
-				delete(intersection, name)
+		for id := range intersection {
+			if !otherSet[id] {
+				delete(intersection, id)
 			}
 		}
 	}
 
 	// 转为有序切片
-	var result []copilot.ModelInfo
+	var result []copilot.CopilotModelDetail
 	for _, m := range intersection {
 		result = append(result, m)
 	}
@@ -1967,7 +1939,7 @@ func (h *Handler) handleListCopilotPoolModels(w http.ResponseWriter, r *http.Req
 		for j := i + 1; j < len(result); j++ {
 			ci := categoryOrder[result[i].Category]
 			cj := categoryOrder[result[j].Category]
-			if ci > cj || (ci == cj && result[i].Name > result[j].Name) {
+			if ci > cj || (ci == cj && result[i].ID > result[j].ID) {
 				result[i], result[j] = result[j], result[i]
 			}
 		}

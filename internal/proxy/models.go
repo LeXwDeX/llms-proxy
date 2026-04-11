@@ -2,6 +2,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/copilot"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 )
 
@@ -57,7 +59,7 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 		targetFilter = map[string]struct{}{requestedLower: {}}
 	}
 
-	items := s.buildLocalDeployments(targetFilter)
+	items := s.buildLocalDeployments(r.Context(), targetFilter)
 	resp := map[string]any{
 		"object": "list",
 		"data":   items,
@@ -93,7 +95,7 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 	return true
 }
 
-func (s *Service) buildLocalDeployments(targetFilter map[string]struct{}) []map[string]any {
+func (s *Service) buildLocalDeployments(ctx context.Context, targetFilter map[string]struct{}) []map[string]any {
 	seen := make(map[string]struct{})
 	result := make([]map[string]any, 0)
 	snapshot := s.targetSnapshot()
@@ -129,6 +131,48 @@ func (s *Service) buildLocalDeployments(targetFilter map[string]struct{}) []map[
 			})
 		}
 	}
+
+	// 注入 Copilot 模型
+	if s.copilotService != nil {
+		copilotModels, err := s.copilotService.GetCachedModels(ctx)
+		if err != nil {
+			s.logger.Debug("获取 Copilot 模型缓存失败，跳过注入", "error", err)
+		} else {
+			for _, cm := range copilotModels {
+				modelID := copilot.ModelPrefix + cm.ID
+				key := strings.ToLower(modelID)
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+
+				item := map[string]any{
+					"id":       modelID,
+					"object":   "model",
+					"created":  time.Now().Unix(),
+					"owned_by": "copilot:" + strings.ToLower(cm.Vendor),
+					// 扩展字段
+					"context_length":      cm.MaxContextWindowTokens,
+					"max_output_tokens":   cm.MaxOutputTokens,
+					"supported_endpoints": cm.SupportedEndpoints,
+					"vendor":              cm.Vendor,
+					"preview":             cm.Preview,
+					"multiplier":          cm.Multiplier,
+				}
+				if cm.Supports != nil {
+					item["capabilities"] = map[string]any{
+						"vision":             cm.Supports.Vision,
+						"tool_calls":         cm.Supports.ToolCalls,
+						"streaming":          cm.Supports.Streaming,
+						"reasoning_effort":   cm.Supports.ReasoningEffort,
+						"structured_outputs": cm.Supports.StructuredOutputs,
+					}
+				}
+				result = append(result, item)
+			}
+		}
+	}
+
 	// deterministic order
 	sort.Slice(result, func(i, j int) bool {
 		return strings.ToLower(result[i]["id"].(string)) < strings.ToLower(result[j]["id"].(string))
