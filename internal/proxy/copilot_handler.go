@@ -89,10 +89,21 @@ func (s *Service) handleCopilotRequest(
 		forwardBody = replaceModelInBody(body, upstreamModel)
 	}
 
-	// 6. 构建上游请求（使用账户动态 API 端点）
-	upstreamURL := copilot.CopilotChatURL // 默认 individual
+	// 6. 构建上游请求（使用账户动态 API 端点 + 客户端原始路径）
+	// 上游路径跟随客户端请求路径，不强制改写为 /chat/completions，
+	// 使得 /responses、/embeddings 等路径可以直接透传给 Copilot 上游。
+	baseURL := copilot.CopilotIndividualBase
 	if account.APIBaseURL != "" {
-		upstreamURL = strings.TrimRight(account.APIBaseURL, "/") + "/chat/completions"
+		baseURL = strings.TrimRight(account.APIBaseURL, "/")
+	}
+	// 提取客户端请求的路径部分（去掉 query string，保留 path）
+	requestPath := r.URL.Path
+	if requestPath == "" {
+		requestPath = "/chat/completions"
+	}
+	upstreamURL := baseURL + requestPath
+	if r.URL.RawQuery != "" {
+		upstreamURL += "?" + r.URL.RawQuery
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 	defer cancel()

@@ -14,12 +14,13 @@ const (
 	GitHubScope    = "read:user"
 
 	// API 端点
-	GitHubDeviceCodeURL  = "https://github.com/login/device/code"
-	GitHubAccessTokenURL = "https://github.com/login/oauth/access_token"
-	CopilotTokenURL      = "https://api.github.com/copilot_internal/v2/token"
-	CopilotChatURL       = "https://api.individual.githubcopilot.com/chat/completions"
-	CopilotModelsURL     = "https://api.individual.githubcopilot.com/models"
-	GitHubCopilotUserURL = "https://api.github.com/copilot_internal/user"
+	GitHubDeviceCodeURL   = "https://github.com/login/device/code"
+	GitHubAccessTokenURL  = "https://github.com/login/oauth/access_token"
+	CopilotTokenURL       = "https://api.github.com/copilot_internal/v2/token"
+	CopilotIndividualBase = "https://api.individual.githubcopilot.com"
+	CopilotChatURL        = CopilotIndividualBase + "/chat/completions"
+	CopilotModelsURL      = CopilotIndividualBase + "/models"
+	GitHubCopilotUserURL  = "https://api.github.com/copilot_internal/user"
 )
 
 // ApplyEditorHeaders 向请求添加编辑器模拟 headers。
