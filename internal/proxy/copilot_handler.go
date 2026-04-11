@@ -203,9 +203,12 @@ func (s *Service) findPoolByClient(clientName string) (*nosql.CopilotPool, error
 	return nil, fmt.Errorf("未找到 client %q 绑定的 copilot pool", clientName)
 }
 
-// selectCopilotAccount 按 SortOrder 顺序选择第一个可用的 Copilot 账户。
-// 逻辑：按 SortOrder 升序遍历，找到第一个 active 且有额度的账户。
-// 免费模型不消耗额度，即使额度耗尽也可以使用。
+// selectCopilotAccount 按 SortOrder 顺序选择最佳可用 Copilot 账户。
+// 选号策略（按优先级）：
+//  1. active 且有额度的账户（最优）
+//  2. 已开启「允许超额」的 active 或 quota_exceeded 账户（Copilot Business 超额仍可用）
+//
+// 免费模型不消耗额度，任何 active/quota_exceeded 账户均可。
 func (s *Service) selectCopilotAccount(poolName, model string) (*nosql.CopilotAccount, error) {
 	accounts, err := s.copilotAcctStore.ListByPool(poolName)
 	if err != nil {
@@ -219,24 +222,34 @@ func (s *Service) selectCopilotAccount(poolName, model string) (*nosql.CopilotAc
 	isFree := copilot.IsFreeModel(model)
 
 	// accounts 已按 SortOrder 升序排列（ListByPool 保证）
-	for i := range accounts {
-		a := &accounts[i]
-
-		// 如果是免费模型，任何 active/quota_exceeded 账户都可以
-		if isFree {
+	// 免费模型：直接返回第一个可用账户
+	if isFree {
+		for i := range accounts {
+			a := &accounts[i]
 			if a.Status == nosql.AccountStatusActive || a.Status == nosql.AccountStatusQuotaExceeded {
 				return a, nil
 			}
-			continue
 		}
+		return nil, fmt.Errorf("pool %q 内无可用账户", poolName)
+	}
 
-		// 付费模型：必须 active 且有额度
+	// 付费模型：两轮扫描
+	// 第一轮：优先选 active 且有额度
+	for i := range accounts {
+		a := &accounts[i]
 		if a.Status == nosql.AccountStatusActive && !copilot.IsQuotaExhausted(a) {
 			return a, nil
 		}
 	}
+	// 第二轮：选已开启「允许超额」的 active 或 quota_exceeded 账户
+	for i := range accounts {
+		a := &accounts[i]
+		if a.AllowOverage && (a.Status == nosql.AccountStatusActive || a.Status == nosql.AccountStatusQuotaExceeded) {
+			return a, nil
+		}
+	}
 
-	return nil, fmt.Errorf("pool %q 内无可用账户（所有账户额度已耗尽或状态异常）", poolName)
+	return nil, fmt.Errorf("pool %q 内无可用账户（额度已耗尽且未开启超额调用）", poolName)
 }
 
 // replaceModelInBody 替换请求体 JSON 中的 "model" 字段值。

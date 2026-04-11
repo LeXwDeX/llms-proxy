@@ -122,6 +122,7 @@ func NewHandler(
 		r.Post("/copilot-accounts/{id}/revoke", h.handleRevokeCopilotAccount)
 		r.Post("/copilot-accounts/{id}/disable", h.handleDisableCopilotAccount)
 		r.Post("/copilot-accounts/{id}/enable", h.handleEnableCopilotAccount)
+		r.Post("/copilot-accounts/{id}/toggle-overage", h.handleToggleCopilotOverage)
 		r.Delete("/copilot-accounts/{id}", h.handleDeleteCopilotAccount)
 		r.Get("/copilot-accounts/{id}/quota", h.handleGetCopilotQuota)
 		r.Post("/copilot-accounts/{id}/quota/sync", h.handleSyncCopilotQuota)
@@ -1671,6 +1672,37 @@ func (h *Handler) handleEnableCopilotAccount(w http.ResponseWriter, r *http.Requ
 
 	h.recordAudit(r, "copilot.account.enable", id, "success", "")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleToggleCopilotOverage(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	account, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	account.AllowOverage = !account.AllowOverage
+	if err := h.copilotAcctStore.Update(id, *account); err != nil {
+		h.writeInternalError(w, "failed to toggle overage", err)
+		return
+	}
+
+	detail := "allow_overage=" + fmt.Sprintf("%v", account.AllowOverage)
+	h.recordAudit(r, "copilot.account.toggle_overage", id, "success", detail)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":        "ok",
+		"allow_overage": account.AllowOverage,
+	})
 }
 
 func (h *Handler) handleDeleteCopilotAccount(w http.ResponseWriter, r *http.Request) {

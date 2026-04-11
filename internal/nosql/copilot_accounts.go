@@ -46,6 +46,7 @@ type CopilotAccount struct {
 	QuotaPercentRemaining float64 `json:"quota_percent_remaining"` // 0-100
 	QuotaResetAt          string  `json:"quota_reset_at,omitempty"`
 	QuotaLastSyncAt       string  `json:"quota_last_sync_at,omitempty"`
+	AllowOverage          bool    `json:"allow_overage"` // 允许超额调用（额度耗尽后仍可使用付费模型）
 
 	// 元数据
 	Notes     string `json:"notes,omitempty"`
