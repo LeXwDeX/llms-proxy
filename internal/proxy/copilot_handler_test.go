@@ -5,10 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ycgame/llms-proxy/internal/copilot"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 )
 
-// ---------- findPoolByClient ----------
+// ---------- FindPoolByClient ----------
 
 func TestFindPoolByClient_Found(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -26,13 +27,12 @@ func TestFindPoolByClient_Found(t *testing.T) {
 		t.Fatalf("create pool: %v", err)
 	}
 
-	svc := &Service{
-		copilotPoolStore: poolStore,
-	}
+	acctStore := nosql.NewCopilotAccountStore(db, poolStore)
+	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	pool, err := svc.findPoolByClient("clienta") // 大小写不敏感
+	pool, err := copilotSvc.FindPoolByClient("clienta") // 大小写不敏感
 	if err != nil {
-		t.Fatalf("findPoolByClient: %v", err)
+		t.Fatalf("FindPoolByClient: %v", err)
 	}
 	if pool.Name != "pool-alpha" {
 		t.Fatalf("expected pool name pool-alpha, got %q", pool.Name)
@@ -55,17 +55,16 @@ func TestFindPoolByClient_NotFound(t *testing.T) {
 		t.Fatalf("create pool: %v", err)
 	}
 
-	svc := &Service{
-		copilotPoolStore: poolStore,
-	}
+	acctStore := nosql.NewCopilotAccountStore(db, poolStore)
+	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	_, err = svc.findPoolByClient("nonexistent")
+	_, err = copilotSvc.FindPoolByClient("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent client")
 	}
 }
 
-// ---------- selectCopilotAccount ----------
+// ---------- SelectAccount ----------
 
 func setupTestDB(t *testing.T) (*nosql.CopilotPoolStore, *nosql.CopilotAccountStore) {
 	t.Helper()
@@ -81,7 +80,7 @@ func setupTestDB(t *testing.T) (*nosql.CopilotPoolStore, *nosql.CopilotAccountSt
 	return poolStore, acctStore
 }
 
-func TestSelectCopilotAccount_OrderBySort(t *testing.T) {
+func TestSelectAccount_OrderBySort(t *testing.T) {
 	poolStore, acctStore := setupTestDB(t)
 	if err := poolStore.Create(nosql.CopilotPool{
 		Name:        "pool1",
@@ -114,14 +113,12 @@ func TestSelectCopilotAccount_OrderBySort(t *testing.T) {
 		t.Fatalf("create acct2: %v", err)
 	}
 
-	svc := &Service{
-		copilotAcctStore: acctStore,
-	}
+	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
 	// 使用付费模型（copilot_claude-sonnet-4，乘数=1）
-	got, err := svc.selectCopilotAccount("pool1", "copilot_claude-sonnet-4")
+	got, err := copilotSvc.SelectAccount("pool1", "copilot_claude-sonnet-4")
 	if err != nil {
-		t.Fatalf("selectCopilotAccount: %v", err)
+		t.Fatalf("SelectAccount: %v", err)
 	}
 	// SortOrder=1 的应该被选中
 	if got.GitHubUsername != "user-first" {
@@ -129,7 +126,7 @@ func TestSelectCopilotAccount_OrderBySort(t *testing.T) {
 	}
 }
 
-func TestSelectCopilotAccount_SkipQuotaExhausted(t *testing.T) {
+func TestSelectAccount_SkipQuotaExhausted(t *testing.T) {
 	poolStore, acctStore := setupTestDB(t)
 	if err := poolStore.Create(nosql.CopilotPool{
 		Name:        "pool1",
@@ -162,21 +159,19 @@ func TestSelectCopilotAccount_SkipQuotaExhausted(t *testing.T) {
 		t.Fatalf("create acct2: %v", err)
 	}
 
-	svc := &Service{
-		copilotAcctStore: acctStore,
-	}
+	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
 	// 付费模型应跳过额度耗尽的
-	got, err := svc.selectCopilotAccount("pool1", "copilot_claude-sonnet-4")
+	got, err := copilotSvc.SelectAccount("pool1", "copilot_claude-sonnet-4")
 	if err != nil {
-		t.Fatalf("selectCopilotAccount: %v", err)
+		t.Fatalf("SelectAccount: %v", err)
 	}
 	if got.GitHubUsername != "user-available" {
 		t.Fatalf("expected user-available, got %q", got.GitHubUsername)
 	}
 }
 
-func TestSelectCopilotAccount_FreeModelIgnoresQuota(t *testing.T) {
+func TestSelectAccount_FreeModelIgnoresQuota(t *testing.T) {
 	poolStore, acctStore := setupTestDB(t)
 	if err := poolStore.Create(nosql.CopilotPool{
 		Name:        "pool1",
@@ -198,21 +193,19 @@ func TestSelectCopilotAccount_FreeModelIgnoresQuota(t *testing.T) {
 		t.Fatalf("create acct: %v", err)
 	}
 
-	svc := &Service{
-		copilotAcctStore: acctStore,
-	}
+	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
 	// 免费模型（copilot_gpt-4o，乘数=0）应该不受额度限制
-	got, err := svc.selectCopilotAccount("pool1", "copilot_gpt-4o")
+	got, err := copilotSvc.SelectAccount("pool1", "copilot_gpt-4o")
 	if err != nil {
-		t.Fatalf("selectCopilotAccount: %v", err)
+		t.Fatalf("SelectAccount: %v", err)
 	}
 	if got.GitHubUsername != "user-quota-exceeded" {
 		t.Fatalf("expected user-quota-exceeded, got %q", got.GitHubUsername)
 	}
 }
 
-func TestSelectCopilotAccount_NoAvailable(t *testing.T) {
+func TestSelectAccount_NoAvailable(t *testing.T) {
 	poolStore, acctStore := setupTestDB(t)
 	if err := poolStore.Create(nosql.CopilotPool{
 		Name:        "pool1",
@@ -233,17 +226,15 @@ func TestSelectCopilotAccount_NoAvailable(t *testing.T) {
 		t.Fatalf("create acct: %v", err)
 	}
 
-	svc := &Service{
-		copilotAcctStore: acctStore,
-	}
+	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	_, err := svc.selectCopilotAccount("pool1", "copilot_gpt-4o")
+	_, err := copilotSvc.SelectAccount("pool1", "copilot_gpt-4o")
 	if err == nil {
 		t.Fatal("expected error when no accounts available")
 	}
 }
 
-func TestSelectCopilotAccount_EmptyPool(t *testing.T) {
+func TestSelectAccount_EmptyPool(t *testing.T) {
 	poolStore, acctStore := setupTestDB(t)
 	if err := poolStore.Create(nosql.CopilotPool{
 		Name:        "pool1",
@@ -253,11 +244,9 @@ func TestSelectCopilotAccount_EmptyPool(t *testing.T) {
 		t.Fatalf("create pool: %v", err)
 	}
 
-	svc := &Service{
-		copilotAcctStore: acctStore,
-	}
+	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	_, err := svc.selectCopilotAccount("pool1", "copilot_gpt-4o")
+	_, err := copilotSvc.SelectAccount("pool1", "copilot_gpt-4o")
 	if err == nil {
 		t.Fatal("expected error for empty pool")
 	}

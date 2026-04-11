@@ -18,7 +18,6 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/copilot"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
-	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -41,9 +40,7 @@ type Service struct {
 	affinity *affinityMap
 
 	// Copilot 动态 token 相关（nil = 未配置）
-	copilotService   *copilot.CopilotService
-	copilotAcctStore *nosql.CopilotAccountStore
-	copilotPoolStore *nosql.CopilotPoolStore
+	copilotService *copilot.CopilotService
 
 	metrics   requestMetrics
 	startTime time.Time
@@ -176,10 +173,6 @@ func (s *Service) SetUsageRecorder(recorder usage.Recorder) {
 // svc 为 nil 时 copilot 请求降级为 target.APIKey 静态认证。
 func (s *Service) SetCopilotService(svc *copilot.CopilotService) {
 	s.copilotService = svc
-	if svc != nil {
-		s.copilotAcctStore = svc.GetAccountStore()
-		s.copilotPoolStore = svc.GetPoolStore()
-	}
 }
 
 func (s *Service) currentUsageRecorder() usage.Recorder {

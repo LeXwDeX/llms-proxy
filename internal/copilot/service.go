@@ -3,6 +3,7 @@ package copilot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,9 +25,10 @@ type CopilotService struct {
 	logger       *slog.Logger
 
 	// 模型元数据内存缓存
-	modelCache   []CopilotModelDetail
-	modelCacheMu sync.RWMutex
-	modelCacheAt time.Time
+	modelCache     []CopilotModelDetail
+	modelCacheMu   sync.RWMutex
+	modelCacheAt   time.Time
+	modelRefreshMu sync.Mutex // 刷新互斥锁，防止 thundering herd
 }
 
 // NewCopilotService 创建服务。
@@ -220,6 +222,108 @@ func (s *CopilotService) GetPoolStore() *nosql.CopilotPoolStore {
 	return s.poolStore
 }
 
+// MarkQuotaExhausted 将账户标记为额度耗尽状态。
+func (s *CopilotService) MarkQuotaExhausted(accountID string, account *nosql.CopilotAccount) error {
+	account.Status = nosql.AccountStatusQuotaExceeded
+	return s.accountStore.Update(accountID, *account)
+}
+
+// FindPoolByClient 根据 client name 查找绑定的 CopilotPool。
+func (s *CopilotService) FindPoolByClient(clientName string) (*nosql.CopilotPool, error) {
+	pools, err := s.poolStore.List()
+	if err != nil {
+		return nil, fmt.Errorf("列出 pools: %w", err)
+	}
+
+	clientLower := strings.ToLower(strings.TrimSpace(clientName))
+	for i := range pools {
+		if strings.ToLower(strings.TrimSpace(pools[i].ClientName)) == clientLower {
+			return &pools[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("未找到 client %q 绑定的 copilot pool", clientName)
+}
+
+// SelectAccount 按 SortOrder 顺序选择最佳可用 Copilot 账户。
+// 选号策略（按优先级）：
+//  1. active 且有额度的账户（最优）
+//  2. 已开启「允许超额」的 active 或 quota_exceeded 账户
+//
+// 免费模型不消耗额度，任何 active/quota_exceeded 账户均可。
+func (s *CopilotService) SelectAccount(poolName, model string) (*nosql.CopilotAccount, error) {
+	accounts, err := s.accountStore.ListByPool(poolName)
+	if err != nil {
+		return nil, fmt.Errorf("列出 pool %q 的账户: %w", poolName, err)
+	}
+
+	if len(accounts) == 0 {
+		return nil, errors.New("pool 内无任何账户")
+	}
+
+	isFree := IsFreeModel(model)
+
+	if isFree {
+		for i := range accounts {
+			a := &accounts[i]
+			if a.Status == nosql.AccountStatusActive || a.Status == nosql.AccountStatusQuotaExceeded {
+				return a, nil
+			}
+		}
+		return nil, fmt.Errorf("pool %q 内无可用账户", poolName)
+	}
+
+	// 付费模型：两轮扫描
+	for i := range accounts {
+		a := &accounts[i]
+		if a.Status == nosql.AccountStatusActive && !IsQuotaExhausted(a) {
+			return a, nil
+		}
+	}
+	for i := range accounts {
+		a := &accounts[i]
+		if a.AllowOverage && (a.Status == nosql.AccountStatusActive || a.Status == nosql.AccountStatusQuotaExceeded) {
+			return a, nil
+		}
+	}
+
+	return nil, fmt.Errorf("pool %q 内无可用账户（额度已耗尽且未开启超额调用）", poolName)
+}
+
+// DeductAndPersistQuota 扣减额度并持久化，如果额度耗尽则自动更新状态。
+func (s *CopilotService) DeductAndPersistQuota(account *nosql.CopilotAccount, upstreamModel string) error {
+	DeductQuota(account, upstreamModel)
+	if err := s.accountStore.Update(account.ID, *account); err != nil {
+		return fmt.Errorf("额度扣减写回失败: %w", err)
+	}
+
+	if IsQuotaExhausted(account) {
+		account.Status = nosql.AccountStatusQuotaExceeded
+		if err := s.accountStore.Update(account.ID, *account); err != nil {
+			s.logger.Warn("额度耗尽状态更新失败", "account_id", account.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+// FetchAccountModels 为指定账户获取完整模型列表。
+// 自动获取 token、确定 modelsURL。
+func (s *CopilotService) FetchAccountModels(ctx context.Context, accountID string) ([]CopilotModelDetail, error) {
+	token, err := s.GetToken(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("获取 token: %w", err)
+	}
+	account, err := s.accountStore.Get(accountID)
+	if err != nil {
+		return nil, fmt.Errorf("获取账户: %w", err)
+	}
+	modelsURL := CopilotModelsURL
+	if account.APIBaseURL != "" {
+		modelsURL = strings.TrimRight(account.APIBaseURL, "/") + "/models"
+	}
+	return FetchModelDetails(ctx, s.httpClient, token, modelsURL)
+}
+
 // fetchGitHubUsername 通过 GitHub API 获取用户名。
 // GET https://api.github.com/user，Authorization: token <oauthToken>
 func (s *CopilotService) fetchGitHubUsername(ctx context.Context, oauthToken string) (string, error) {
@@ -280,7 +384,22 @@ func (s *CopilotService) RefreshModelCache(ctx context.Context) error {
 }
 
 // refreshModelCacheInternal 使用第一个可用账户的 token 刷新模型缓存。
+// 使用 modelRefreshMu 互斥锁 + 双检锁避免 thundering herd：
+// 多个并发请求同时触发刷新时，只有第一个执行实际刷新，后续直接返回缓存。
 func (s *CopilotService) refreshModelCacheInternal(ctx context.Context) ([]CopilotModelDetail, error) {
+	s.modelRefreshMu.Lock()
+	defer s.modelRefreshMu.Unlock()
+
+	// 双检锁：加锁后再次检查缓存是否已被其他 goroutine 刷新
+	s.modelCacheMu.RLock()
+	if len(s.modelCache) > 0 && time.Since(s.modelCacheAt) < modelCacheTTL {
+		cached := make([]CopilotModelDetail, len(s.modelCache))
+		copy(cached, s.modelCache)
+		s.modelCacheMu.RUnlock()
+		return cached, nil
+	}
+	s.modelCacheMu.RUnlock()
+
 	accounts, err := s.accountStore.List()
 	if err != nil {
 		return nil, fmt.Errorf("列出账户: %w", err)

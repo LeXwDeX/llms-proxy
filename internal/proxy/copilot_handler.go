@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,8 +14,18 @@ import (
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/copilot"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
-	"github.com/ycgame/llms-proxy/internal/nosql"
 )
+
+// copilotPathRules 定义 Copilot 上游路径前缀处理规则。
+// 匹配顺序有意义：前面的规则优先级更高。
+// 使用 slice 而非 map，因为需要前缀匹配的顺序优先级。
+var copilotPathRules = []struct {
+	Prefix  string // 客户端请求路径前缀
+	StripV1 bool   // 是否去除 /v1 前缀
+}{
+	{Prefix: "/v1/messages", StripV1: false}, // Anthropic: 必须保留 /v1
+	{Prefix: "/v1/", StripV1: true},          // 其他 /v1 路径：去除 /v1
+}
 
 // handleCopilotRequest 处理 Copilot 类型的请求。
 // 完整链路：查找 Pool → 顺序选号 → 获取 Token → 模型名映射 → 构建上游请求 → 转发 → 额度扣减。
@@ -30,7 +39,7 @@ func (s *Service) handleCopilotRequest(
 	requestID := appmiddleware.RequestIDFromContext(r.Context())
 
 	// 1. 根据 client name 查找 Pool
-	pool, err := s.findPoolByClient(principal.Name)
+	pool, err := s.copilotService.FindPoolByClient(principal.Name)
 	if err != nil {
 		s.logger.Error("查找 Copilot Pool 失败",
 			"request_id", requestID,
@@ -43,7 +52,7 @@ func (s *Service) handleCopilotRequest(
 	}
 
 	// 2. 顺序选号：找到第一个 active 且有额度的账户
-	account, err := s.selectCopilotAccount(pool.Name, model)
+	account, err := s.copilotService.SelectAccount(pool.Name, model)
 	if err != nil {
 		s.logger.Warn("无可用 Copilot 账户",
 			"request_id", requestID,
@@ -103,8 +112,13 @@ func (s *Service) handleCopilotRequest(
 		baseURL = strings.TrimRight(account.APIBaseURL, "/")
 	}
 	requestPath := r.URL.Path
-	if !strings.HasPrefix(requestPath, "/v1/messages") {
-		requestPath = strings.TrimPrefix(requestPath, "/v1")
+	for _, rule := range copilotPathRules {
+		if strings.HasPrefix(requestPath, rule.Prefix) {
+			if rule.StripV1 {
+				requestPath = strings.TrimPrefix(requestPath, "/v1")
+			}
+			break
+		}
 	}
 	if requestPath == "" {
 		requestPath = "/chat/completions"
@@ -162,25 +176,12 @@ func (s *Service) handleCopilotRequest(
 
 	// 8. 成功响应后扣减额度
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		copilot.DeductQuota(account, upstreamModel)
-		if updateErr := s.copilotAcctStore.Update(account.ID, *account); updateErr != nil {
-			s.logger.Warn("额度扣减写回失败",
+		if err := s.copilotService.DeductAndPersistQuota(account, upstreamModel); err != nil {
+			s.logger.Warn("额度扣减失败",
 				"request_id", requestID,
 				"account_id", account.ID,
-				"error", updateErr,
+				"error", err,
 			)
-		}
-
-		// 如果额度耗尽，更新状态
-		if copilot.IsQuotaExhausted(account) {
-			account.Status = nosql.AccountStatusQuotaExceeded
-			if updateErr := s.copilotAcctStore.Update(account.ID, *account); updateErr != nil {
-				s.logger.Warn("额度耗尽状态更新失败",
-					"request_id", requestID,
-					"account_id", account.ID,
-					"error", updateErr,
-				)
-			}
 		}
 		s.metrics.totalSuccess.Add(1)
 	} else {
@@ -203,72 +204,6 @@ func (s *Service) handleCopilotRequest(
 	// 使用 streaming writer 保证 SSE 实时刷新
 	writer := newStreamingWriter(w)
 	_, _ = io.Copy(writer, resp.Body)
-}
-
-// findPoolByClient 根据 client name 查找 CopilotPool。
-func (s *Service) findPoolByClient(clientName string) (*nosql.CopilotPool, error) {
-	pools, err := s.copilotPoolStore.List()
-	if err != nil {
-		return nil, fmt.Errorf("列出 pools: %w", err)
-	}
-
-	clientLower := strings.ToLower(strings.TrimSpace(clientName))
-	for i := range pools {
-		if strings.ToLower(strings.TrimSpace(pools[i].ClientName)) == clientLower {
-			return &pools[i], nil
-		}
-	}
-
-	return nil, fmt.Errorf("未找到 client %q 绑定的 copilot pool", clientName)
-}
-
-// selectCopilotAccount 按 SortOrder 顺序选择最佳可用 Copilot 账户。
-// 选号策略（按优先级）：
-//  1. active 且有额度的账户（最优）
-//  2. 已开启「允许超额」的 active 或 quota_exceeded 账户（Copilot Business 超额仍可用）
-//
-// 免费模型不消耗额度，任何 active/quota_exceeded 账户均可。
-func (s *Service) selectCopilotAccount(poolName, model string) (*nosql.CopilotAccount, error) {
-	accounts, err := s.copilotAcctStore.ListByPool(poolName)
-	if err != nil {
-		return nil, fmt.Errorf("列出 pool %q 的账户: %w", poolName, err)
-	}
-
-	if len(accounts) == 0 {
-		return nil, errors.New("pool 内无任何账户")
-	}
-
-	isFree := copilot.IsFreeModel(model)
-
-	// accounts 已按 SortOrder 升序排列（ListByPool 保证）
-	// 免费模型：直接返回第一个可用账户
-	if isFree {
-		for i := range accounts {
-			a := &accounts[i]
-			if a.Status == nosql.AccountStatusActive || a.Status == nosql.AccountStatusQuotaExceeded {
-				return a, nil
-			}
-		}
-		return nil, fmt.Errorf("pool %q 内无可用账户", poolName)
-	}
-
-	// 付费模型：两轮扫描
-	// 第一轮：优先选 active 且有额度
-	for i := range accounts {
-		a := &accounts[i]
-		if a.Status == nosql.AccountStatusActive && !copilot.IsQuotaExhausted(a) {
-			return a, nil
-		}
-	}
-	// 第二轮：选已开启「允许超额」的 active 或 quota_exceeded 账户
-	for i := range accounts {
-		a := &accounts[i]
-		if a.AllowOverage && (a.Status == nosql.AccountStatusActive || a.Status == nosql.AccountStatusQuotaExceeded) {
-			return a, nil
-		}
-	}
-
-	return nil, fmt.Errorf("pool %q 内无可用账户（额度已耗尽且未开启超额调用）", poolName)
 }
 
 // replaceModelInBody 替换请求体 JSON 中的 "model" 字段值。
