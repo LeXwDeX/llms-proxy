@@ -9,17 +9,20 @@ import (
 
 // Bucket name constants.
 const (
-	BucketClients     = "clients"
-	BucketModelCosts  = "model_costs"
-	BucketUsageEvents = "usage_events"
-	BucketAdminUsers  = "admin_users"
-	BucketAdminAudit  = "admin_audit"
-	BucketMeta        = "meta"
+	BucketClients         = "clients"
+	BucketModelCosts      = "model_costs"
+	BucketUsageEvents     = "usage_events"
+	BucketAdminUsers      = "admin_users"
+	BucketAdminAudit      = "admin_audit"
+	BucketMeta            = "meta"
+	BucketCopilotPools    = "copilot_pools"
+	BucketCopilotAccounts = "copilot_accounts"
 )
 
 var allBuckets = []string{
 	BucketClients, BucketModelCosts, BucketUsageEvents,
 	BucketAdminUsers, BucketAdminAudit, BucketMeta,
+	BucketCopilotPools, BucketCopilotAccounts,
 }
 
 // OpenDB opens a bbolt database and creates all required buckets.

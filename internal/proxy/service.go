@@ -16,7 +16,9 @@ import (
 
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/copilot"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
+	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -37,6 +39,11 @@ type Service struct {
 	targetOrder   []*targetState
 
 	affinity *affinityMap
+
+	// Copilot 动态 token 相关（nil = 未配置）
+	copilotService   *copilot.CopilotService
+	copilotAcctStore *nosql.CopilotAccountStore
+	copilotPoolStore *nosql.CopilotPoolStore
 
 	metrics   requestMetrics
 	startTime time.Time
@@ -165,6 +172,16 @@ func (s *Service) SetUsageRecorder(recorder usage.Recorder) {
 	s.usageMu.Unlock()
 }
 
+// SetCopilotService 注入 copilot 服务，启用 Copilot 动态 token 处理链。
+// svc 为 nil 时 copilot 请求降级为 target.APIKey 静态认证。
+func (s *Service) SetCopilotService(svc *copilot.CopilotService) {
+	s.copilotService = svc
+	if svc != nil {
+		s.copilotAcctStore = svc.GetAccountStore()
+		s.copilotPoolStore = svc.GetPoolStore()
+	}
+}
+
 func (s *Service) currentUsageRecorder() usage.Recorder {
 	s.usageMu.RLock()
 	defer s.usageMu.RUnlock()
@@ -253,6 +270,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if model == "" && s.anyTargetRequiresModel() {
 		http.Error(w, "model required when allowed_models are configured", http.StatusBadRequest)
 		s.metrics.totalFailures.Add(1)
+		requestOutcomeRecorded = true
+		return
+	}
+
+	// Copilot 请求拦截：模型名以 copilot_ 前缀开头且 copilotService 已配置时，
+	// 走独立的 Copilot 处理链（动态 token、模型名映射、额度扣减）。
+	if s.copilotService != nil && strings.HasPrefix(model, strings.ToLower(copilot.ModelPrefix)) {
+		s.handleCopilotRequest(w, r, principal, bodyBytes, model)
 		requestOutcomeRecorded = true
 		return
 	}

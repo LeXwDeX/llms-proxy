@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/catalog"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/copilot"
 	"github.com/ycgame/llms-proxy/internal/logging"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 	"github.com/ycgame/llms-proxy/internal/nosql"
@@ -89,6 +91,7 @@ func main() {
 	usageStore := nosql.NewUsageStore(db)
 	userStore := nosql.NewUserStore(db)
 	auditStore := nosql.NewAuditStore(db)
+	copilotPoolStore := nosql.NewCopilotPoolStore(db)
 
 	sessionManager := admin.NewSessionManager(cfg.AdminSession, appLogger)
 
@@ -181,6 +184,19 @@ func main() {
 	// Set usage recorder from the bbolt-backed store.
 	proxyService.SetUsageRecorder(usageStore)
 
+	// Create Copilot account store and services.
+	copilotAcctStore := nosql.NewCopilotAccountStore(db, copilotPoolStore)
+	copilotService := copilot.NewCopilotService(copilotAcctStore, copilotPoolStore, &http.Client{Timeout: 30 * time.Second}, appLogger)
+	copilotQuotaMgr := copilot.NewQuotaManager(&http.Client{Timeout: 10 * time.Second}, "", appLogger)
+
+	// Inject copilot service into proxy.
+	proxyService.SetCopilotService(copilotService)
+
+	// Start periodic quota sync.
+	quotaSyncCtx, quotaSyncCancel := context.WithCancel(context.Background())
+	defer quotaSyncCancel()
+	copilotQuotaMgr.StartPeriodicSync(quotaSyncCtx, copilotAcctStore, copilot.DefaultQuotaSyncInterval)
+
 	router := chi.NewRouter()
 	router.Use(appmiddleware.RequestID())
 	router.Use(appmiddleware.Recoverer(appLogger))
@@ -197,7 +213,7 @@ func main() {
 
 	adminRouter := chi.NewRouter()
 	adminRouter.Use(sessionManager.Middleware)
-	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, userStore, clientStore, modelCostStore, usageStore, modelCatalog, appLogger))
+	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, userStore, clientStore, modelCostStore, usageStore, modelCatalog, copilotPoolStore, copilotService, copilotAcctStore, copilotQuotaMgr, appLogger))
 	router.Mount("/admin", adminRouter)
 
 	protected := chi.NewRouter()

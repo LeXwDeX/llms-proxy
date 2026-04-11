@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/catalog"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/copilot"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/proxy"
 	"github.com/ycgame/llms-proxy/internal/usage"
@@ -25,16 +27,20 @@ import (
 
 // Handler wires administration endpoints.
 type Handler struct {
-	configManager  *config.Manager
-	authStore      *auth.Store
-	proxyService   *proxy.Service
-	auditStore     *nosql.AuditStore
-	userStore      *nosql.UserStore
-	clientStore    *nosql.ClientStore
-	modelCostStore *nosql.ModelCostStore
-	usageStore     *nosql.UsageStore
-	modelCatalog   *catalog.Catalog
-	logger         *slog.Logger
+	configManager    *config.Manager
+	authStore        *auth.Store
+	proxyService     *proxy.Service
+	auditStore       *nosql.AuditStore
+	userStore        *nosql.UserStore
+	clientStore      *nosql.ClientStore
+	modelCostStore   *nosql.ModelCostStore
+	usageStore       *nosql.UsageStore
+	modelCatalog     *catalog.Catalog
+	copilotPoolStore *nosql.CopilotPoolStore
+	copilotService   *copilot.CopilotService    // nil = copilot 未配置
+	copilotAcctStore *nosql.CopilotAccountStore // nil = copilot 未配置
+	copilotQuotaMgr  *copilot.QuotaManager      // nil = copilot 未配置
+	logger           *slog.Logger
 }
 
 // NewHandler constructs an HTTP router exposing admin endpoints.
@@ -48,19 +54,27 @@ func NewHandler(
 	modelCostStore *nosql.ModelCostStore,
 	usageStore *nosql.UsageStore,
 	modelCatalog *catalog.Catalog,
+	copilotPoolStore *nosql.CopilotPoolStore,
+	copilotService *copilot.CopilotService,
+	copilotAcctStore *nosql.CopilotAccountStore,
+	copilotQuotaMgr *copilot.QuotaManager,
 	logger *slog.Logger,
 ) http.Handler {
 	h := &Handler{
-		configManager:  manager,
-		authStore:      store,
-		proxyService:   service,
-		auditStore:     auditStore,
-		userStore:      userStore,
-		clientStore:    clientStore,
-		modelCostStore: modelCostStore,
-		usageStore:     usageStore,
-		modelCatalog:   modelCatalog,
-		logger:         logger,
+		configManager:    manager,
+		authStore:        store,
+		proxyService:     service,
+		auditStore:       auditStore,
+		userStore:        userStore,
+		clientStore:      clientStore,
+		modelCostStore:   modelCostStore,
+		usageStore:       usageStore,
+		modelCatalog:     modelCatalog,
+		copilotPoolStore: copilotPoolStore,
+		copilotService:   copilotService,
+		copilotAcctStore: copilotAcctStore,
+		copilotQuotaMgr:  copilotQuotaMgr,
+		logger:           logger,
 	}
 
 	r := chi.NewRouter()
@@ -92,6 +106,25 @@ func NewHandler(
 		r.Post("/targets", h.handleCreateTarget)
 		r.Put("/targets/{name}", h.handleUpdateTarget)
 		r.Delete("/targets/{name}", h.handleDeleteTarget)
+
+		// Copilot pool management
+		r.Get("/copilot-pools", h.handleListCopilotPools)
+		r.Post("/copilot-pools", h.handleCreateCopilotPool)
+		r.Put("/copilot-pools/{name}", h.handleUpdateCopilotPool)
+		r.Delete("/copilot-pools/{name}", h.handleDeleteCopilotPool)
+
+		// Copilot account management
+		r.Get("/copilot-accounts", h.handleListCopilotAccounts)
+		r.Get("/copilot-accounts/{id}", h.handleGetCopilotAccount)
+		r.Post("/copilot-accounts/auth/start", h.handleStartCopilotAuth)
+		r.Post("/copilot-accounts/auth/complete/{id}", h.handleCompleteCopilotAuth)
+		r.Post("/copilot-accounts/{id}/revoke", h.handleRevokeCopilotAccount)
+		r.Post("/copilot-accounts/{id}/disable", h.handleDisableCopilotAccount)
+		r.Post("/copilot-accounts/{id}/enable", h.handleEnableCopilotAccount)
+		r.Delete("/copilot-accounts/{id}", h.handleDeleteCopilotAccount)
+		r.Get("/copilot-accounts/{id}/quota", h.handleGetCopilotQuota)
+		r.Post("/copilot-accounts/{id}/quota/sync", h.handleSyncCopilotQuota)
+		r.Get("/copilot-models", h.handleListCopilotModels)
 
 		// Model catalog
 		r.Get("/catalog", h.handleListCatalog)
@@ -1141,4 +1174,611 @@ func maskKey(key string) string {
 		return "****"
 	}
 	return key[:4] + "..." + key[len(key)-4:]
+}
+
+// ===== Copilot Pool CRUD =====
+
+func (h *Handler) handleListCopilotPools(w http.ResponseWriter, r *http.Request) {
+	pools, err := h.copilotPoolStore.List()
+	if err != nil {
+		h.writeInternalError(w, "failed to list copilot pools", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pools": pools,
+		"count": len(pools),
+	})
+}
+
+func (h *Handler) handleCreateCopilotPool(w http.ResponseWriter, r *http.Request) {
+	var req nosql.CopilotPool
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid json body"))
+		return
+	}
+
+	// 校验关联的 targets 存在且均为 copilot 类型
+	if err := h.validateCopilotTargets(req.Targets); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+		return
+	}
+
+	// 校验 client 存在
+	if err := h.validateClientExists(req.ClientName); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+		return
+	}
+
+	if err := h.copilotPoolStore.Create(req); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already bound") {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, errorResponse(err.Error()))
+		return
+	}
+
+	// 同步 client.AllowedTargets
+	if err := h.syncClientAllowedTargets(req.ClientName, req.Targets); err != nil {
+		h.logger.Warn("copilot pool created but failed to sync client allowed_targets",
+			"pool", req.Name, "client", req.ClientName, "error", err)
+	}
+
+	h.recordAudit(r, "copilot_pool_create", req.Name, "success", "client="+req.ClientName)
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleUpdateCopilotPool(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing pool name"))
+		return
+	}
+
+	var req nosql.CopilotPool
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid json body"))
+		return
+	}
+
+	// 获取旧 pool 信息（用于清理旧 client 的 targets）
+	oldPool, err := h.copilotPoolStore.Get(name)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	// 校验新 targets
+	if err := h.validateCopilotTargets(req.Targets); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+		return
+	}
+
+	// 校验新 client 存在
+	if err := h.validateClientExists(req.ClientName); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+		return
+	}
+
+	if err := h.copilotPoolStore.Update(name, req); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already bound") {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, errorResponse(err.Error()))
+		return
+	}
+
+	// 如果 client 变更了，需要清理旧 client 的 targets
+	if !strings.EqualFold(oldPool.ClientName, req.ClientName) {
+		if err := h.removeTargetsFromClient(oldPool.ClientName, oldPool.Targets); err != nil {
+			h.logger.Warn("failed to clean old client allowed_targets",
+				"old_client", oldPool.ClientName, "error", err)
+		}
+	}
+
+	// 同步新 client 的 AllowedTargets
+	if err := h.syncClientAllowedTargets(req.ClientName, req.Targets); err != nil {
+		h.logger.Warn("copilot pool updated but failed to sync client allowed_targets",
+			"pool", req.Name, "client", req.ClientName, "error", err)
+	}
+
+	h.recordAudit(r, "copilot_pool_update", name, "success", "client="+req.ClientName)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleDeleteCopilotPool(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing pool name"))
+		return
+	}
+
+	// 获取 pool 信息用于清理 client targets
+	pool, err := h.copilotPoolStore.Get(name)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	if err := h.copilotPoolStore.Delete(name); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, errorResponse(err.Error()))
+		return
+	}
+
+	// 从 client.AllowedTargets 中移除 pool 的 targets
+	if err := h.removeTargetsFromClient(pool.ClientName, pool.Targets); err != nil {
+		h.logger.Warn("copilot pool deleted but failed to clean client allowed_targets",
+			"pool", name, "client", pool.ClientName, "error", err)
+	}
+
+	h.recordAudit(r, "copilot_pool_delete", name, "success", "")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateCopilotTargets 校验所有 target 名称存在且 endpoint_type 为 copilot。
+func (h *Handler) validateCopilotTargets(targets []string) error {
+	if len(targets) == 0 {
+		return nil // 空 targets 列表合法
+	}
+	cfg, err := h.currentConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	targetMap := make(map[string]config.Target, len(cfg.Targets))
+	for _, t := range cfg.Targets {
+		targetMap[strings.ToLower(t.Name)] = t
+	}
+	for _, tName := range targets {
+		name := strings.ToLower(strings.TrimSpace(tName))
+		t, ok := targetMap[name]
+		if !ok {
+			return fmt.Errorf("target %q not found", tName)
+		}
+		epType := config.NormalizeEndpointType(t.EndpointType)
+		if epType != config.EndpointTypeCopilot {
+			return fmt.Errorf("target %q is type %q, not copilot", tName, epType)
+		}
+	}
+	return nil
+}
+
+// validateClientExists 校验 client 存在。
+func (h *Handler) validateClientExists(clientName string) error {
+	clientName = strings.TrimSpace(clientName)
+	if clientName == "" {
+		return errors.New("client_name must not be empty")
+	}
+	clients, err := h.clientStore.List()
+	if err != nil {
+		return fmt.Errorf("failed to list clients: %w", err)
+	}
+	for _, c := range clients {
+		if strings.EqualFold(c.Name, clientName) {
+			return nil
+		}
+	}
+	return fmt.Errorf("client %q not found", clientName)
+}
+
+// syncClientAllowedTargets 将 targets 加入 client 的 AllowedTargets（去重），然后 reloadAuth。
+func (h *Handler) syncClientAllowedTargets(clientName string, targets []string) error {
+	clients, err := h.clientStore.List()
+	if err != nil {
+		return err
+	}
+	var found *config.Client
+	for i := range clients {
+		if strings.EqualFold(clients[i].Name, clientName) {
+			found = &clients[i]
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("client %q not found", clientName)
+	}
+
+	// 构建已有 set
+	existing := make(map[string]struct{}, len(found.AllowedTargets))
+	for _, t := range found.AllowedTargets {
+		existing[strings.ToLower(t)] = struct{}{}
+	}
+
+	changed := false
+	for _, t := range targets {
+		key := strings.ToLower(strings.TrimSpace(t))
+		if key == "" {
+			continue
+		}
+		if _, ok := existing[key]; !ok {
+			found.AllowedTargets = append(found.AllowedTargets, key)
+			existing[key] = struct{}{}
+			changed = true
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
+	if err := h.clientStore.Update(found.Name, *found); err != nil {
+		return err
+	}
+	return h.reloadAuthFromClientStore()
+}
+
+// removeTargetsFromClient 从 client 的 AllowedTargets 中移除指定 targets，然后 reloadAuth。
+func (h *Handler) removeTargetsFromClient(clientName string, targets []string) error {
+	if len(targets) == 0 {
+		return nil
+	}
+	clients, err := h.clientStore.List()
+	if err != nil {
+		return err
+	}
+	var found *config.Client
+	for i := range clients {
+		if strings.EqualFold(clients[i].Name, clientName) {
+			found = &clients[i]
+			break
+		}
+	}
+	if found == nil {
+		return nil // client 已不存在，无需清理
+	}
+
+	// 如果 AllowedTargets 为空（allowAll），不做操作
+	if len(found.AllowedTargets) == 0 {
+		return nil
+	}
+
+	removeSet := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		removeSet[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
+	}
+
+	newTargets := make([]string, 0, len(found.AllowedTargets))
+	for _, t := range found.AllowedTargets {
+		if _, remove := removeSet[strings.ToLower(t)]; !remove {
+			newTargets = append(newTargets, t)
+		}
+	}
+
+	if len(newTargets) == len(found.AllowedTargets) {
+		return nil // nothing changed
+	}
+
+	found.AllowedTargets = newTargets
+	if err := h.clientStore.Update(found.Name, *found); err != nil {
+		return err
+	}
+	return h.reloadAuthFromClientStore()
+}
+
+// ===== Copilot Account Management =====
+
+// copilotAccountResponse 用于 API 响应，脱敏 token 字段。
+type copilotAccountResponse struct {
+	nosql.CopilotAccount
+	HasOAuthToken   bool `json:"has_oauth_token"`
+	HasCopilotToken bool `json:"has_copilot_token"`
+}
+
+// sanitizeCopilotAccount 脱敏处理，隐藏 token 原文。
+func sanitizeCopilotAccount(a nosql.CopilotAccount) copilotAccountResponse {
+	resp := copilotAccountResponse{
+		CopilotAccount:  a,
+		HasOAuthToken:   a.OAuthToken != "",
+		HasCopilotToken: a.CopilotToken != "",
+	}
+	resp.OAuthToken = ""
+	resp.CopilotToken = ""
+	resp.DeviceCode = ""
+	return resp
+}
+
+// requireCopilotService 检查 copilot 服务是否已配置，未配置时返回 503。
+func (h *Handler) requireCopilotService(w http.ResponseWriter) bool {
+	if h.copilotService == nil || h.copilotAcctStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse("copilot service not configured"))
+		return false
+	}
+	return true
+}
+
+func (h *Handler) handleListCopilotAccounts(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	poolName := strings.TrimSpace(r.URL.Query().Get("pool_name"))
+	var accounts []nosql.CopilotAccount
+	var err error
+	if poolName != "" {
+		accounts, err = h.copilotAcctStore.ListByPool(poolName)
+	} else {
+		accounts, err = h.copilotAcctStore.List()
+	}
+	if err != nil {
+		h.writeInternalError(w, "failed to list copilot accounts", err)
+		return
+	}
+
+	resp := make([]copilotAccountResponse, len(accounts))
+	for i, a := range accounts {
+		resp[i] = sanitizeCopilotAccount(a)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"accounts": resp,
+		"count":    len(resp),
+	})
+}
+
+func (h *Handler) handleGetCopilotAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	account, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sanitizeCopilotAccount(*account))
+}
+
+func (h *Handler) handleStartCopilotAuth(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	var req struct {
+		PoolName string `json:"pool_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid json body"))
+		return
+	}
+	poolName := strings.TrimSpace(req.PoolName)
+	if poolName == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("pool_name must not be empty"))
+		return
+	}
+
+	accountID, userCode, verificationURI, err := h.copilotService.InitiateAuth(r.Context(), poolName)
+	if err != nil {
+		h.writeInternalError(w, "failed to initiate copilot auth", err)
+		return
+	}
+
+	h.recordAudit(r, "copilot.auth.start", accountID, "success", fmt.Sprintf("pool=%s", poolName))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account_id":       accountID,
+		"user_code":        userCode,
+		"verification_uri": verificationURI,
+		"message":          "请在浏览器中访问 verification_uri 并输入 user_code 完成授权",
+	})
+}
+
+func (h *Handler) handleCompleteCopilotAuth(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	// CompleteAuth 会阻塞等待用户授权（PollForToken），设置 10 分钟超时
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	if err := h.copilotService.CompleteAuth(ctx, id); err != nil {
+		h.writeInternalError(w, "failed to complete copilot auth", err)
+		return
+	}
+
+	h.recordAudit(r, "copilot.auth.complete", id, "success", "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleRevokeCopilotAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	if err := h.copilotService.RevokeAuth(r.Context(), id); err != nil {
+		h.writeInternalError(w, "failed to revoke copilot account", err)
+		return
+	}
+
+	h.recordAudit(r, "copilot.auth.revoke", id, "success", "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleDisableCopilotAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	account, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	account.Status = nosql.AccountStatusDisabled
+	if err := h.copilotAcctStore.Update(id, *account); err != nil {
+		h.writeInternalError(w, "failed to disable copilot account", err)
+		return
+	}
+
+	h.recordAudit(r, "copilot.account.disable", id, "success", "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleEnableCopilotAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	account, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	account.Status = nosql.AccountStatusActive
+	if err := h.copilotAcctStore.Update(id, *account); err != nil {
+		h.writeInternalError(w, "failed to enable copilot account", err)
+		return
+	}
+
+	h.recordAudit(r, "copilot.account.enable", id, "success", "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleDeleteCopilotAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	if err := h.copilotAcctStore.Delete(id); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, errorResponse(err.Error()))
+		return
+	}
+
+	h.recordAudit(r, "copilot.account.delete", id, "success", "")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) handleGetCopilotQuota(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	account, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account_id":              id,
+		"quota_percent_remaining": account.QuotaPercentRemaining,
+		"quota_reset_at":          account.QuotaResetAt,
+		"quota_last_sync_at":      account.QuotaLastSyncAt,
+	})
+}
+
+func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+	if h.copilotQuotaMgr == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse("copilot quota manager not configured"))
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	account, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	if account.OAuthToken == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("account has no oauth token"))
+		return
+	}
+
+	quotaInfo, err := h.copilotQuotaMgr.SyncQuotaFromGitHub(r.Context(), account.OAuthToken)
+	if err != nil {
+		h.writeInternalError(w, "failed to sync copilot quota", err)
+		return
+	}
+
+	// 更新账户额度字段
+	account.QuotaPercentRemaining = quotaInfo.PercentRemaining
+	if quotaInfo.ResetAt != "" {
+		account.QuotaResetAt = quotaInfo.ResetAt
+	}
+	account.QuotaLastSyncAt = time.Now().UTC().Format(time.RFC3339)
+
+	if err := h.copilotAcctStore.Update(id, *account); err != nil {
+		h.writeInternalError(w, "failed to update copilot account quota", err)
+		return
+	}
+
+	h.recordAudit(r, "copilot.quota.sync", id, "success", fmt.Sprintf("remaining=%.1f%%", quotaInfo.PercentRemaining))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account_id":              id,
+		"quota_percent_remaining": quotaInfo.PercentRemaining,
+		"quota_reset_at":          quotaInfo.ResetAt,
+		"quota_last_sync_at":      account.QuotaLastSyncAt,
+		"copilot_plan":            quotaInfo.CopilotPlan,
+	})
+}
+
+func (h *Handler) handleListCopilotModels(w http.ResponseWriter, _ *http.Request) {
+	models := copilot.ListAvailableModels()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"models": models,
+		"count":  len(models),
+	})
 }

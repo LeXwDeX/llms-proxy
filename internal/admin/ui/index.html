@@ -533,6 +533,80 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* ===== Copilot Account Badge ===== */
+    .acct-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .acct-badge.active      { background: #dcfce7; color: #16a34a; }
+    .acct-badge.pending_auth { background: #fef9c3; color: #a16207; }
+    .acct-badge.token_expired { background: #ffedd5; color: #c2410c; }
+    .acct-badge.quota_exceeded { background: #fee2e2; color: #dc2626; }
+    .acct-badge.disabled     { background: #f1f5f9; color: #64748b; }
+
+    /* ===== Quota Progress Bar ===== */
+    .quota-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .quota-bar {
+      flex: 1;
+      height: 8px;
+      background: #e2e8f0;
+      border-radius: 4px;
+      overflow: hidden;
+      min-width: 60px;
+      max-width: 120px;
+    }
+    .quota-bar-inner {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+    .quota-pct { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+
+    /* ===== Device Code Display ===== */
+    .device-code-display {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: "SF Mono", "Consolas", monospace;
+      letter-spacing: 4px;
+      text-align: center;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border: 2px dashed var(--primary);
+      border-radius: var(--radius);
+      cursor: pointer;
+      user-select: all;
+      color: var(--primary);
+      transition: background var(--transition);
+    }
+    .device-code-display:hover { background: var(--primary-light); }
+    .auth-countdown {
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+    }
+
+    /* ===== Model Category Badge ===== */
+    .model-cat-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .model-cat-badge.cat-free     { background: #dcfce7; color: #16a34a; }
+    .model-cat-badge.cat-low      { background: #dbeafe; color: #2563eb; }
+    .model-cat-badge.cat-standard { background: #f1f5f9; color: #64748b; }
+    .model-cat-badge.cat-high     { background: #fee2e2; color: #dc2626; }
   </style>
 </head>
 <body>
@@ -570,6 +644,10 @@
         <div class="sidebar-nav-item" data-page="audit">
           <span class="nav-icon">📋</span>
           <span class="nav-label">审计日志</span>
+        </div>
+        <div class="sidebar-nav-item" data-page="copilot-pools">
+          <span class="nav-icon">🔗</span>
+          <span class="nav-label">Copilot 订阅管理</span>
         </div>
       </nav>
       <div class="sidebar-footer">
@@ -854,6 +932,7 @@
               </div>
             </div>
           </div>
+
         </div>
 
         <!-- ========== Page: 审计日志 ========== -->
@@ -879,6 +958,94 @@
                   <tr class="empty-row"><td colspan="6">加载中...</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== Page: Copilot 订阅管理 ========== -->
+        <div class="page" id="page-copilot-pools">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Copilot 订阅池管理</h3>
+              <div class="btn-group">
+                <button class="btn" id="refreshCopilotPoolsBtn">🔄 刷新</button>
+                <button class="btn btn-primary" id="newCopilotPoolBtn">➕ 新增订阅池</button>
+              </div>
+            </div>
+            <div class="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>池名称</th>
+                    <th>绑定客户端</th>
+                    <th>关联目标</th>
+                    <th>备注</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="copilotPoolsTableBody">
+                  <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Copilot Accounts Sub-Panel -->
+          <div id="copilotAccountsPanel" style="display:none">
+            <div class="panel">
+              <div class="panel-header">
+                <h3 id="copilotAccountsPanelTitle">账户管理</h3>
+                <div class="btn-group">
+                  <button class="btn btn-sm" id="refreshCopilotAccountsBtn">🔄 刷新</button>
+                  <button class="btn btn-primary btn-sm" id="addCopilotAccountBtn">➕ 添加账户</button>
+                  <button class="btn btn-sm" id="backToPoolsBtn">↩ 返回</button>
+                </div>
+              </div>
+              <div class="panel-body no-pad">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>GitHub 用户名</th>
+                      <th>状态</th>
+                      <th>额度剩余</th>
+                      <th>最后同步</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="copilotAccountsTableBody">
+                    <tr class="empty-row"><td colspan="6">请选择订阅池</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Copilot Models Panel -->
+          <div id="copilotModelsPanel" style="display:none">
+            <div class="panel">
+              <div class="panel-header">
+                <h3>📋 可用模型</h3>
+                <div class="btn-group">
+                  <button class="btn btn-sm" id="refreshCopilotModelsBtn">🔄 刷新</button>
+                  <button class="btn btn-sm" id="toggleCopilotModelsBtn">收起</button>
+                </div>
+              </div>
+              <div class="panel-body no-pad" id="copilotModelsBody">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>模型名</th>
+                      <th>乘数</th>
+                      <th>类别</th>
+                    </tr>
+                  </thead>
+                  <tbody id="copilotModelsTableBody">
+                    <tr class="empty-row"><td colspan="3">加载中...</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -933,6 +1100,7 @@
             <option value="wangsu_openai">网宿 OpenAI</option>
             <option value="wangsu_claude">网宿 Claude</option>
             <option value="wangsu_gemini">网宿 Gemini</option>
+            <option value="copilot">Copilot</option>
           </select>
         </div>
         <div class="form-group">
@@ -999,6 +1167,7 @@
             <option value="wangsu_openai">网宿 OpenAI</option>
             <option value="wangsu_claude">网宿 Claude</option>
             <option value="wangsu_gemini">网宿 Gemini</option>
+            <option value="copilot">Copilot</option>
           </select>
         </div>
         <div class="form-group">
@@ -1061,6 +1230,66 @@
       <div class="modal-footer">
         <button class="btn" data-close="changePasswordModal">取消</button>
         <button class="btn btn-primary" id="savePasswordBtn">确认修改</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Copilot Pool Modal ===== -->
+  <div class="modal-overlay" id="copilotPoolModal">
+    <div class="modal" style="max-width: 560px;">
+      <div class="modal-header">
+        <h3 id="copilotPoolModalTitle">新增 Copilot 订阅池</h3>
+        <button class="modal-close" data-close="copilotPoolModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>池名称 <span style="color:#ef4444">*</span></label>
+          <input class="form-control" id="cpPoolName" placeholder="例如：copilot-team-alpha">
+        </div>
+        <div class="form-group">
+          <label>绑定客户端 <span style="color:#ef4444">*</span></label>
+          <select class="form-control" id="cpPoolClient">
+            <option value="">请选择客户端</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>关联目标（仅 copilot 类型，点击选择）</label>
+          <div id="cpPoolTargetTags" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;max-height:180px;overflow-y:auto;"></div>
+        </div>
+        <div class="form-group">
+          <label>备注</label>
+          <input class="form-control" id="cpPoolNotes" placeholder="可选备注">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="copilotPoolModal">取消</button>
+        <button class="btn btn-primary" id="saveCopilotPoolBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Copilot Auth (Device Code) Modal ===== -->
+  <div class="modal-overlay" id="copilotAuthModal">
+    <div class="modal" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>GitHub 设备授权</h3>
+        <button class="modal-close" data-close="copilotAuthModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label>验证码（点击复制）</label>
+          <div class="device-code-display" id="deviceUserCode" title="点击复制"></div>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label>授权链接</label>
+          <a id="deviceVerifyUri" href="#" target="_blank" rel="noopener" style="color:var(--primary);font-size:14px;word-break:break-all;"></a>
+        </div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">请在浏览器中访问上方链接，输入验证码完成 GitHub 授权</p>
+        <div class="auth-countdown" id="deviceCountdown"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="copilotAuthModal">取消</button>
+        <button class="btn btn-primary" id="completeAuthBtn">✅ 我已完成授权</button>
       </div>
     </div>
   </div>
@@ -1131,7 +1360,13 @@
 
       /* ===== Modal ===== */
       function openModal(id) { document.getElementById(id).classList.add("open"); }
-      function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+      function closeModal(id) {
+        document.getElementById(id).classList.remove("open");
+        if (id === "copilotAuthModal" && state.deviceCountdownTimer) {
+          clearInterval(state.deviceCountdownTimer);
+          state.deviceCountdownTimer = null;
+        }
+      }
       document.querySelectorAll("[data-close]").forEach(function(btn) {
         btn.addEventListener("click", function() { closeModal(btn.dataset.close); });
       });
@@ -1158,7 +1393,8 @@
         clients: "客户端管理",
         "model-costs": "模型费用",
         usage: "消费统计",
-        audit: "审计日志"
+        audit: "审计日志",
+        "copilot-pools": "Copilot 订阅管理"
       };
       function switchPage(page) {
         currentPage = page;
@@ -1281,7 +1517,7 @@
       document.getElementById("refreshOverviewBtn").addEventListener("click", function() { loadOverview(); });
 
       /* ===== Targets ===== */
-      var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude","gemini":"Gemini","wangsu_openai":"网宿 OpenAI","wangsu_claude":"网宿 Claude","wangsu_gemini":"网宿 Gemini"};
+      var epTypeLabels = {"azure_openai":"Azure OpenAI","openai":"OpenAI","claude":"Claude","gemini":"Gemini","wangsu_openai":"网宿 OpenAI","wangsu_claude":"网宿 Claude","wangsu_gemini":"网宿 Gemini","copilot":"Copilot"};
       async function loadTargets() {
         try {
           var data = await api("/admin/data/targets");
@@ -1918,6 +2154,512 @@
         }).join("");
       }
 
+      /* ===== Copilot Pools ===== */
+      state.copilotPools = [];
+      state.editingCopilotPool = null;
+
+      async function loadCopilotPools() {
+        try {
+          var fetches = [api("/admin/data/copilot-pools")];
+          if (!state.clients || !state.clients.length) {
+            fetches.push(api("/admin/data/clients"));
+          }
+          if (!state.targets || !state.targets.length) {
+            fetches.push(api("/admin/data/targets"));
+          }
+          var results = await Promise.all(fetches);
+          state.copilotPools = Array.isArray(results[0].pools) ? results[0].pools : [];
+          var idx = 1;
+          if (!state.clients || !state.clients.length) {
+            if (results[idx]) {
+              state.clients = Array.isArray(results[idx].clients) ? results[idx].clients : [];
+            }
+            idx++;
+          }
+          if (!state.targets || !state.targets.length) {
+            if (results[idx]) {
+              state.targets = Array.isArray(results[idx].targets) ? results[idx].targets : [];
+            }
+          }
+          renderCopilotPools();
+        } catch(e) {
+          toast("加载 Copilot 订阅池失败: " + e.message, "error");
+        }
+      }
+
+      function renderCopilotPools() {
+        var tb = document.getElementById("copilotPoolsTableBody");
+        if (!state.copilotPools.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='6'>暂无订阅池</td></tr>";
+          return;
+        }
+        tb.innerHTML = state.copilotPools.slice().sort(function(a, b) {
+          return String(a.name || "").localeCompare(String(b.name || ""));
+        }).map(function(p) {
+          var targets = Array.isArray(p.targets) && p.targets.length > 0
+            ? p.targets.join(", ") : "-";
+          return "<tr><td>" + esc(p.name) + "</td>"
+            + "<td>" + esc(p.client_name || "-") + "</td>"
+            + "<td>" + esc(targets) + "</td>"
+            + "<td>" + esc(p.notes || "-") + "</td>"
+            + "<td>" + esc(fmtTime(p.updated_at)) + "</td>"
+            + "<td><div class='btn-group'>"
+            + "<button class='btn btn-sm' data-manage-accounts='" + esc(p.name) + "'>👤 账户</button>"
+            + "<button class='btn btn-sm' data-edit-pool='" + esc(p.name) + "'>编辑</button>"
+            + "<button class='btn btn-danger btn-sm' data-del-pool='" + esc(p.name) + "'>删除</button>"
+            + "</div></td></tr>";
+        }).join("");
+      }
+
+      document.getElementById("copilotPoolsTableBody").addEventListener("click", function(e) {
+        var t = e.target;
+        if (t.dataset.manageAccounts) {
+          showCopilotAccountsPanel(t.dataset.manageAccounts);
+        }
+        if (t.dataset.editPool) {
+          var p = state.copilotPools.find(function(x) { return x.name === t.dataset.editPool; });
+          if (p) openCopilotPoolModal(p);
+        }
+        if (t.dataset.delPool) {
+          var name = t.dataset.delPool;
+          showConfirm("确认删除订阅池「" + name + "」？此操作不可恢复。", async function() {
+            try {
+              await api("/admin/data/copilot-pools/" + encodeURIComponent(name), { method: "DELETE" });
+              toast("已删除订阅池: " + name, "success");
+              await loadCopilotPools();
+            } catch(e) { toast("删除失败: " + e.message, "error"); }
+          });
+        }
+      });
+
+      function openCopilotPoolModal(pool) {
+        state.editingCopilotPool = pool || null;
+        document.getElementById("copilotPoolModalTitle").textContent = pool ? "编辑 Copilot 订阅池" : "新增 Copilot 订阅池";
+        document.getElementById("cpPoolName").value = pool ? pool.name : "";
+        document.getElementById("cpPoolName").readOnly = !!pool;
+        document.getElementById("cpPoolNotes").value = pool ? (pool.notes || "") : "";
+        // 填充客户端下拉
+        var clientSelect = document.getElementById("cpPoolClient");
+        clientSelect.innerHTML = "<option value=\"\">请选择客户端</option>";
+        (state.clients || []).slice().sort(function(a, b) {
+          return String(a.name || "").localeCompare(String(b.name || ""));
+        }).forEach(function(c) {
+          var opt = document.createElement("option");
+          opt.value = c.name;
+          opt.textContent = c.name;
+          clientSelect.appendChild(opt);
+        });
+        if (pool && pool.client_name) {
+          clientSelect.value = pool.client_name;
+        }
+        // 渲染 copilot 类型目标 tag
+        renderCopilotPoolTargetTags(pool && pool.targets ? pool.targets : []);
+        openModal("copilotPoolModal");
+      }
+
+      function renderCopilotPoolTargetTags(selected) {
+        var container = document.getElementById("cpPoolTargetTags");
+        container.innerHTML = "";
+        var selectedSet = {};
+        (selected || []).forEach(function(t) { selectedSet[t.toLowerCase()] = true; });
+        var copilotTargets = (state.targets || []).filter(function(t) {
+          return t.endpoint_type === "copilot";
+        }).slice().sort(function(a, b) {
+          return String(a.name || "").localeCompare(String(b.name || ""));
+        });
+        if (!copilotTargets.length) {
+          container.innerHTML = "<span style='color:var(--text-muted);font-size:12px;'>暂无 copilot 类型目标，请先添加目标</span>";
+          return;
+        }
+        copilotTargets.forEach(function(t) {
+          var tag = document.createElement("span");
+          var isSelected = !!selectedSet[t.name.toLowerCase()];
+          tag.textContent = t.name;
+          tag.title = "Copilot — " + (t.endpoint || "");
+          tag.dataset.target = t.name;
+          applyTagStyle(tag, isSelected);
+          tag.addEventListener("click", function() {
+            var cur = this.dataset.selected === "1";
+            applyTagStyle(this, !cur);
+          });
+          container.appendChild(tag);
+        });
+      }
+
+      function getSelectedCopilotPoolTargets() {
+        var tags = document.getElementById("cpPoolTargetTags").querySelectorAll("span[data-target]");
+        var result = [];
+        tags.forEach(function(tag) {
+          if (tag.dataset.selected === "1") result.push(tag.dataset.target);
+        });
+        return result;
+      }
+
+      document.getElementById("saveCopilotPoolBtn").addEventListener("click", async function() {
+        var name = document.getElementById("cpPoolName").value.trim();
+        var clientName = document.getElementById("cpPoolClient").value;
+        var targets = getSelectedCopilotPoolTargets();
+        var notes = document.getElementById("cpPoolNotes").value.trim();
+        if (!name) { toast("请填写池名称", "error"); return; }
+        if (!clientName) { toast("请选择绑定客户端", "error"); return; }
+        var payload = { name: name, client_name: clientName, targets: targets, notes: notes };
+        try {
+          if (state.editingCopilotPool) {
+            await api("/admin/data/copilot-pools/" + encodeURIComponent(name), { method: "PUT", body: payload });
+            toast("订阅池已更新", "success");
+          } else {
+            await api("/admin/data/copilot-pools", { method: "POST", body: payload });
+            toast("订阅池已创建", "success");
+          }
+          closeModal("copilotPoolModal");
+          await loadCopilotPools();
+        } catch(e) { toast("保存失败: " + e.message, "error"); }
+      });
+
+      document.getElementById("newCopilotPoolBtn").addEventListener("click", function() { openCopilotPoolModal(null); });
+      document.getElementById("refreshCopilotPoolsBtn").addEventListener("click", function() { loadCopilotPools(); });
+
+      /* ===== Copilot Accounts ===== */
+      state.copilotAccounts = [];
+      state.currentPoolName = null;
+      state.pendingAuthAccountId = null;
+      state.deviceCountdownTimer = null;
+      state.copilotModels = [];
+      state.copilotModelsLoaded = false;
+
+      function showCopilotAccountsPanel(poolName) {
+        state.currentPoolName = poolName;
+        document.getElementById("copilotAccountsPanelTitle").textContent = "账户管理 — " + poolName;
+        document.getElementById("copilotAccountsPanel").style.display = "";
+        document.getElementById("copilotModelsPanel").style.display = "";
+        loadCopilotAccounts(poolName);
+        if (!state.copilotModelsLoaded) {
+          loadCopilotModels();
+        }
+      }
+
+      function hideCopilotAccountsPanel() {
+        state.currentPoolName = null;
+        document.getElementById("copilotAccountsPanel").style.display = "none";
+        document.getElementById("copilotModelsPanel").style.display = "none";
+      }
+
+      async function loadCopilotAccounts(poolName) {
+        var tb = document.getElementById("copilotAccountsTableBody");
+        tb.innerHTML = "<tr class='empty-row'><td colspan='6'>加载中...</td></tr>";
+        try {
+          var data = await api("/admin/data/copilot-accounts?pool_name=" + encodeURIComponent(poolName));
+          state.copilotAccounts = Array.isArray(data.accounts) ? data.accounts : [];
+          renderCopilotAccounts();
+        } catch(e) {
+          toast("加载账户失败: " + e.message, "error");
+          tb.innerHTML = "<tr class='empty-row'><td colspan='6'>加载失败</td></tr>";
+        }
+      }
+
+      function acctStatusBadge(status) {
+        var labels = {
+          active: "🟢 活跃",
+          pending_auth: "🟡 待授权",
+          token_expired: "🟠 已过期",
+          quota_exceeded: "🔴 额度耗尽",
+          disabled: "⚫ 已禁用"
+        };
+        var label = labels[status] || status;
+        return "<span class='acct-badge " + esc(status) + "'>" + esc(label) + "</span>";
+      }
+
+      function quotaBar(pct) {
+        var p = Number(pct || 0);
+        var color = p > 50 ? "#22c55e" : p > 20 ? "#f59e0b" : "#ef4444";
+        return "<div class='quota-bar-wrap'>"
+          + "<div class='quota-bar'><div class='quota-bar-inner' style='width:" + p.toFixed(1) + "%;background:" + color + ";'></div></div>"
+          + "<span class='quota-pct'>" + p.toFixed(1) + "%</span>"
+          + "</div>";
+      }
+
+      function acctActionButtons(acct) {
+        var s = acct.status;
+        var id = acct.id;
+        var btns = "";
+        if (s === "active") {
+          btns += "<button class='btn btn-sm' data-acct-sync='" + esc(id) + "'>同步额度</button>";
+          btns += "<button class='btn btn-sm' data-acct-disable='" + esc(id) + "'>禁用</button>";
+          btns += "<button class='btn btn-sm' data-acct-revoke='" + esc(id) + "'>注销</button>";
+          btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
+        } else if (s === "pending_auth") {
+          btns += "<button class='btn btn-primary btn-sm' data-acct-complete='" + esc(id) + "'>完成授权</button>";
+          btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
+        } else if (s === "disabled") {
+          btns += "<button class='btn btn-sm' data-acct-enable='" + esc(id) + "'>启用</button>";
+          btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
+        } else if (s === "token_expired") {
+          btns += "<button class='btn btn-sm' data-acct-revoke='" + esc(id) + "'>注销</button>";
+          btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
+        } else if (s === "quota_exceeded") {
+          btns += "<button class='btn btn-sm' data-acct-sync='" + esc(id) + "'>同步额度</button>";
+          btns += "<button class='btn btn-sm' data-acct-disable='" + esc(id) + "'>禁用</button>";
+          btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
+        } else {
+          btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
+        }
+        return btns;
+      }
+
+      function renderCopilotAccounts() {
+        var tb = document.getElementById("copilotAccountsTableBody");
+        if (!state.copilotAccounts.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='6'>暂无账户</td></tr>";
+          return;
+        }
+        tb.innerHTML = state.copilotAccounts.slice().sort(function(a, b) {
+          return (a.sort_order || 0) - (b.sort_order || 0);
+        }).map(function(acct) {
+          return "<tr>"
+            + "<td>" + esc(acct.sort_order || 0) + "</td>"
+            + "<td>" + esc(acct.github_username || "-") + "</td>"
+            + "<td>" + acctStatusBadge(acct.status) + "</td>"
+            + "<td>" + quotaBar(acct.quota_percent_remaining) + "</td>"
+            + "<td>" + esc(fmtTime(acct.quota_last_sync_at)) + "</td>"
+            + "<td><div class='btn-group'>" + acctActionButtons(acct) + "</div></td>"
+            + "</tr>";
+        }).join("");
+      }
+
+      document.getElementById("copilotAccountsTableBody").addEventListener("click", function(e) {
+        var t = e.target;
+        if (t.dataset.acctSync) {
+          syncAccountQuota(t.dataset.acctSync);
+        }
+        if (t.dataset.acctDisable) {
+          disableAccount(t.dataset.acctDisable);
+        }
+        if (t.dataset.acctEnable) {
+          enableAccount(t.dataset.acctEnable);
+        }
+        if (t.dataset.acctRevoke) {
+          revokeAccount(t.dataset.acctRevoke);
+        }
+        if (t.dataset.acctDelete) {
+          deleteAccount(t.dataset.acctDelete);
+        }
+        if (t.dataset.acctComplete) {
+          completeDeviceAuth(t.dataset.acctComplete);
+        }
+      });
+
+      async function syncAccountQuota(id) {
+        try {
+          await api("/admin/data/copilot-accounts/" + encodeURIComponent(id) + "/quota/sync", { method: "POST" });
+          toast("额度同步成功", "success");
+          await loadCopilotAccounts(state.currentPoolName);
+        } catch(e) { toast("同步失败: " + e.message, "error"); }
+      }
+
+      async function disableAccount(id) {
+        try {
+          await api("/admin/data/copilot-accounts/" + encodeURIComponent(id) + "/disable", { method: "POST" });
+          toast("账户已禁用", "success");
+          await loadCopilotAccounts(state.currentPoolName);
+        } catch(e) { toast("禁用失败: " + e.message, "error"); }
+      }
+
+      async function enableAccount(id) {
+        try {
+          await api("/admin/data/copilot-accounts/" + encodeURIComponent(id) + "/enable", { method: "POST" });
+          toast("账户已启用", "success");
+          await loadCopilotAccounts(state.currentPoolName);
+        } catch(e) { toast("启用失败: " + e.message, "error"); }
+      }
+
+      function revokeAccount(id) {
+        showConfirm("确认注销此账户的 OAuth 令牌？此操作将使账户无法访问 Copilot 服务。", async function() {
+          try {
+            await api("/admin/data/copilot-accounts/" + encodeURIComponent(id) + "/revoke", { method: "POST" });
+            toast("账户已注销", "success");
+            await loadCopilotAccounts(state.currentPoolName);
+          } catch(e) { toast("注销失败: " + e.message, "error"); }
+        });
+      }
+
+      function deleteAccount(id) {
+        showConfirm("确认删除此账户？此操作不可恢复。", async function() {
+          try {
+            await api("/admin/data/copilot-accounts/" + encodeURIComponent(id), { method: "DELETE" });
+            toast("账户已删除", "success");
+            await loadCopilotAccounts(state.currentPoolName);
+          } catch(e) { toast("删除失败: " + e.message, "error"); }
+        });
+      }
+
+      /* ===== Device Code Auth ===== */
+      async function startDeviceAuth(poolName) {
+        try {
+          var data = await api("/admin/data/copilot-accounts/auth/start", {
+            method: "POST",
+            body: { pool_name: poolName }
+          });
+          state.pendingAuthAccountId = data.account_id;
+          document.getElementById("deviceUserCode").textContent = data.user_code || "";
+          var uri = data.verification_uri || "https://github.com/login/device";
+          var link = document.getElementById("deviceVerifyUri");
+          link.href = uri;
+          link.textContent = uri;
+          // Start countdown (15 minutes)
+          startDeviceCountdown(15 * 60);
+          // Reset button state
+          var btn = document.getElementById("completeAuthBtn");
+          btn.textContent = "✅ 我已完成授权";
+          btn.disabled = false;
+          openModal("copilotAuthModal");
+          // Refresh accounts list to show the pending_auth entry
+          await loadCopilotAccounts(poolName);
+        } catch(e) {
+          toast("启动授权失败: " + e.message, "error");
+        }
+      }
+
+      function startDeviceCountdown(seconds) {
+        if (state.deviceCountdownTimer) {
+          clearInterval(state.deviceCountdownTimer);
+        }
+        var remaining = seconds;
+        var el = document.getElementById("deviceCountdown");
+        function update() {
+          if (remaining <= 0) {
+            el.textContent = "验证码已过期，请重新添加账户";
+            el.style.color = "var(--danger)";
+            clearInterval(state.deviceCountdownTimer);
+            state.deviceCountdownTimer = null;
+            return;
+          }
+          var m = Math.floor(remaining / 60);
+          var s = remaining % 60;
+          el.textContent = "验证码有效期剩余: " + m + ":" + (s < 10 ? "0" : "") + s;
+          el.style.color = "var(--text-secondary)";
+          remaining--;
+        }
+        update();
+        state.deviceCountdownTimer = setInterval(update, 1000);
+      }
+
+      async function completeDeviceAuth(accountId) {
+        var btn = document.getElementById("completeAuthBtn");
+        btn.textContent = "授权验证中...";
+        btn.disabled = true;
+        try {
+          await api("/admin/data/copilot-accounts/auth/complete/" + encodeURIComponent(accountId), {
+            method: "POST"
+          });
+          toast("授权完成！账户已激活", "success");
+          closeModal("copilotAuthModal");
+          if (state.deviceCountdownTimer) {
+            clearInterval(state.deviceCountdownTimer);
+            state.deviceCountdownTimer = null;
+          }
+          if (state.currentPoolName) {
+            await loadCopilotAccounts(state.currentPoolName);
+          }
+        } catch(e) {
+          toast("授权失败: " + e.message, "error");
+          btn.textContent = "✅ 我已完成授权";
+          btn.disabled = false;
+        }
+      }
+
+      // Copy device code on click
+      document.getElementById("deviceUserCode").addEventListener("click", function() {
+        var code = this.textContent;
+        if (code && navigator.clipboard) {
+          navigator.clipboard.writeText(code).then(function() {
+            toast("验证码已复制: " + code, "success");
+          });
+        }
+      });
+
+      // "完成授权" button in modal
+      document.getElementById("completeAuthBtn").addEventListener("click", function() {
+        if (state.pendingAuthAccountId) {
+          completeDeviceAuth(state.pendingAuthAccountId);
+        }
+      });
+
+      // "添加账户" button
+      document.getElementById("addCopilotAccountBtn").addEventListener("click", function() {
+        if (state.currentPoolName) {
+          startDeviceAuth(state.currentPoolName);
+        }
+      });
+
+      // "刷新" button for accounts
+      document.getElementById("refreshCopilotAccountsBtn").addEventListener("click", function() {
+        if (state.currentPoolName) {
+          loadCopilotAccounts(state.currentPoolName);
+        }
+      });
+
+      // "返回" button
+      document.getElementById("backToPoolsBtn").addEventListener("click", function() {
+        hideCopilotAccountsPanel();
+      });
+
+      /* ===== Copilot Models ===== */
+      async function loadCopilotModels() {
+        var tb = document.getElementById("copilotModelsTableBody");
+        tb.innerHTML = "<tr class='empty-row'><td colspan='3'>加载中...</td></tr>";
+        try {
+          var data = await api("/admin/data/copilot-models");
+          state.copilotModels = Array.isArray(data.models) ? data.models : [];
+          state.copilotModelsLoaded = true;
+          renderCopilotModels();
+        } catch(e) {
+          toast("加载模型列表失败: " + e.message, "error");
+          tb.innerHTML = "<tr class='empty-row'><td colspan='3'>加载失败</td></tr>";
+        }
+      }
+
+      function modelCatClass(cat) {
+        if (!cat) return "cat-standard";
+        var c = cat.toLowerCase();
+        if (c === "免费" || c === "free") return "cat-free";
+        if (c === "低消耗" || c === "low") return "cat-low";
+        if (c === "高消耗" || c === "high") return "cat-high";
+        return "cat-standard";
+      }
+
+      function renderCopilotModels() {
+        var tb = document.getElementById("copilotModelsTableBody");
+        if (!state.copilotModels.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='3'>暂无模型数据</td></tr>";
+          return;
+        }
+        tb.innerHTML = state.copilotModels.slice().sort(function(a, b) {
+          return String(a.name || "").localeCompare(String(b.name || ""));
+        }).map(function(m) {
+          return "<tr>"
+            + "<td>" + esc(m.name) + "</td>"
+            + "<td>" + esc(m.multiplier != null ? m.multiplier : "-") + "</td>"
+            + "<td><span class='model-cat-badge " + modelCatClass(m.category) + "'>" + esc(m.category || "标准") + "</span></td>"
+            + "</tr>";
+        }).join("");
+      }
+
+      document.getElementById("refreshCopilotModelsBtn").addEventListener("click", function() {
+        loadCopilotModels();
+      });
+
+      // Toggle models panel collapse
+      document.getElementById("toggleCopilotModelsBtn").addEventListener("click", function() {
+        var body = document.getElementById("copilotModelsBody");
+        if (body.style.display === "none") {
+          body.style.display = "";
+          this.textContent = "收起";
+        } else {
+          body.style.display = "none";
+          this.textContent = "展开";
+        }
+      });
+
       /* ===== Audit ===== */
       async function loadAudit() {
         try {
@@ -1988,6 +2730,7 @@
           case "model-costs": loadModelCosts(); break;
           case "usage": loadUsage(); break;
           case "audit": loadAudit(); break;
+          case "copilot-pools": loadCopilotPools(); break;
         }
       }
 
