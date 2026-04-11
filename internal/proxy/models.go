@@ -7,12 +7,30 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/catalog"
 	"github.com/ycgame/llms-proxy/internal/copilot"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 )
+
+// localCatalog 是包级别的模型目录单例，用于为非 Copilot 模型补充属性。
+var (
+	localCatalogOnce sync.Once
+	localCatalog     *catalog.Catalog
+)
+
+func getLocalCatalog() *catalog.Catalog {
+	localCatalogOnce.Do(func() {
+		c, err := catalog.New()
+		if err == nil {
+			localCatalog = c
+		}
+	})
+	return localCatalog
+}
 
 func isListEndpoint(path string) bool {
 	path = strings.ToLower(path)
@@ -121,14 +139,30 @@ func (s *Service) buildLocalDeployments(ctx context.Context, targetFilter map[st
 				continue
 			}
 			seen[key] = struct{}{}
-			result = append(result, map[string]any{
-				"object":          "deployment",
-				"id":              m,
-				"model":           m,
-				"status":          "succeeded",
-				"created_at":      time.Now().Unix(),
-				"deployed_tokens": nil,
-			})
+			item := map[string]any{
+				"object":   "model",
+				"id":       m,
+				"model":    m,
+				"created":  time.Now().Unix(),
+				"owned_by": "target:" + strings.ToLower(strings.TrimSpace(target.Name)),
+			}
+
+			// 从 catalog 查询模型属性，补充 context_length / max_output_tokens / capabilities
+			if cat := getLocalCatalog(); cat != nil {
+				if entry := cat.Lookup(target.EndpointType, m); entry != nil {
+					if entry.ContextWindow > 0 {
+						item["context_length"] = entry.ContextWindow
+					}
+					if entry.MaxOutputTokens > 0 {
+						item["max_output_tokens"] = entry.MaxOutputTokens
+					}
+					if len(entry.Capabilities) > 0 {
+						item["capabilities"] = entry.Capabilities
+					}
+				}
+			}
+
+			result = append(result, item)
 		}
 	}
 

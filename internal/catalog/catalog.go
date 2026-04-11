@@ -39,12 +39,16 @@ func canonicalEndpointType(epType string) string {
 
 // ModelEntry 是模型目录中的一条记录。
 type ModelEntry struct {
-	EndpointType string   `json:"endpoint_type"`
-	Model        string   `json:"model"`
-	DisplayName  string   `json:"display_name,omitempty"`
-	Aliases      []string `json:"aliases,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
-	DefaultCost  *Cost    `json:"default_cost,omitempty"`
+	EndpointType    string   `json:"endpoint_type"`
+	Model           string   `json:"model"`
+	DisplayName     string   `json:"display_name,omitempty"`
+	Aliases         []string `json:"aliases,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+	DefaultCost     *Cost    `json:"default_cost,omitempty"`
+	ContextWindow   int      `json:"context_window,omitempty"`
+	MaxOutputTokens int      `json:"max_output_tokens,omitempty"`
+	MaxInputTokens  int      `json:"max_input_tokens,omitempty"`
+	ModelFamily     string   `json:"model_family,omitempty"`
 }
 
 // Cost 表示模型默认费用（每 1M tokens，单位 USD）。

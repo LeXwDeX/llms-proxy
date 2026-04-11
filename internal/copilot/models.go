@@ -17,6 +17,38 @@ type ModelInfo struct {
 	Category   string  `json:"category"`   // 免费|低消耗|标准|高消耗
 }
 
+// categoryOrder 定义模型分类的显示优先级。
+var categoryOrder = map[string]int{
+	"免费":  0,
+	"低消耗": 1,
+	"标准":  2,
+	"高消耗": 3,
+}
+
+// sortModelInfoByCategory 按 Category 优先级排序 ModelInfo 切片，同 Category 内按 Name 排序。
+func sortModelInfoByCategory(models []ModelInfo) {
+	sort.Slice(models, func(i, j int) bool {
+		ci := categoryOrder[models[i].Category]
+		cj := categoryOrder[models[j].Category]
+		if ci != cj {
+			return ci < cj
+		}
+		return models[i].Name < models[j].Name
+	})
+}
+
+// SortModelDetailByCategory 按 Category 优先级排序 CopilotModelDetail 切片，同 Category 内按 ID 排序。
+func SortModelDetailByCategory(models []CopilotModelDetail) {
+	sort.Slice(models, func(i, j int) bool {
+		ci := categoryOrder[models[i].Category]
+		cj := categoryOrder[models[j].Category]
+		if ci != cj {
+			return ci < cj
+		}
+		return models[i].ID < models[j].ID
+	})
+}
+
 // 模型名前缀（下游使用）
 const ModelPrefix = "copilot_"
 
@@ -96,23 +128,7 @@ func ListAvailableModels() []ModelInfo {
 		})
 	}
 
-	// 按 Category 优先级排序，同 Category 内按名字排序
-	categoryOrder := map[string]int{
-		"免费":  0,
-		"低消耗": 1,
-		"标准":  2,
-		"高消耗": 3,
-	}
-
-	sort.Slice(models, func(i, j int) bool {
-		ci := categoryOrder[models[i].Category]
-		cj := categoryOrder[models[j].Category]
-		if ci != cj {
-			return ci < cj
-		}
-		return models[i].Name < models[j].Name
-	})
-
+	sortModelInfoByCategory(models)
 	return models
 }
 
@@ -152,16 +168,11 @@ type copilotModelEntry struct {
 	} `json:"policy,omitempty"`
 }
 
-// FetchModelsFromAPI 从 Copilot API 获取当前账户实际可用的模型列表。
-// 需要一个有效的 Copilot access token（非 OAuth token）。
-// 自动适配 Individual（models 数组）和 Business（data 数组）响应格式。
-// 只返回 model_picker_enabled=true、capabilities.type="chat" 的模型。
-func FetchModelsFromAPI(ctx context.Context, httpClient *http.Client, copilotToken string, modelsURL string) ([]ModelInfo, error) {
+// fetchRawBody 发送 GET 请求到 Copilot models API，返回原始响应 body。
+// 负责构建请求、设置 headers、发送请求、读取并返回 body bytes。
+func fetchRawBody(ctx context.Context, httpClient *http.Client, copilotToken string, modelsURL string) ([]byte, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
-	}
-	if modelsURL == "" {
-		modelsURL = CopilotModelsURL
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
@@ -186,6 +197,23 @@ func FetchModelsFromAPI(ctx context.Context, httpClient *http.Client, copilotTok
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("models 请求失败: status=%d, body=%s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+// FetchModelsFromAPI 从 Copilot API 获取当前账户实际可用的模型列表。
+// 需要一个有效的 Copilot access token（非 OAuth token）。
+// 自动适配 Individual（models 数组）和 Business（data 数组）响应格式。
+// 只返回 model_picker_enabled=true、capabilities.type="chat" 的模型。
+func FetchModelsFromAPI(ctx context.Context, httpClient *http.Client, copilotToken string, modelsURL string) ([]ModelInfo, error) {
+	if modelsURL == "" {
+		modelsURL = CopilotModelsURL
+	}
+
+	body, err := fetchRawBody(ctx, httpClient, copilotToken, modelsURL)
+	if err != nil {
+		return nil, err
 	}
 
 	// 尝试结构化解析（支持 models / data / 直接数组三种格式）
@@ -236,20 +264,7 @@ func FetchModelsFromAPI(ctx context.Context, httpClient *http.Client, copilotTok
 	}
 
 	// 按 Category 优先级排序
-	categoryOrder := map[string]int{
-		"免费":  0,
-		"低消耗": 1,
-		"标准":  2,
-		"高消耗": 3,
-	}
-	sort.Slice(models, func(i, j int) bool {
-		ci := categoryOrder[models[i].Category]
-		cj := categoryOrder[models[j].Category]
-		if ci != cj {
-			return ci < cj
-		}
-		return models[i].Name < models[j].Name
-	})
+	sortModelInfoByCategory(models)
 
 	return models, nil
 }
@@ -370,35 +385,13 @@ type copilotModelsDetailAPIResponse struct {
 // 只返回 model_picker_enabled=true 且 capabilities.type="chat" 的模型。
 // Multiplier 和 Category 从本地 ModelMultipliers 映射。
 func FetchModelDetails(ctx context.Context, httpClient *http.Client, copilotToken string, modelsURL string) ([]CopilotModelDetail, error) {
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
 	if modelsURL == "" {
 		modelsURL = CopilotModelsURL
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	body, err := fetchRawBody(ctx, httpClient, copilotToken, modelsURL)
 	if err != nil {
-		return nil, fmt.Errorf("创建 models 请求: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+copilotToken)
-	req.Header.Set("Accept", "application/json")
-	ApplyEditorHeaders(req)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("发送 models 请求: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取 models 响应: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("models 请求失败: status=%d, body=%s", resp.StatusCode, string(body))
+		return nil, err
 	}
 
 	// 尝试结构化解析（支持 models / data / 直接数组三种格式）
@@ -490,20 +483,7 @@ func FetchModelDetails(ctx context.Context, httpClient *http.Client, copilotToke
 	}
 
 	// 按 Category 优先级排序
-	categoryOrder := map[string]int{
-		"免费":  0,
-		"低消耗": 1,
-		"标准":  2,
-		"高消耗": 3,
-	}
-	sort.Slice(models, func(i, j int) bool {
-		ci := categoryOrder[models[i].Category]
-		cj := categoryOrder[models[j].Category]
-		if ci != cj {
-			return ci < cj
-		}
-		return models[i].ID < models[j].ID
-	})
+	SortModelDetailByCategory(models)
 
 	return models, nil
 }

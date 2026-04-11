@@ -144,7 +144,6 @@ func (r *gitHubCopilotUserResponse) extractQuotaInfo() *QuotaInfo {
 // SyncQuotaFromGitHub 从 GitHub API 同步单个账户的额度。
 // GET quotaURL
 // Authorization: token <oauthToken>
-// 加上 Editor Headers（直接设置，不依赖 headers.go）
 func (m *QuotaManager) SyncQuotaFromGitHub(ctx context.Context, oauthToken string) (*QuotaInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.quotaURL, nil)
 	if err != nil {
@@ -153,11 +152,7 @@ func (m *QuotaManager) SyncQuotaFromGitHub(ctx context.Context, oauthToken strin
 
 	req.Header.Set("Authorization", "token "+oauthToken)
 	req.Header.Set("Accept", "application/json")
-	// Editor Headers — 直接使用字面量，不依赖 headers.go
-	req.Header.Set("Editor-Version", "vscode/1.96.2")
-	req.Header.Set("Editor-Plugin-Version", "copilot/1.254.0")
-	req.Header.Set("User-Agent", "GitHubCopilotChat/0.24.2024")
-	req.Header.Set("Copilot-Integration-Id", "vscode-chat")
+	ApplyEditorHeaders(req)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {

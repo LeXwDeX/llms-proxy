@@ -13,7 +13,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-haiku"
   },
   {
     "endpoint_type": "azure_openai",
@@ -29,7 +32,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 32000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "azure_openai",
@@ -44,7 +50,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "azure_openai",
@@ -59,7 +68,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 128000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "azure_openai",
@@ -75,7 +87,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet"
   },
   {
     "endpoint_type": "azure_openai",
@@ -87,7 +102,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 256000,
+    "max_output_tokens": 256000,
+    "model_family": "codestral"
   },
   {
     "endpoint_type": "azure_openai",
@@ -101,7 +119,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "gpt-codex-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -114,7 +135,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 256000,
+    "max_output_tokens": 8000,
+    "model_family": "command-a"
   },
   {
     "endpoint_type": "azure_openai",
@@ -126,7 +150,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4000,
+    "model_family": "command-r"
   },
   {
     "endpoint_type": "azure_openai",
@@ -138,7 +165,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4000,
+    "model_family": "command-r"
   },
   {
     "endpoint_type": "azure_openai",
@@ -149,7 +179,10 @@
     },
     "capabilities": [
       "vision"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 1536,
+    "model_family": "cohere-embed"
   },
   {
     "endpoint_type": "azure_openai",
@@ -157,7 +190,10 @@
     "display_name": "Embed v3 English",
     "default_cost": {
       "input_per_1m_tokens": 0.1
-    }
+    },
+    "context_window": 512,
+    "max_output_tokens": 1024,
+    "model_family": "cohere-embed"
   },
   {
     "endpoint_type": "azure_openai",
@@ -165,7 +201,10 @@
     "display_name": "Embed v3 Multilingual",
     "default_cost": {
       "input_per_1m_tokens": 0.1
-    }
+    },
+    "context_window": 512,
+    "max_output_tokens": 1024,
+    "model_family": "cohere-embed"
   },
   {
     "endpoint_type": "azure_openai",
@@ -200,7 +239,10 @@
     },
     "capabilities": [
       "reasoning"
-    ]
+    ],
+    "context_window": 163840,
+    "max_output_tokens": 163840,
+    "model_family": "deepseek-thinking"
   },
   {
     "endpoint_type": "azure_openai",
@@ -212,7 +254,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 163840,
+    "max_output_tokens": 163840,
+    "model_family": "deepseek-thinking"
   },
   {
     "endpoint_type": "azure_openai",
@@ -223,7 +268,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 131072,
+    "max_output_tokens": 131072,
+    "model_family": "deepseek"
   },
   {
     "endpoint_type": "azure_openai",
@@ -235,7 +283,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 131072,
+    "max_output_tokens": 131072,
+    "model_family": "deepseek"
   },
   {
     "endpoint_type": "azure_openai",
@@ -247,7 +298,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 128000,
+    "model_family": "deepseek"
   },
   {
     "endpoint_type": "azure_openai",
@@ -258,7 +312,10 @@
     },
     "capabilities": [
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 128000,
+    "model_family": "deepseek"
   },
   {
     "endpoint_type": "azure_openai",
@@ -267,7 +324,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.5,
       "output_per_1m_tokens": 1.5
-    }
+    },
+    "context_window": 16384,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -276,7 +336,10 @@
     "default_cost": {
       "input_per_1m_tokens": 1.5,
       "output_per_1m_tokens": 2
-    }
+    },
+    "context_window": 4096,
+    "max_output_tokens": 4096,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -285,7 +348,10 @@
     "default_cost": {
       "input_per_1m_tokens": 3,
       "output_per_1m_tokens": 4
-    }
+    },
+    "context_window": 16384,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -294,7 +360,10 @@
     "default_cost": {
       "input_per_1m_tokens": 1,
       "output_per_1m_tokens": 2
-    }
+    },
+    "context_window": 16384,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -303,7 +372,10 @@
     "default_cost": {
       "input_per_1m_tokens": 1.5,
       "output_per_1m_tokens": 2
-    }
+    },
+    "context_window": 4096,
+    "max_output_tokens": 4096,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -314,7 +386,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 8192,
+    "max_output_tokens": 8192,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -326,7 +401,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 32768,
+    "max_output_tokens": 32768,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -339,7 +417,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -352,7 +433,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -365,7 +449,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 1047576,
+    "max_output_tokens": 32768,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -379,7 +466,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 1047576,
+    "max_output_tokens": 32768,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -393,7 +483,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 1047576,
+    "max_output_tokens": 32768,
+    "model_family": "gpt-nano"
   },
   {
     "endpoint_type": "azure_openai",
@@ -406,7 +499,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -420,7 +516,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -434,7 +533,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 272000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -448,7 +550,10 @@
     "capabilities": [
       "vision",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -462,7 +567,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -477,7 +585,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 272000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -492,7 +603,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 272000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-nano"
   },
   {
     "endpoint_type": "azure_openai",
@@ -507,7 +621,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 272000,
+    "model_family": "gpt-pro"
   },
   {
     "endpoint_type": "azure_openai",
@@ -525,7 +642,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 272000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -544,7 +664,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -563,7 +686,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -579,7 +705,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -595,7 +724,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -610,7 +742,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -626,7 +761,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -642,7 +780,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -658,7 +799,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -674,7 +818,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "azure_openai",
@@ -689,7 +836,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -705,7 +856,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -721,7 +876,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-nano"
   },
   {
     "endpoint_type": "azure_openai",
@@ -735,7 +894,11 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-pro"
   },
   {
     "endpoint_type": "azure_openai",
@@ -772,7 +935,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 131072,
+    "max_output_tokens": 8192,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -786,7 +952,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 131072,
+    "max_output_tokens": 8192,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -800,7 +969,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 256000,
+    "max_output_tokens": 64000,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -814,7 +986,11 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "max_input_tokens": 128000,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -829,7 +1005,42 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "max_input_tokens": 128000,
+    "model_family": "grok"
+  },
+  {
+    "endpoint_type": "azure_openai",
+    "model": "grok-4-20-non-reasoning",
+    "display_name": "Grok 4.20 (Non-Reasoning)",
+    "default_cost": {
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 6
+    },
+    "capabilities": [
+      "function_calling"
+    ],
+    "context_window": 262000,
+    "max_output_tokens": 8192,
+    "model_family": "grok"
+  },
+  {
+    "endpoint_type": "azure_openai",
+    "model": "grok-4-20-reasoning",
+    "display_name": "Grok 4.20 (Reasoning)",
+    "default_cost": {
+      "input_per_1m_tokens": 2,
+      "output_per_1m_tokens": 6
+    },
+    "capabilities": [
+      "function_calling",
+      "reasoning"
+    ],
+    "context_window": 262000,
+    "max_output_tokens": 8192,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -843,7 +1054,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 2000000,
+    "max_output_tokens": 30000,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -858,7 +1072,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 2000000,
+    "max_output_tokens": 30000,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -872,7 +1089,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 256000,
+    "max_output_tokens": 10000,
+    "model_family": "grok"
   },
   {
     "endpoint_type": "azure_openai",
@@ -886,7 +1106,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 262144,
+    "max_output_tokens": 262144,
+    "model_family": "kimi-thinking"
   },
   {
     "endpoint_type": "azure_openai",
@@ -901,7 +1124,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 262144,
+    "max_output_tokens": 262144,
+    "model_family": "kimi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -913,7 +1139,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -925,7 +1154,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -936,7 +1168,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -949,7 +1184,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -962,7 +1200,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -973,7 +1214,10 @@
     },
     "capabilities": [
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "model_family": "mai"
   },
   {
     "endpoint_type": "azure_openai",
@@ -981,7 +1225,10 @@
     "default_cost": {
       "input_per_1m_tokens": 2.68,
       "output_per_1m_tokens": 3.54
-    }
+    },
+    "context_window": 8192,
+    "max_output_tokens": 2048,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -989,7 +1236,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.3,
       "output_per_1m_tokens": 0.61
-    }
+    },
+    "context_window": 8192,
+    "max_output_tokens": 2048,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1000,7 +1250,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1011,7 +1264,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1022,7 +1278,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "llama"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1034,7 +1293,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8192,
+    "model_family": "ministral"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1046,7 +1308,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "mistral-large"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1059,7 +1324,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 128000,
+    "model_family": "mistral-medium"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1071,7 +1339,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 128000,
+    "model_family": "mistral-nemo"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1084,7 +1355,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "mistral-small"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1096,7 +1370,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "model-router"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1110,7 +1387,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1123,7 +1403,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 65536,
+    "model_family": "o-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1136,7 +1419,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "o"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1150,7 +1436,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1163,7 +1452,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1177,7 +1469,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o-mini"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1186,7 +1481,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.17,
       "output_per_1m_tokens": 0.68
-    }
+    },
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1195,7 +1493,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.17,
       "output_per_1m_tokens": 0.68
-    }
+    },
+    "context_window": 4096,
+    "max_output_tokens": 1024,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1204,7 +1505,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.13,
       "output_per_1m_tokens": 0.52
-    }
+    },
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1213,7 +1517,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.13,
       "output_per_1m_tokens": 0.52
-    }
+    },
+    "context_window": 4096,
+    "max_output_tokens": 1024,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1222,7 +1529,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.15,
       "output_per_1m_tokens": 0.6
-    }
+    },
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1231,7 +1541,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.15,
       "output_per_1m_tokens": 0.6
-    }
+    },
+    "context_window": 8192,
+    "max_output_tokens": 2048,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1239,7 +1552,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.13,
       "output_per_1m_tokens": 0.52
-    }
+    },
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1247,7 +1563,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.16,
       "output_per_1m_tokens": 0.64
-    }
+    },
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1255,7 +1574,10 @@
     "default_cost": {
       "input_per_1m_tokens": 0.125,
       "output_per_1m_tokens": 0.5
-    }
+    },
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1266,7 +1588,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1278,7 +1603,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1290,7 +1618,10 @@
     "capabilities": [
       "vision",
       "audio_input"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1301,7 +1632,10 @@
     },
     "capabilities": [
       "reasoning"
-    ]
+    ],
+    "context_window": 32000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1312,28 +1646,40 @@
     },
     "capabilities": [
       "reasoning"
-    ]
+    ],
+    "context_window": 32000,
+    "max_output_tokens": 4096,
+    "model_family": "phi"
   },
   {
     "endpoint_type": "azure_openai",
     "model": "text-embedding-3-large",
     "default_cost": {
       "input_per_1m_tokens": 0.13
-    }
+    },
+    "context_window": 8191,
+    "max_output_tokens": 3072,
+    "model_family": "text-embedding"
   },
   {
     "endpoint_type": "azure_openai",
     "model": "text-embedding-3-small",
     "default_cost": {
       "input_per_1m_tokens": 0.02
-    }
+    },
+    "context_window": 8191,
+    "max_output_tokens": 1536,
+    "model_family": "text-embedding"
   },
   {
     "endpoint_type": "azure_openai",
     "model": "text-embedding-ada-002",
     "default_cost": {
       "input_per_1m_tokens": 0.1
-    }
+    },
+    "context_window": 8192,
+    "max_output_tokens": 1536,
+    "model_family": "text-embedding"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1381,6 +1727,9 @@
       "vision",
       "function_calling"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 8192,
+    "model_family": "claude-haiku",
     "aliases": [
       "claude-3.5-haiku-20241022"
     ]
@@ -1398,6 +1747,9 @@
       "vision",
       "function_calling"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 8192,
+    "model_family": "claude-haiku",
     "aliases": [
       "claude-3.5-haiku-latest"
     ]
@@ -1415,6 +1767,9 @@
       "vision",
       "function_calling"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 8192,
+    "model_family": "claude-sonnet",
     "aliases": [
       "claude-3.5-sonnet-20240620"
     ]
@@ -1432,6 +1787,9 @@
       "vision",
       "function_calling"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 8192,
+    "model_family": "claude-sonnet",
     "aliases": [
       "claude-3.5-sonnet-20241022"
     ]
@@ -1450,26 +1808,11 @@
       "function_calling",
       "reasoning"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet",
     "aliases": [
       "claude-3.7-sonnet-20250219"
-    ]
-  },
-  {
-    "endpoint_type": "claude",
-    "model": "claude-3-7-sonnet-latest",
-    "display_name": "Claude Sonnet 3.7 (latest)",
-    "default_cost": {
-      "input_per_1m_tokens": 3,
-      "output_per_1m_tokens": 15,
-      "cached_input_per_1m_tokens": 0.3
-    },
-    "capabilities": [
-      "vision",
-      "function_calling",
-      "reasoning"
-    ],
-    "aliases": [
-      "claude-3.7-sonnet-latest"
     ]
   },
   {
@@ -1484,7 +1827,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 4096,
+    "model_family": "claude-haiku"
   },
   {
     "endpoint_type": "claude",
@@ -1498,7 +1844,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 4096,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "claude",
@@ -1512,7 +1861,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 4096,
+    "model_family": "claude-sonnet"
   },
   {
     "endpoint_type": "claude",
@@ -1527,7 +1879,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-haiku"
   },
   {
     "endpoint_type": "claude",
@@ -1542,7 +1897,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-haiku"
   },
   {
     "endpoint_type": "claude",
@@ -1557,7 +1915,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 32000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "claude",
@@ -1572,7 +1933,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 32000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "claude",
@@ -1587,7 +1951,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 32000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "claude",
@@ -1603,6 +1970,9 @@
       "function_calling",
       "reasoning"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 32000,
+    "model_family": "claude-opus",
     "aliases": [
       "claude-opus-4",
       "claude-4-opus"
@@ -1621,7 +1991,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "claude",
@@ -1636,7 +2009,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "claude",
@@ -1651,7 +2027,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 128000,
+    "model_family": "claude-opus"
   },
   {
     "endpoint_type": "claude",
@@ -1666,7 +2045,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet"
   },
   {
     "endpoint_type": "claude",
@@ -1682,6 +2064,9 @@
       "function_calling",
       "reasoning"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet",
     "aliases": [
       "claude-sonnet-4",
       "claude-4-sonnet"
@@ -1700,7 +2085,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet"
   },
   {
     "endpoint_type": "claude",
@@ -1716,6 +2104,9 @@
       "function_calling",
       "reasoning"
     ],
+    "context_window": 200000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet",
     "aliases": [
       "claude-sonnet-4.5"
     ]
@@ -1733,7 +2124,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet"
   },
   {
     "endpoint_type": "gemini",
@@ -1748,7 +2142,10 @@
       "vision",
       "audio_input",
       "function_calling"
-    ]
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 8192,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1763,7 +2160,10 @@
       "vision",
       "audio_input",
       "function_calling"
-    ]
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 8192,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1778,7 +2178,10 @@
       "vision",
       "audio_input",
       "function_calling"
-    ]
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 8192,
+    "model_family": "gemini-pro"
   },
   {
     "endpoint_type": "gemini",
@@ -1794,7 +2197,10 @@
       "audio_input",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 8192,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1809,7 +2215,10 @@
       "audio_input",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 8192,
+    "model_family": "gemini-flash-lite"
   },
   {
     "endpoint_type": "gemini",
@@ -1826,7 +2235,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1841,7 +2253,10 @@
       "vision",
       "image_generation",
       "reasoning"
-    ]
+    ],
+    "context_window": 32768,
+    "max_output_tokens": 32768,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1856,7 +2271,10 @@
       "vision",
       "image_generation",
       "reasoning"
-    ]
+    ],
+    "context_window": 32768,
+    "max_output_tokens": 32768,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1873,7 +2291,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash-lite"
   },
   {
     "endpoint_type": "gemini",
@@ -1889,7 +2310,10 @@
       "audio_input",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash-lite"
   },
   {
     "endpoint_type": "gemini",
@@ -1906,7 +2330,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash-lite"
   },
   {
     "endpoint_type": "gemini",
@@ -1922,7 +2349,10 @@
       "audio_input",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1939,7 +2369,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1956,7 +2389,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1968,7 +2404,10 @@
     },
     "capabilities": [
       "audio_output"
-    ]
+    ],
+    "context_window": 8000,
+    "max_output_tokens": 16000,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -1985,7 +2424,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-pro"
   },
   {
     "endpoint_type": "gemini",
@@ -2002,7 +2444,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-pro"
   },
   {
     "endpoint_type": "gemini",
@@ -2019,7 +2464,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-pro"
   },
   {
     "endpoint_type": "gemini",
@@ -2031,7 +2479,10 @@
     },
     "capabilities": [
       "audio_output"
-    ]
+    ],
+    "context_window": 8000,
+    "max_output_tokens": 16000,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -2048,7 +2499,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -2065,7 +2519,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 64000,
+    "model_family": "gemini-pro"
   },
   {
     "endpoint_type": "gemini",
@@ -2079,7 +2536,10 @@
       "vision",
       "image_generation",
       "reasoning"
-    ]
+    ],
+    "context_window": 131072,
+    "max_output_tokens": 32768,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -2096,7 +2556,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash-lite"
   },
   {
     "endpoint_type": "gemini",
@@ -2113,7 +2576,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-pro"
   },
   {
     "endpoint_type": "gemini",
@@ -2130,7 +2596,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-pro"
   },
   {
     "endpoint_type": "gemini",
@@ -2138,7 +2607,10 @@
     "display_name": "Gemini Embedding 001",
     "default_cost": {
       "input_per_1m_tokens": 0.15
-    }
+    },
+    "context_window": 2048,
+    "max_output_tokens": 3072,
+    "model_family": "gemini"
   },
   {
     "endpoint_type": "gemini",
@@ -2155,7 +2627,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -2172,7 +2647,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1048576,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash-lite"
   },
   {
     "endpoint_type": "gemini",
@@ -2188,7 +2666,10 @@
       "audio_output",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 8000,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -2203,7 +2684,10 @@
       "audio_output",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 131072,
+    "max_output_tokens": 65536,
+    "model_family": "gemini-flash"
   },
   {
     "endpoint_type": "gemini",
@@ -2212,7 +2696,10 @@
     "capabilities": [
       "vision",
       "structured_output"
-    ]
+    ],
+    "context_window": 32768,
+    "max_output_tokens": 8192,
+    "model_family": "gemma"
   },
   {
     "endpoint_type": "gemini",
@@ -2222,7 +2709,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 131072,
+    "max_output_tokens": 8192,
+    "model_family": "gemma"
   },
   {
     "endpoint_type": "gemini",
@@ -2230,17 +2720,63 @@
     "display_name": "Gemma 3 4B",
     "capabilities": [
       "vision"
-    ]
+    ],
+    "context_window": 32768,
+    "max_output_tokens": 8192,
+    "model_family": "gemma"
   },
   {
     "endpoint_type": "gemini",
     "model": "gemma-3n-e2b-it",
-    "display_name": "Gemma 3n 2B"
+    "display_name": "Gemma 3n 2B",
+    "context_window": 8192,
+    "max_output_tokens": 2000,
+    "model_family": "gemma"
   },
   {
     "endpoint_type": "gemini",
     "model": "gemma-3n-e4b-it",
-    "display_name": "Gemma 3n 4B"
+    "display_name": "Gemma 3n 4B",
+    "context_window": 8192,
+    "max_output_tokens": 2000,
+    "model_family": "gemma"
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemma-4-26b-it",
+    "display_name": "Gemma 4 26B",
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "context_window": 256000,
+    "max_output_tokens": 8192,
+    "model_family": "gemma"
+  },
+  {
+    "endpoint_type": "gemini",
+    "model": "gemma-4-31b-it",
+    "display_name": "Gemma 4 31B",
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "context_window": 256000,
+    "max_output_tokens": 8192,
+    "model_family": "gemma"
+  },
+  {
+    "endpoint_type": "openai",
+    "model": "chatgpt-image-latest",
+    "capabilities": [
+      "vision",
+      "image_generation"
+    ],
+    "model_family": "gpt-image"
   },
   {
     "endpoint_type": "openai",
@@ -2254,7 +2790,10 @@
     "capabilities": [
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "gpt-codex-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2287,7 +2826,10 @@
       "input_per_1m_tokens": 0.5,
       "output_per_1m_tokens": 1.5,
       "cached_input_per_1m_tokens": 1.25
-    }
+    },
+    "context_window": 16385,
+    "max_output_tokens": 4096,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2298,7 +2840,10 @@
     },
     "capabilities": [
       "function_calling"
-    ]
+    ],
+    "context_window": 8192,
+    "max_output_tokens": 8192,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2311,7 +2856,10 @@
     "capabilities": [
       "vision",
       "function_calling"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2325,7 +2873,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 1047576,
+    "max_output_tokens": 32768,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2340,7 +2891,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 1047576,
+    "max_output_tokens": 32768,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2355,7 +2909,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 1047576,
+    "max_output_tokens": 32768,
+    "model_family": "gpt-nano"
   },
   {
     "endpoint_type": "openai",
@@ -2369,7 +2926,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2383,7 +2943,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 4096,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2398,7 +2961,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2413,7 +2979,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2428,7 +2997,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2443,7 +3015,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2457,7 +3033,11 @@
       "vision",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2472,7 +3052,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2488,7 +3072,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2504,7 +3092,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-nano"
   },
   {
     "endpoint_type": "openai",
@@ -2519,7 +3111,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 272000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-pro"
   },
   {
     "endpoint_type": "openai",
@@ -2534,7 +3130,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2550,7 +3150,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2566,7 +3169,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2582,7 +3189,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2598,7 +3209,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2613,7 +3228,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2644,7 +3263,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2660,7 +3282,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2674,7 +3300,11 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-pro"
   },
   {
     "endpoint_type": "openai",
@@ -2689,7 +3319,10 @@
       "vision",
       "function_calling",
       "structured_output"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 16384,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2705,7 +3338,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-codex"
   },
   {
     "endpoint_type": "openai",
@@ -2721,7 +3358,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32000,
+    "max_input_tokens": 100000,
+    "model_family": "gpt-codex-spark"
   },
   {
     "endpoint_type": "openai",
@@ -2736,7 +3377,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 1050000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 922000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "openai",
@@ -2752,7 +3397,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2768,7 +3417,11 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 400000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_family": "gpt-nano"
   },
   {
     "endpoint_type": "openai",
@@ -2782,31 +3435,38 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 1050000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 922000,
+    "model_family": "gpt-pro"
   },
   {
     "endpoint_type": "openai",
     "model": "gpt-image-1",
-    "display_name": "GPT Image 1",
-    "default_cost": {
-      "input_per_1m_tokens": 5,
-      "output_per_1m_tokens": 40
-    },
     "capabilities": [
+      "vision",
       "image_generation"
-    ]
+    ],
+    "model_family": "gpt-image"
+  },
+  {
+    "endpoint_type": "openai",
+    "model": "gpt-image-1-mini",
+    "capabilities": [
+      "vision",
+      "image_generation"
+    ],
+    "model_family": "gpt-image"
   },
   {
     "endpoint_type": "openai",
     "model": "gpt-image-1.5",
-    "display_name": "GPT Image 1.5",
-    "default_cost": {
-      "input_per_1m_tokens": 5,
-      "output_per_1m_tokens": 40
-    },
     "capabilities": [
+      "vision",
       "image_generation"
-    ]
+    ],
+    "model_family": "gpt-image"
   },
   {
     "endpoint_type": "openai",
@@ -2821,7 +3481,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o"
   },
   {
     "endpoint_type": "openai",
@@ -2834,7 +3497,10 @@
     "capabilities": [
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 65536,
+    "model_family": "o-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2846,7 +3512,10 @@
     },
     "capabilities": [
       "reasoning"
-    ]
+    ],
+    "context_window": 128000,
+    "max_output_tokens": 32768,
+    "model_family": "o"
   },
   {
     "endpoint_type": "openai",
@@ -2860,7 +3529,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o-pro"
   },
   {
     "endpoint_type": "openai",
@@ -2875,7 +3547,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o"
   },
   {
     "endpoint_type": "openai",
@@ -2889,7 +3564,10 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o"
   },
   {
     "endpoint_type": "openai",
@@ -2903,7 +3581,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2917,7 +3598,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o-pro"
   },
   {
     "endpoint_type": "openai",
@@ -2932,7 +3616,10 @@
       "function_calling",
       "structured_output",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o-mini"
   },
   {
     "endpoint_type": "openai",
@@ -2946,28 +3633,40 @@
       "vision",
       "function_calling",
       "reasoning"
-    ]
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 100000,
+    "model_family": "o-mini"
   },
   {
     "endpoint_type": "openai",
     "model": "text-embedding-3-large",
     "default_cost": {
       "input_per_1m_tokens": 0.13
-    }
+    },
+    "context_window": 8191,
+    "max_output_tokens": 3072,
+    "model_family": "text-embedding"
   },
   {
     "endpoint_type": "openai",
     "model": "text-embedding-3-small",
     "default_cost": {
       "input_per_1m_tokens": 0.02
-    }
+    },
+    "context_window": 8191,
+    "max_output_tokens": 1536,
+    "model_family": "text-embedding"
   },
   {
     "endpoint_type": "openai",
     "model": "text-embedding-ada-002",
     "default_cost": {
       "input_per_1m_tokens": 0.1
-    }
+    },
+    "context_window": 8192,
+    "max_output_tokens": 1536,
+    "model_family": "text-embedding"
   },
   {
     "endpoint_type": "openai",

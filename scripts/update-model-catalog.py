@@ -12,6 +12,7 @@
   input  = /tmp/models_dev_raw.json
   output = internal/catalog/data/models.json
 """
+
 import json
 import sys
 from typing import Any, Optional
@@ -97,6 +98,23 @@ def transform_model(provider_id: str, model_id: str, m: dict) -> Optional[dict]:
     if caps:
         entry["capabilities"] = caps
 
+    # limit 字段
+    limit = m.get("limit", {})
+    ctx = limit.get("context")
+    if isinstance(ctx, (int, float)) and ctx > 0:
+        entry["context_window"] = int(ctx)
+    out = limit.get("output")
+    if isinstance(out, (int, float)) and out > 0:
+        entry["max_output_tokens"] = int(out)
+    inp = limit.get("input")
+    if isinstance(inp, (int, float)) and inp > 0:
+        entry["max_input_tokens"] = int(inp)
+
+    # family 字段
+    family = m.get("family", "")
+    if family:
+        entry["model_family"] = family
+
     return entry
 
 
@@ -106,19 +124,37 @@ def _supplementary_models() -> list[dict]:
 
     # --- OpenAI: 图像、音频类模型 ---
     image_models = [
-        ("dall-e-3", "DALL·E 3", {"input_per_1m_tokens": 40, "output_per_1m_tokens": 80}),
-        ("dall-e-2", "DALL·E 2", {"input_per_1m_tokens": 20, "output_per_1m_tokens": 20}),
-        ("gpt-image-1", "GPT Image 1", {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40}),
-        ("gpt-image-1.5", "GPT Image 1.5", {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40}),
+        (
+            "dall-e-3",
+            "DALL·E 3",
+            {"input_per_1m_tokens": 40, "output_per_1m_tokens": 80},
+        ),
+        (
+            "dall-e-2",
+            "DALL·E 2",
+            {"input_per_1m_tokens": 20, "output_per_1m_tokens": 20},
+        ),
+        (
+            "gpt-image-1",
+            "GPT Image 1",
+            {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40},
+        ),
+        (
+            "gpt-image-1.5",
+            "GPT Image 1.5",
+            {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40},
+        ),
     ]
     for model_id, name, cost in image_models:
-        extras.append({
-            "endpoint_type": "openai",
-            "model": model_id,
-            "display_name": name,
-            "default_cost": cost,
-            "capabilities": ["image_generation"],
-        })
+        extras.append(
+            {
+                "endpoint_type": "openai",
+                "model": model_id,
+                "display_name": name,
+                "default_cost": cost,
+                "capabilities": ["image_generation"],
+            }
+        )
 
     audio_models = [
         ("tts-1", "TTS 1", {"input_per_1m_tokens": 15}),
@@ -126,44 +162,56 @@ def _supplementary_models() -> list[dict]:
         ("whisper-1", "Whisper 1", {"input_per_1m_tokens": 6}),
     ]
     for model_id, name, cost in audio_models:
-        extras.append({
-            "endpoint_type": "openai",
-            "model": model_id,
-            "display_name": name,
-            "default_cost": cost,
-            "capabilities": ["audio_input"] if "whisper" in model_id else ["audio_output"],
-        })
+        extras.append(
+            {
+                "endpoint_type": "openai",
+                "model": model_id,
+                "display_name": name,
+                "default_cost": cost,
+                "capabilities": ["audio_input"]
+                if "whisper" in model_id
+                else ["audio_output"],
+            }
+        )
 
     # --- OpenAI: gpt-5.2-chat (azure 有 但 openai provider 缺) ---
-    extras.append({
-        "endpoint_type": "openai",
-        "model": "gpt-5.2-chat",
-        "display_name": "GPT-5.2 Chat",
-        "default_cost": {
-            "input_per_1m_tokens": 2,
-            "output_per_1m_tokens": 8,
-            "cached_input_per_1m_tokens": 0.2,
-        },
-        "capabilities": ["vision", "function_calling", "structured_output"],
-    })
+    extras.append(
+        {
+            "endpoint_type": "openai",
+            "model": "gpt-5.2-chat",
+            "display_name": "GPT-5.2 Chat",
+            "default_cost": {
+                "input_per_1m_tokens": 2,
+                "output_per_1m_tokens": 8,
+                "cached_input_per_1m_tokens": 0.2,
+            },
+            "capabilities": ["vision", "function_calling", "structured_output"],
+        }
+    )
 
     # --- Azure OpenAI: 同样补充图像和音频模型 ---
     for model_id, name, cost in image_models:
-        extras.append({
-            "endpoint_type": "azure_openai",
-            "model": model_id,
-            "display_name": name,
-            "default_cost": cost,
-            "capabilities": ["image_generation"],
-        })
+        extras.append(
+            {
+                "endpoint_type": "azure_openai",
+                "model": model_id,
+                "display_name": name,
+                "default_cost": cost,
+                "capabilities": ["image_generation"],
+            }
+        )
     for model_id, name, cost in audio_models:
-        extras.append({
-            "endpoint_type": "azure_openai",
-            "model": model_id,
-            "display_name": name,
-            "default_cost": cost,
-            "capabilities": ["audio_input"] if "whisper" in model_id else ["audio_output"],
-        })
+        extras.append(
+            {
+                "endpoint_type": "azure_openai",
+                "model": model_id,
+                "display_name": name,
+                "default_cost": cost,
+                "capabilities": ["audio_input"]
+                if "whisper" in model_id
+                else ["audio_output"],
+            }
+        )
 
     # --- Claude: 仅保留 dot-notation 变体作为独立条目 ---
     # 注意: claude-sonnet-4, claude-opus-4, claude-4-sonnet, claude-4-opus, claude-sonnet-4.5
