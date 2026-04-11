@@ -189,13 +189,14 @@ func (s *CopilotService) RevokeAuth(ctx context.Context, accountID string) error
 }
 
 // GetToken 获取有效的 Copilot access token（自动刷新）。
+// 允许 active 和 quota_exceeded 状态（额度耗尽不影响 token 有效性）。
 func (s *CopilotService) GetToken(ctx context.Context, accountID string) (string, error) {
 	account, err := s.accountStore.Get(accountID)
 	if err != nil {
 		return "", fmt.Errorf("获取账户 %q: %w", accountID, err)
 	}
 
-	if account.Status != nosql.AccountStatusActive {
+	if account.Status != nosql.AccountStatusActive && account.Status != nosql.AccountStatusQuotaExceeded {
 		return "", fmt.Errorf("账户 %q 状态为 %q，无法获取 token", accountID, account.Status)
 	}
 

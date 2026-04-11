@@ -1268,6 +1268,28 @@
     </div>
   </div>
 
+  <!-- ===== Copilot Pool Models Modal ===== -->
+  <div class="modal-overlay" id="copilotPoolModelsModal">
+    <div class="modal" style="max-width: 640px;">
+      <div class="modal-header">
+        <h3 id="copilotPoolModelsTitle">池可用模型</h3>
+        <button class="modal-close" data-close="copilotPoolModelsModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="copilotPoolModelsInfo" style="color:#6b7280;font-size:13px;margin-bottom:12px;"></p>
+        <table class="data-table" style="width:100%;">
+          <thead><tr><th>模型名称</th><th>乘数</th><th>类别</th></tr></thead>
+          <tbody id="copilotPoolModelsTableBody">
+            <tr class="empty-row"><td colspan="3">点击「📋 可用模型」按钮加载</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="copilotPoolModelsModal">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== Copilot Auth (Device Code) Modal ===== -->
   <div class="modal-overlay" id="copilotAuthModal">
     <div class="modal" style="max-width: 480px;">
@@ -2205,6 +2227,7 @@
             + "<td>" + esc(fmtTime(p.updated_at)) + "</td>"
             + "<td><div class='btn-group'>"
             + "<button class='btn btn-sm' data-manage-accounts='" + esc(p.name) + "'>👤 账户</button>"
+            + "<button class='btn btn-sm' data-pool-models='" + esc(p.name) + "'>📋 可用模型</button>"
             + "<button class='btn btn-sm' data-edit-pool='" + esc(p.name) + "'>编辑</button>"
             + "<button class='btn btn-danger btn-sm' data-del-pool='" + esc(p.name) + "'>删除</button>"
             + "</div></td></tr>";
@@ -2215,6 +2238,9 @@
         var t = e.target;
         if (t.dataset.manageAccounts) {
           showCopilotAccountsPanel(t.dataset.manageAccounts);
+        }
+        if (t.dataset.poolModels) {
+          loadPoolModels(t.dataset.poolModels);
         }
         if (t.dataset.editPool) {
           var p = state.copilotPools.find(function(x) { return x.name === t.dataset.editPool; });
@@ -2663,6 +2689,43 @@
           this.textContent = "展开";
         }
       });
+
+      // ===== Pool Models Intersection =====
+      async function loadPoolModels(poolName) {
+        document.getElementById("copilotPoolModelsTitle").textContent = "池「" + poolName + "」可用模型（交集）";
+        var info = document.getElementById("copilotPoolModelsInfo");
+        var tb = document.getElementById("copilotPoolModelsTableBody");
+        info.textContent = "正在查询池内所有账户的可用模型交集...";
+        tb.innerHTML = "<tr class='empty-row'><td colspan='3'>加载中...</td></tr>";
+        openModal("copilotPoolModelsModal");
+        try {
+          var data = await api("/admin/data/copilot-pools/" + encodeURIComponent(poolName) + "/models");
+          var models = Array.isArray(data.models) ? data.models : [];
+          var count = data.count || 0;
+          var acctCount = data.account_count || 0;
+          var source = data.source || "";
+          if (source === "no_available_accounts") {
+            info.textContent = "该池内没有可用账户（需要 active 或 quota_exceeded 状态且已授权的账户）。";
+          } else {
+            info.textContent = "基于 " + acctCount + " 个账户的模型交集，共 " + count + " 个可用模型。";
+          }
+          if (!models.length) {
+            tb.innerHTML = "<tr class='empty-row'><td colspan='3'>无可用模型</td></tr>";
+            return;
+          }
+          tb.innerHTML = models.map(function(m) {
+            return "<tr>"
+              + "<td>" + esc(m.name) + "</td>"
+              + "<td>" + esc(m.multiplier != null ? m.multiplier : "-") + "</td>"
+              + "<td><span class='model-cat-badge " + modelCatClass(m.category) + "'>" + esc(m.category || "标准") + "</span></td>"
+              + "</tr>";
+          }).join("");
+        } catch(e) {
+          info.textContent = "";
+          tb.innerHTML = "<tr class='empty-row'><td colspan='3'>加载失败: " + esc(e.message) + "</td></tr>";
+          toast("加载池模型列表失败: " + e.message, "error");
+        }
+      }
 
       /* ===== Audit ===== */
       async function loadAudit() {

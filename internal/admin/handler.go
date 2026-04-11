@@ -112,6 +112,7 @@ func NewHandler(
 		r.Post("/copilot-pools", h.handleCreateCopilotPool)
 		r.Put("/copilot-pools/{name}", h.handleUpdateCopilotPool)
 		r.Delete("/copilot-pools/{name}", h.handleDeleteCopilotPool)
+		r.Get("/copilot-pools/{name}/models", h.handleListCopilotPoolModels)
 
 		// Copilot account management
 		r.Get("/copilot-accounts", h.handleListCopilotAccounts)
@@ -1776,17 +1777,20 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleListCopilotModels(w http.ResponseWriter, r *http.Request) {
-	// 尝试从 Copilot API 动态获取可用模型（需要至少一个 active 账户的 token）
+	// 尝试从 Copilot API 动态获取可用模型（需要至少一个有 token 的账户）
 	if h.copilotService != nil && h.copilotAcctStore != nil {
 		accounts, err := h.copilotAcctStore.List()
 		if err == nil {
 			for _, acct := range accounts {
-				if acct.Status != nosql.AccountStatusActive || acct.OAuthToken == "" {
+				// 允许 active 和 quota_exceeded 状态（额度耗尽仍可查询模型列表）
+				if (acct.Status != nosql.AccountStatusActive && acct.Status != nosql.AccountStatusQuotaExceeded) || acct.OAuthToken == "" {
 					continue
 				}
 				// 获取 copilot access token（也会刷新并保存 APIBaseURL）
 				token, err := h.copilotService.GetToken(r.Context(), acct.ID)
 				if err != nil {
+					h.logger.Warn("获取 Copilot token 失败，跳过该账户",
+						"account_id", acct.ID, "status", acct.Status, "error", err)
 					continue
 				}
 				// 重新读取账户以获取更新后的 APIBaseURL
@@ -1821,5 +1825,127 @@ func (h *Handler) handleListCopilotModels(w http.ResponseWriter, r *http.Request
 		"models": models,
 		"count":  len(models),
 		"source": "local",
+	})
+}
+
+// handleListCopilotPoolModels 获取指定池内所有账户可用模型的交集。
+// GET /admin/data/copilot-pools/{name}/models
+// 逻辑：遍历池内所有 active/quota_exceeded 账户，每个账户通过 Copilot API 获取模型列表，
+// 最终返回所有账户的交集（只有所有账户都有的模型才返回）。
+func (h *Handler) handleListCopilotPoolModels(w http.ResponseWriter, r *http.Request) {
+	poolName := strings.TrimSpace(chi.URLParam(r, "name"))
+	if poolName == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing pool name"))
+		return
+	}
+
+	if h.copilotService == nil || h.copilotAcctStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse("copilot not configured"))
+		return
+	}
+
+	accounts, err := h.copilotAcctStore.ListByPool(poolName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse("list accounts: "+err.Error()))
+		return
+	}
+
+	// 收集每个可用账户的模型列表
+	type acctModels struct {
+		AccountID string
+		Username  string
+		Models    []copilot.ModelInfo
+	}
+	var perAccount []acctModels
+
+	for _, acct := range accounts {
+		if (acct.Status != nosql.AccountStatusActive && acct.Status != nosql.AccountStatusQuotaExceeded) || acct.OAuthToken == "" {
+			continue
+		}
+
+		token, err := h.copilotService.GetToken(r.Context(), acct.ID)
+		if err != nil {
+			h.logger.Warn("获取账户 token 失败，跳过",
+				"pool", poolName, "account_id", acct.ID, "error", err)
+			continue
+		}
+
+		// 重新读取以获取 APIBaseURL
+		refreshed, err := h.copilotAcctStore.Get(acct.ID)
+		if err != nil {
+			refreshed = &acct
+		}
+
+		modelsURL := copilot.CopilotModelsURL
+		if refreshed.APIBaseURL != "" {
+			modelsURL = strings.TrimRight(refreshed.APIBaseURL, "/") + "/models"
+		}
+
+		models, err := copilot.FetchModelsFromAPI(r.Context(), nil, token, modelsURL)
+		if err != nil {
+			h.logger.Warn("获取账户模型列表失败，跳过",
+				"pool", poolName, "account_id", acct.ID, "models_url", modelsURL, "error", err)
+			continue
+		}
+
+		perAccount = append(perAccount, acctModels{
+			AccountID: acct.ID,
+			Username:  acct.GitHubUsername,
+			Models:    models,
+		})
+	}
+
+	if len(perAccount) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"pool":          poolName,
+			"models":        []copilot.ModelInfo{},
+			"count":         0,
+			"account_count": 0,
+			"source":        "no_available_accounts",
+		})
+		return
+	}
+
+	// 计算交集：以第一个账户的模型为基准，保留所有账户都有的模型
+	intersection := make(map[string]copilot.ModelInfo)
+	for _, m := range perAccount[0].Models {
+		intersection[m.Name] = m
+	}
+
+	for i := 1; i < len(perAccount); i++ {
+		otherSet := make(map[string]bool)
+		for _, m := range perAccount[i].Models {
+			otherSet[m.Name] = true
+		}
+		for name := range intersection {
+			if !otherSet[name] {
+				delete(intersection, name)
+			}
+		}
+	}
+
+	// 转为有序切片
+	var result []copilot.ModelInfo
+	for _, m := range intersection {
+		result = append(result, m)
+	}
+	// 排序：按 category 优先级 -> 名字
+	categoryOrder := map[string]int{"免费": 0, "低消耗": 1, "标准": 2, "高消耗": 3}
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			ci := categoryOrder[result[i].Category]
+			cj := categoryOrder[result[j].Category]
+			if ci > cj || (ci == cj && result[i].Name > result[j].Name) {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pool":          poolName,
+		"models":        result,
+		"count":         len(result),
+		"account_count": len(perAccount),
+		"source":        "copilot_api_intersection",
 	})
 }
