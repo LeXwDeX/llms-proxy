@@ -629,6 +629,10 @@
           <span class="nav-icon">🎯</span>
           <span class="nav-label">目标管理</span>
         </div>
+        <div class="sidebar-nav-item" data-page="copilot-pools">
+          <span class="nav-icon">🔗</span>
+          <span class="nav-label">Copilot 订阅管理</span>
+        </div>
         <div class="sidebar-nav-item" data-page="clients">
           <span class="nav-icon">👥</span>
           <span class="nav-label">客户端管理</span>
@@ -637,6 +641,10 @@
           <span class="nav-icon">💰</span>
           <span class="nav-label">模型费用</span>
         </div>
+        <div class="sidebar-nav-item" data-page="model-catalog">
+          <span class="nav-icon">📦</span>
+          <span class="nav-label">模型目录</span>
+        </div>
         <div class="sidebar-nav-item" data-page="usage">
           <span class="nav-icon">📈</span>
           <span class="nav-label">消费统计</span>
@@ -644,10 +652,6 @@
         <div class="sidebar-nav-item" data-page="audit">
           <span class="nav-icon">📋</span>
           <span class="nav-label">审计日志</span>
-        </div>
-        <div class="sidebar-nav-item" data-page="copilot-pools">
-          <span class="nav-icon">🔗</span>
-          <span class="nav-label">Copilot 订阅管理</span>
         </div>
       </nav>
       <div class="sidebar-footer">
@@ -804,6 +808,7 @@
           <div class="panel">
             <div class="panel-header">
               <h3>模型费用配置</h3>
+              <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">⚠️ Copilot 模型走独立订阅额度系统，不支持在此配置 token 费用</p>
               <div class="btn-group">
                 <button class="btn" id="refreshModelCostsBtn">🔄 刷新</button>
                 <button class="btn btn-primary" id="newModelCostBtn">➕ 新增费用</button>
@@ -958,6 +963,60 @@
                   <tr class="empty-row"><td colspan="6">加载中...</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== Page: 模型目录 ========== -->
+        <div class="page" id="page-model-catalog">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>模型目录</h3>
+              <div class="btn-group">
+                <!-- 渠道筛选 -->
+                <select class="form-control" id="catalogEpFilter" style="width:160px;">
+                  <option value="">全部渠道</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="azure_openai">Azure OpenAI</option>
+                  <option value="claude">Claude</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="wangsu_openai">网宿 OpenAI</option>
+                  <option value="wangsu_claude">网宿 Claude</option>
+                  <option value="wangsu_gemini">网宿 Gemini</option>
+                </select>
+                <!-- 关键词搜索 -->
+                <input type="text" class="form-control" id="catalogSearch" placeholder="搜索模型名..." style="width:200px;">
+                <button class="btn" id="refreshCatalogBtn">🔄 刷新</button>
+              </div>
+            </div>
+            <div class="panel-body no-pad">
+              <table id="catalogTable">
+                <thead>
+                  <tr>
+                    <th>渠道</th>
+                    <th>模型名</th>
+                    <th>显示名</th>
+                    <th>模型家族</th>
+                    <th>上下文窗口</th>
+                    <th>最大输出</th>
+                    <th>能力标签</th>
+                    <th>输入价格 /1M</th>
+                    <th>输出价格 /1M</th>
+                  </tr>
+                </thead>
+                <tbody id="catalogTableBody">
+                  <tr class="empty-row"><td colspan="9">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <!-- 分页条 -->
+            <div id="catalogPagination" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--card-border);">
+              <span id="catalogPageInfo" style="font-size:12px;color:var(--text-muted);"></span>
+              <div class="btn-group">
+                <button class="btn btn-sm" id="catalogPrevBtn">◀ 上一页</button>
+                <span id="catalogPageNum" style="padding:0 12px;font-size:13px;"></span>
+                <button class="btn btn-sm" id="catalogNextBtn">下一页 ▶</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1417,6 +1476,7 @@
         "model-costs": "模型费用",
         usage: "消费统计",
         audit: "审计日志",
+        "model-catalog": "模型目录",
         "copilot-pools": "Copilot 订阅管理"
       };
       function switchPage(page) {
@@ -1458,6 +1518,7 @@
         editingClient: null,
         editingModelCost: null,
         usageRange: { from: null, to: null },
+        catalogAllCache: null,
         catalogCache: {}
       };
 
@@ -2803,6 +2864,132 @@
         } catch(e) { toast("修改失败: " + e.message, "error"); }
       });
 
+      /* ===== 模型目录 ===== */
+      var catalogAllModels = [];      // 全量数据（已排序）
+      var catalogFiltered  = [];      // 过滤后
+      var catalogPage      = 1;
+      var catalogPageSize  = 30;
+
+      async function loadModelCatalog() {
+        // 优先用缓存；无缓存则全量拉取（使用 /admin/data/catalog 不带 endpoint_type 参数）
+        if (!state.catalogAllCache) {
+          try {
+            var data = await api("/admin/data/catalog");
+            state.catalogAllCache = Array.isArray(data.models) ? data.models : [];
+          } catch(e) {
+            document.getElementById("catalogTableBody").innerHTML =
+              "<tr class='empty-row'><td colspan='9'>加载失败: "+esc(e.message)+"</td></tr>";
+            return;
+          }
+        }
+        catalogAllModels = state.catalogAllCache;
+        catalogPage = 1;
+        applyCatalogFilter();
+      }
+
+      function applyCatalogFilter() {
+        var epFilter = document.getElementById("catalogEpFilter").value;
+        var kw = (document.getElementById("catalogSearch").value || "").toLowerCase().trim();
+        catalogFiltered = catalogAllModels.filter(function(m) {
+          if (epFilter && m.endpoint_type !== epFilter) return false;
+          if (kw) {
+            var haystack = ((m.model||"") + " " + (m.display_name||"") + " " + (m.model_family||"")).toLowerCase();
+            if (haystack.indexOf(kw) === -1) return false;
+          }
+          return true;
+        });
+        catalogPage = 1;
+        renderCatalogPage();
+      }
+
+      function renderCatalogPage() {
+        var total  = catalogFiltered.length;
+        var pages  = Math.max(1, Math.ceil(total / catalogPageSize));
+        if (catalogPage < 1) catalogPage = 1;
+        if (catalogPage > pages) catalogPage = pages;
+
+        var start = (catalogPage - 1) * catalogPageSize;
+        var slice = catalogFiltered.slice(start, start + catalogPageSize);
+
+        // 渠道类型颜色映射
+        var epColors = {
+          openai: "#dbeafe:#3b82f6",
+          azure_openai: "#e0f2fe:#0284c7",
+          claude: "#fce7f3:#db2777",
+          gemini: "#dcfce7:#16a34a",
+          wangsu_openai: "#ede9fe:#7c3aed",
+          wangsu_claude: "#fdf4ff:#a21caf",
+          wangsu_gemini: "#f0fdf4:#15803d"
+        };
+
+        function epBadge(ep) {
+          var colors = (epColors[ep] || "#f1f5f9:#64748b").split(":");
+          var labels = {
+            openai:"OpenAI", azure_openai:"Azure OpenAI", claude:"Claude",
+            gemini:"Gemini", wangsu_openai:"网宿 OAI", wangsu_claude:"网宿 Claude", wangsu_gemini:"网宿 Gemini"
+          };
+          return "<span style='display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;"
+            +"background:"+colors[0]+";color:"+colors[1]+"'>"+(labels[ep]||ep)+"</span>";
+        }
+
+        function fmtCtx(n) {
+          if (!n) return "<span style='color:var(--text-muted)'>—</span>";
+          if (n >= 1000000) return (n/1000000).toFixed(1)+"M";
+          if (n >= 1000) return Math.round(n/1000)+"K";
+          return String(n);
+        }
+
+        function capBadges(caps) {
+          if (!caps || !caps.length) return "<span style='color:var(--text-muted)'>—</span>";
+          var capIcons = { vision:"👁️", function_calling:"🔧", structured_output:"📄", reasoning:"🧠",
+                           image_generation:"🎨", audio_input:"🎤", audio_output:"🔊" };
+          return caps.map(function(c) {
+            var icon = capIcons[c] || "•";
+            var label = c.replace(/_/g," ");
+            return "<span title='"+label+"' style='display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;"
+              +"background:var(--primary-light);color:var(--primary);margin:1px;'>"+icon+" "+label+"</span>";
+          }).join("");
+        }
+
+        document.getElementById("catalogTableBody").innerHTML = slice.length ? slice.map(function(m) {
+          var cost = m.default_cost || {};
+          return "<tr>"
+            +"<td>"+epBadge(m.endpoint_type)+"</td>"
+            +"<td style='font-family:monospace;font-size:12px;'>"+esc(m.model)+"</td>"
+            +"<td style='color:var(--text-secondary)'>"+esc(m.display_name||"")+"</td>"
+            +"<td style='font-size:12px;'>"+esc(m.model_family||"")+"</td>"
+            +"<td style='text-align:right;font-variant-numeric:tabular-nums;'>"+fmtCtx(m.context_window)+"</td>"
+            +"<td style='text-align:right;font-variant-numeric:tabular-nums;'>"+fmtCtx(m.max_output_tokens)+"</td>"
+            +"<td>"+capBadges(m.capabilities)+"</td>"
+            +"<td style='text-align:right;color:var(--text-secondary);font-size:12px;'>"+(cost.input_per_1m_tokens != null ? "$"+cost.input_per_1m_tokens : "<span style='color:var(--text-muted)'>—</span>")+"</td>"
+            +"<td style='text-align:right;color:var(--text-secondary);font-size:12px;'>"+(cost.output_per_1m_tokens != null ? "$"+cost.output_per_1m_tokens : "<span style='color:var(--text-muted)'>—</span>")+"</td>"
+            +"</tr>";
+        }).join("") : "<tr class='empty-row'><td colspan='9'>无匹配模型</td></tr>";
+
+        document.getElementById("catalogPageInfo").textContent =
+          "共 "+total+" 个模型，第 "+(start+1)+"~"+Math.min(start+catalogPageSize, total)+" 条";
+        document.getElementById("catalogPageNum").textContent = catalogPage+" / "+pages;
+        document.getElementById("catalogPrevBtn").disabled = catalogPage <= 1;
+        document.getElementById("catalogNextBtn").disabled = catalogPage >= pages;
+      }
+
+      document.getElementById("catalogEpFilter").addEventListener("change", applyCatalogFilter);
+      document.getElementById("catalogSearch").addEventListener("input", function() {
+        clearTimeout(window._catalogSearchTimer);
+        window._catalogSearchTimer = setTimeout(applyCatalogFilter, 250);
+      });
+      document.getElementById("refreshCatalogBtn").addEventListener("click", function() {
+        state.catalogAllCache = null;
+        loadModelCatalog();
+      });
+      document.getElementById("catalogPrevBtn").addEventListener("click", function() {
+        if (catalogPage > 1) { catalogPage--; renderCatalogPage(); }
+      });
+      document.getElementById("catalogNextBtn").addEventListener("click", function() {
+        var pages = Math.ceil(catalogFiltered.length / catalogPageSize);
+        if (catalogPage < pages) { catalogPage++; renderCatalogPage(); }
+      });
+
       /* ===== Page Data Loader ===== */
       function loadPageData(page) {
         switch(page) {
@@ -2812,6 +2999,7 @@
           case "model-costs": loadModelCosts(); break;
           case "usage": loadUsage(); break;
           case "audit": loadAudit(); break;
+          case "model-catalog": loadModelCatalog(); break;
           case "copilot-pools": loadCopilotPools(); break;
         }
       }
