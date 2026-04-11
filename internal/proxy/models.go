@@ -4,6 +4,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -25,9 +26,11 @@ var (
 func getLocalCatalog() *catalog.Catalog {
 	localCatalogOnce.Do(func() {
 		c, err := catalog.New()
-		if err == nil {
-			localCatalog = c
+		if err != nil {
+			slog.Warn("加载本地模型目录失败，模型属性将不可用", "error", err)
+			return
 		}
+		localCatalog = c
 	})
 	return localCatalog
 }

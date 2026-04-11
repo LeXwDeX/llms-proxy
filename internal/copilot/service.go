@@ -212,12 +212,12 @@ func (s *CopilotService) GetToken(ctx context.Context, accountID string) (string
 	return s.tokenManager.EnsureValidToken(ctx, account, s.accountStore)
 }
 
-// GetAccountStore 返回 account store（供 proxy 层使用）。
+// GetAccountStore 返回 account store（供 admin 层注入）。
 func (s *CopilotService) GetAccountStore() *nosql.CopilotAccountStore {
 	return s.accountStore
 }
 
-// GetPoolStore 返回 pool store（供 proxy 层使用）。
+// GetPoolStore 返回 pool store（供 admin 层注入）。
 func (s *CopilotService) GetPoolStore() *nosql.CopilotPoolStore {
 	return s.poolStore
 }
@@ -290,18 +290,17 @@ func (s *CopilotService) SelectAccount(poolName, model string) (*nosql.CopilotAc
 	return nil, fmt.Errorf("pool %q 内无可用账户（额度已耗尽且未开启超额调用）", poolName)
 }
 
-// DeductAndPersistQuota 扣减额度并持久化，如果额度耗尽则自动更新状态。
+// DeductAndPersistQuota 扣减额度并持久化，如果额度耗尽则同时更新状态。
+// 扣减与状态变更合并为单次 Update，避免多余的写操作。
 func (s *CopilotService) DeductAndPersistQuota(account *nosql.CopilotAccount, upstreamModel string) error {
 	DeductQuota(account, upstreamModel)
-	if err := s.accountStore.Update(account.ID, *account); err != nil {
-		return fmt.Errorf("额度扣减写回失败: %w", err)
+
+	if IsQuotaExhausted(account) && account.Status != nosql.AccountStatusQuotaExceeded {
+		account.Status = nosql.AccountStatusQuotaExceeded
 	}
 
-	if IsQuotaExhausted(account) {
-		account.Status = nosql.AccountStatusQuotaExceeded
-		if err := s.accountStore.Update(account.ID, *account); err != nil {
-			s.logger.Warn("额度耗尽状态更新失败", "account_id", account.ID, "error", err)
-		}
+	if err := s.accountStore.Update(account.ID, *account); err != nil {
+		return fmt.Errorf("额度扣减写回失败: %w", err)
 	}
 	return nil
 }
