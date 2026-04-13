@@ -65,6 +65,5 @@ WINDSURF.md
 migrate-to-bbolt.sh
 
 # AI
-graphify-out/
 .graphify_*.memory/
 .memory/
