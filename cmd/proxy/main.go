@@ -228,6 +228,14 @@ func main() {
 		resp := map[string]string{"message": "pong", "client": clientName}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
+
+	// Copilot passthrough routes — /copilot/auth, /copilot/models, /copilot/*
+	protected.Route("/copilot", func(r chi.Router) {
+		r.Get("/auth", proxyService.HandleCopilotAuth)            // GET /copilot/auth
+		r.Get("/models", proxyService.HandleCopilotModels)        // GET /copilot/models
+		r.HandleFunc("/*", proxyService.HandleCopilotPassthrough) // /copilot/* catch-all
+	})
+
 	protected.NotFound(proxyService.ServeHTTP)
 
 	router.Mount("/", protected)

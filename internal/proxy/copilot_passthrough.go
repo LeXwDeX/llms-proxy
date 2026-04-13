@@ -1,0 +1,313 @@
+// copilot_passthrough.go — Copilot 透传路由：
+// 下游以 github-proxy provider 身份连接，代理仅替换 Authorization Bearer token
+// 后透传到 Copilot 上游，保留下游原始 headers，不做模型名映射或 Editor Headers 注入。
+package proxy
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/copilot"
+	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
+	"github.com/ycgame/llms-proxy/internal/nosql"
+)
+
+// copilotPassthroughSetup 是透传路由的共用 helper：
+// 查找 Pool → 选号 → 获取 Token → 确定 baseURL。
+// 出错时直接写 HTTP 错误响应，调用方检查 err != nil 后 return 即可。
+func (s *Service) copilotPassthroughSetup(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal *auth.Principal,
+) (account *nosql.CopilotAccount, token string, baseURL string, err error) {
+	requestID := appmiddleware.RequestIDFromContext(r.Context())
+
+	if s.copilotService == nil {
+		http.Error(w, "copilot service not configured", http.StatusBadGateway)
+		return nil, "", "", fmt.Errorf("copilot service not configured")
+	}
+
+	pool, poolErr := s.copilotService.FindPoolByClient(principal.Name)
+	if poolErr != nil {
+		s.logger.Warn("copilot passthrough: pool not found",
+			"request_id", requestID,
+			"client", principal.Name,
+			"error", poolErr,
+		)
+		http.Error(w, "copilot pool not found for client", http.StatusBadRequest)
+		return nil, "", "", poolErr
+	}
+
+	account, selectErr := s.copilotService.SelectAccount(pool.Name, "")
+	if selectErr != nil {
+		s.logger.Warn("copilot passthrough: no available account",
+			"request_id", requestID,
+			"pool", pool.Name,
+			"error", selectErr,
+		)
+		http.Error(w, "no available copilot account: "+selectErr.Error(), http.StatusServiceUnavailable)
+		return nil, "", "", selectErr
+	}
+
+	token, tokenErr := s.copilotService.GetToken(r.Context(), account.ID)
+	if tokenErr != nil {
+		s.logger.Error("copilot passthrough: get token failed",
+			"request_id", requestID,
+			"account_id", account.ID,
+			"error", tokenErr,
+		)
+		http.Error(w, "failed to get copilot token", http.StatusBadGateway)
+		return nil, "", "", tokenErr
+	}
+
+	baseURL = copilot.CopilotIndividualBase
+	if account.APIBaseURL != "" {
+		baseURL = strings.TrimRight(account.APIBaseURL, "/")
+	}
+
+	return account, token, baseURL, nil
+}
+
+// HandleCopilotAuth 处理 GET /copilot/auth —— 返回客户端的 Copilot 可用性信息。
+func (s *Service) HandleCopilotAuth(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || principal == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if s.copilotService == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "copilot service not configured",
+		})
+		return
+	}
+
+	pool, err := s.copilotService.FindPoolByClient(principal.Name)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "copilot pool not found for client",
+		})
+		return
+	}
+
+	accounts, err := s.copilotService.GetAccountStore().ListByPool(pool.Name)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "failed to list accounts",
+		})
+		return
+	}
+
+	available := 0
+	for _, a := range accounts {
+		if a.Status == nosql.AccountStatusActive || a.Status == nosql.AccountStatusQuotaExceeded {
+			available++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":             "ok",
+		"client":             principal.Name,
+		"pool":               pool.Name,
+		"accounts_available": available,
+	})
+}
+
+// HandleCopilotModels 处理 GET /copilot/models —— 透传上游 models 列表。
+func (s *Service) HandleCopilotModels(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || principal == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	account, token, baseURL, err := s.copilotPassthroughSetup(w, r, principal)
+	if err != nil {
+		return
+	}
+
+	requestID := appmiddleware.RequestIDFromContext(r.Context())
+	upstreamURL := baseURL + "/models"
+
+	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
+	if err != nil {
+		s.logger.Error("copilot models: create request failed",
+			"request_id", requestID,
+			"error", err,
+		)
+		http.Error(w, "failed to create upstream request", http.StatusInternalServerError)
+		return
+	}
+
+	copyHeaders(req.Header, r.Header)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Del("api-key")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		s.logger.Error("copilot models: upstream request failed",
+			"request_id", requestID,
+			"error", err,
+		)
+		http.Error(w, "copilot upstream error", http.StatusBadGateway)
+		s.metrics.totalFailures.Add(1)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 透传响应
+	w.Header().Set("X-Copilot-Account", account.GitHubUsername)
+	w.Header().Set("X-Copilot-Quota-Remaining", fmt.Sprintf("%.1f", account.QuotaPercentRemaining))
+
+	for key, values := range resp.Header {
+		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+			continue
+		}
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	writer := newStreamingWriter(w)
+	_, _ = io.Copy(writer, resp.Body)
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		s.metrics.totalSuccess.Add(1)
+	} else {
+		s.metrics.totalFailures.Add(1)
+	}
+}
+
+// HandleCopilotPassthrough 处理 /copilot/* —— catch-all 透传。
+// 去除 /copilot 前缀后直接透传到上游，仅替换 Authorization token。
+func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || principal == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	requestID := appmiddleware.RequestIDFromContext(r.Context())
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.logger.Error("copilot passthrough: read body failed",
+			"request_id", requestID,
+			"error", err,
+		)
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	account, token, baseURL, setupErr := s.copilotPassthroughSetup(w, r, principal)
+	if setupErr != nil {
+		return
+	}
+
+	// 路径映射：去除 /copilot 前缀
+	upstreamPath := strings.TrimPrefix(r.URL.Path, "/copilot")
+	if upstreamPath == "" {
+		upstreamPath = "/"
+	}
+
+	upstreamURL := baseURL + upstreamPath
+	if r.URL.RawQuery != "" {
+		upstreamURL += "?" + r.URL.RawQuery
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, r.Method, upstreamURL, bytes.NewReader(body))
+	if err != nil {
+		s.logger.Error("copilot passthrough: create request failed",
+			"request_id", requestID,
+			"error", err,
+		)
+		http.Error(w, "failed to create upstream request", http.StatusInternalServerError)
+		s.metrics.totalFailures.Add(1)
+		return
+	}
+
+	// 复制所有下游 headers
+	copyHeaders(req.Header, r.Header)
+
+	// 仅替换 auth
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	// 删除代理内部 headers
+	req.Header.Del("api-key")
+	req.Header.Del(headerProxyTarget)
+	req.Header.Del(headerAzureAuthorization)
+
+	// 设置 body
+	if len(body) > 0 {
+		req.ContentLength = int64(len(body))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(body)), nil
+		}
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		s.logger.Error("copilot passthrough: upstream request failed",
+			"request_id", requestID,
+			"account_id", account.ID,
+			"error", err,
+		)
+		http.Error(w, "copilot upstream error", http.StatusBadGateway)
+		s.metrics.totalFailures.Add(1)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 透传响应
+	w.Header().Set("X-Copilot-Account", account.GitHubUsername)
+	w.Header().Set("X-Copilot-Quota-Remaining", fmt.Sprintf("%.1f", account.QuotaPercentRemaining))
+
+	for key, values := range resp.Header {
+		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+			continue
+		}
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	writer := newStreamingWriter(w)
+	_, _ = io.Copy(writer, resp.Body)
+
+	// 记录 metrics
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		s.metrics.totalSuccess.Add(1)
+	} else {
+		s.metrics.totalFailures.Add(1)
+	}
+
+	s.logger.Info("copilot passthrough completed",
+		"request_id", requestID,
+		"client", principal.Name,
+		"account", account.GitHubUsername,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"upstream_path", upstreamPath,
+		"status", resp.StatusCode,
+	)
+}
