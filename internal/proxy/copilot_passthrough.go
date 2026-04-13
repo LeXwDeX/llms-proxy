@@ -146,6 +146,61 @@ func (s *Service) HandleCopilotAuth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleCopilotQuotaSummary 处理 GET /copilot/quota —— 汇总该客户端所在池的 premium request 配额。
+// 仅对已认证客户端可见，返回跨所有账户的剩余和总额之和。
+func (s *Service) HandleCopilotQuotaSummary(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || principal == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if s.copilotService == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "copilot service not configured",
+		})
+		return
+	}
+
+	pool, err := s.copilotService.FindPoolByClient(principal.Name)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "copilot pool not found for client",
+		})
+		return
+	}
+
+	accounts, err := s.copilotService.GetAccountStore().ListByPool(pool.Name)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "failed to list accounts",
+		})
+		return
+	}
+
+	totalRemaining := 0
+	totalEntitlement := 0
+	for _, a := range accounts {
+		if a.Status != nosql.AccountStatusActive && a.Status != nosql.AccountStatusQuotaExceeded {
+			continue
+		}
+		totalRemaining += a.QuotaRemaining
+		totalEntitlement += a.QuotaEntitlement
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"remaining":   totalRemaining,
+		"entitlement": totalEntitlement,
+	})
+}
+
 // HandleCopilotModels 处理 GET /copilot/models —— 透传上游 models 列表。
 func (s *Service) HandleCopilotModels(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())

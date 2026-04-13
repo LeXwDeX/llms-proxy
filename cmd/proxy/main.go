@@ -229,9 +229,10 @@ func main() {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
-	// Copilot passthrough routes — /copilot/auth, /copilot/models, /copilot/*
+	// Copilot passthrough routes — /copilot/auth, /copilot/quota, /copilot/models, /copilot/*
 	protected.Route("/copilot", func(r chi.Router) {
 		r.Get("/auth", proxyService.HandleCopilotAuth)            // GET /copilot/auth
+		r.Get("/quota", proxyService.HandleCopilotQuotaSummary)   // GET /copilot/quota
 		r.Get("/models", proxyService.HandleCopilotModels)        // GET /copilot/models
 		r.HandleFunc("/*", proxyService.HandleCopilotPassthrough) // /copilot/* catch-all
 	})
