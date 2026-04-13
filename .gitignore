@@ -10,6 +10,7 @@
 
 # Test binary, built with `go test -c`
 *.test
+.error/
 
 # Project binaries
 bin/
@@ -65,4 +66,5 @@ migrate-to-bbolt.sh
 
 # AI
 graphify-out/
-.graphify_*
+.graphify_*.memory/
+.memory/
