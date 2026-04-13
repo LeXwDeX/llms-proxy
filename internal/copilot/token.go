@@ -13,6 +13,34 @@ import (
 	"github.com/ycgame/llms-proxy/internal/nosql"
 )
 
+// NoCopilotAccessError 表示 GitHub 账户没有 Copilot 订阅。
+type NoCopilotAccessError struct {
+	GitHubUserID string // 从上游错误消息中提取的用户 ID
+	RawMessage   string // 上游错误原始消息
+}
+
+func (e *NoCopilotAccessError) Error() string {
+	if e.GitHubUserID != "" {
+		return fmt.Sprintf("GitHub 用户 %s 没有 Copilot 访问权限: %s", e.GitHubUserID, e.RawMessage)
+	}
+	return fmt.Sprintf("没有 Copilot 访问权限: %s", e.RawMessage)
+}
+
+// extractUserID 从 "You are currently logged in as XXXXX." 中提取用户 ID。
+func extractUserID(msg string) string {
+	const prefix = "logged in as "
+	idx := strings.Index(msg, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := msg[idx+len(prefix):]
+	// 取到 '.' 或字符串末尾
+	if dotIdx := strings.Index(rest, "."); dotIdx >= 0 {
+		rest = rest[:dotIdx]
+	}
+	return strings.TrimSpace(rest)
+}
+
 // CopilotTokenResponse 表示 Copilot token 请求的响应。
 type CopilotTokenResponse struct {
 	Token      string            `json:"token"`
@@ -117,6 +145,20 @@ func (m *TokenManager) FetchCopilotToken(ctx context.Context, oauthToken string)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		// 尝试解析上游错误响应，识别 "no_copilot_access"
+		var upstreamErr struct {
+			ErrorDetails struct {
+				Message        string `json:"message"`
+				NotificationID string `json:"notification_id"`
+			} `json:"error_details"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(body, &upstreamErr) == nil && upstreamErr.ErrorDetails.NotificationID == "no_copilot_access" {
+			return nil, &NoCopilotAccessError{
+				GitHubUserID: extractUserID(upstreamErr.ErrorDetails.Message),
+				RawMessage:   upstreamErr.ErrorDetails.Message,
+			}
+		}
 		return nil, fmt.Errorf("copilot token 请求失败: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 

@@ -1,6 +1,7 @@
 // copilot_passthrough.go — Copilot 透传路由：
 // 下游以 github-proxy provider 身份连接，代理仅替换 Authorization Bearer token
-// 后透传到 Copilot 上游，保留下游原始 headers，不做模型名映射或 Editor Headers 注入。
+// 后透传到 Copilot 上游，保留下游原始 headers，不做模型名映射。
+// GitHub 上游强制要求 Editor headers，若下游未提供则由代理补充默认值。
 package proxy
 
 import (
@@ -17,6 +18,24 @@ import (
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 )
+
+// ensureCopilotHeaders 确保 GitHub 上游必需的 Editor headers 存在。
+// 如果下游已经提供了某个 header，保留下游的值（透传优先）；
+// 如果缺失，补充代理默认值（源自 copilot.ApplyEditorHeaders）。
+func ensureCopilotHeaders(h http.Header) {
+	if h.Get("Editor-Version") == "" {
+		h.Set("Editor-Version", copilot.HeaderEditorVersion)
+	}
+	if h.Get("Editor-Plugin-Version") == "" {
+		h.Set("Editor-Plugin-Version", copilot.HeaderPluginVersion)
+	}
+	if h.Get("Copilot-Integration-Id") == "" {
+		h.Set("Copilot-Integration-Id", copilot.HeaderIntegrationID)
+	}
+	if h.Get("User-Agent") == "" {
+		h.Set("User-Agent", copilot.HeaderUserAgent)
+	}
+}
 
 // copilotPassthroughSetup 是透传路由的共用 helper：
 // 查找 Pool → 选号 → 获取 Token → 确定 baseURL。
@@ -159,6 +178,7 @@ func (s *Service) HandleCopilotModels(w http.ResponseWriter, r *http.Request) {
 	copyHeaders(req.Header, r.Header)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Del("api-key")
+	ensureCopilotHeaders(req.Header)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -256,6 +276,9 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 	req.Header.Del("api-key")
 	req.Header.Del(headerProxyTarget)
 	req.Header.Del(headerAzureAuthorization)
+
+	// 确保 GitHub 必需的 Editor headers 存在
+	ensureCopilotHeaders(req.Header)
 
 	// 设置 body
 	if len(body) > 0 {

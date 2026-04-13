@@ -247,9 +247,9 @@ func TestCopilotPassthrough_PreservesDownstreamHeaders(t *testing.T) {
 	}
 }
 
-// ---------- No Editor Headers ----------
+// ---------- Editor Headers Fallback ----------
 
-func TestCopilotPassthrough_NoEditorHeaders(t *testing.T) {
+func TestCopilotPassthrough_EditorHeadersFallback(t *testing.T) {
 	var capturedHeaders http.Header
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedHeaders = r.Header.Clone()
@@ -260,6 +260,7 @@ func TestCopilotPassthrough_NoEditorHeaders(t *testing.T) {
 
 	svc := setupPassthroughTestEnv(t, upstream.URL)
 
+	// Case 1: 下游未提供 Editor headers → 代理补充默认值
 	r := reqWithPrincipal(t, http.MethodPost, "/copilot/chat/completions", strings.NewReader(`{}`), "test-client")
 	w := httptest.NewRecorder()
 	svc.HandleCopilotPassthrough(w, r)
@@ -269,16 +270,41 @@ func TestCopilotPassthrough_NoEditorHeaders(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	// These editor headers should NOT be present (passthrough does NOT call ApplyEditorHeaders)
-	editorHeaders := []string{
-		"Editor-Version",
-		"Editor-Plugin-Version",
-		"Copilot-Integration-Id",
+	// Editor headers MUST be present (GitHub upstream requires them)
+	editorDefaults := map[string]string{
+		"Editor-Version":         copilot.HeaderEditorVersion,
+		"Editor-Plugin-Version":  copilot.HeaderPluginVersion,
+		"Copilot-Integration-Id": copilot.HeaderIntegrationID,
 	}
-	for _, h := range editorHeaders {
-		if val := capturedHeaders.Get(h); val != "" {
-			t.Errorf("editor header %q should not be set in passthrough mode, got %q", h, val)
+	for h, expected := range editorDefaults {
+		if val := capturedHeaders.Get(h); val != expected {
+			t.Errorf("editor header %q: expected default %q, got %q", h, expected, val)
 		}
+	}
+
+	// Case 2: 下游提供了自定义 Editor headers → 保留下游值
+	capturedHeaders = nil
+	r2 := reqWithPrincipal(t, http.MethodPost, "/copilot/chat/completions", strings.NewReader(`{}`), "test-client")
+	r2.Header.Set("Editor-Version", "custom-editor/1.0")
+	r2.Header.Set("Copilot-Integration-Id", "custom-integration")
+	w2 := httptest.NewRecorder()
+	svc.HandleCopilotPassthrough(w2, r2)
+
+	resp2 := w2.Result()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	// 下游自定义值应该被保留
+	if val := capturedHeaders.Get("Editor-Version"); val != "custom-editor/1.0" {
+		t.Errorf("Editor-Version: expected downstream value %q, got %q", "custom-editor/1.0", val)
+	}
+	if val := capturedHeaders.Get("Copilot-Integration-Id"); val != "custom-integration" {
+		t.Errorf("Copilot-Integration-Id: expected downstream value %q, got %q", "custom-integration", val)
+	}
+	// 未由下游提供的 header 应该用默认值补充
+	if val := capturedHeaders.Get("Editor-Plugin-Version"); val != copilot.HeaderPluginVersion {
+		t.Errorf("Editor-Plugin-Version: expected default %q, got %q", copilot.HeaderPluginVersion, val)
 	}
 }
 

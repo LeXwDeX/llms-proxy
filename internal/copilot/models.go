@@ -55,9 +55,10 @@ const ModelPrefix = "Copilot "
 
 // ModelMultipliers 定义所有已知模型的 premium request 乘数。
 // key 为小写模型名。
-// 数据来源：https://docs.github.com/en/copilot/managing-copilot/monitoring-usage-and-entitlements/about-premium-requests
+// 数据来源：https://docs.github.com/en/copilot/concepts/billing/copilot-requests
+// 注意：此表仅用于 SelectAccount 选号时的额度预判，不再用于逐请求扣减。
 var ModelMultipliers = map[string]float64{
-	// 免费模型（乘数 0）
+	// 免费模型（乘数 0，paid plan 不消耗 premium request）
 	"gpt-4.1":     0,
 	"gpt-4o":      0,
 	"gpt-5-mini":  0,
@@ -70,16 +71,16 @@ var ModelMultipliers = map[string]float64{
 	"gpt-5.4-mini":     0.33,
 
 	// 标准模型（乘数 1）
-	"claude-sonnet-4":        1,
-	"claude-sonnet-4.5":      1,
-	"claude-sonnet-4.6":      1,
-	"gemini-2.5-pro":         1,
-	"gemini-3.1-pro":         1,
-	"gemini-3.1-pro-preview": 1,
-	"gpt-5.1":                1,
-	"gpt-5.2":                1,
-	"gpt-5.3-codex":          1,
-	"gpt-5.4":                1,
+	"claude-sonnet-4":   1,
+	"claude-sonnet-4.5": 1,
+	"claude-sonnet-4.6": 1,
+	"gemini-2.5-pro":    1,
+	"gemini-3.1-pro":    1,
+	"gpt-5.1":           1,
+	"gpt-5.2":           1,
+	"gpt-5.2-codex":     1,
+	"gpt-5.3-codex":     1,
+	"gpt-5.4":           1,
 
 	// 高消耗模型（乘数 >1）
 	"claude-opus-4.5": 3,

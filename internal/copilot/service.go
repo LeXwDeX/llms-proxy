@@ -135,6 +135,16 @@ func (s *CopilotService) CompleteAuth(ctx context.Context, accountID string) err
 		username = "" // 非致命错误
 	}
 
+	// 提前保存 OAuthToken 和 username，即使后续 FetchCopilotToken 失败，
+	// handler 层也能查到 username 用于错误提示展示。
+	if username != "" {
+		account.OAuthToken = oauthToken
+		account.GitHubUsername = username
+		if updateErr := s.accountStore.Update(accountID, *account); updateErr != nil {
+			s.logger.Warn("提前保存 username 失败", "error", updateErr)
+		}
+	}
+
 	// 获取初始 Copilot access token
 	tokenResp, err := s.tokenManager.FetchCopilotToken(ctx, oauthToken)
 	if err != nil {

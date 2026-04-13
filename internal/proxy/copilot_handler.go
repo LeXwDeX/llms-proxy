@@ -170,15 +170,10 @@ func (s *Service) handleCopilotRequest(
 	}
 	defer resp.Body.Close()
 
-	// 8. 成功响应后扣减额度
+	// 8. 记录指标（不做本地额度扣减——GitHub 按 interaction 计费，
+	//    agent 自主的后续 LLM 调用不算 premium request，
+	//    本地逐请求扣减会严重高估消耗。额度由 QuotaManager 定期同步 GitHub API 获取真实值。）
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		if err := s.copilotService.DeductAndPersistQuota(account, upstreamModel); err != nil {
-			s.logger.Warn("额度扣减失败",
-				"request_id", requestID,
-				"account_id", account.ID,
-				"error", err,
-			)
-		}
 		s.metrics.totalSuccess.Add(1)
 	} else {
 		s.metrics.totalFailures.Add(1)

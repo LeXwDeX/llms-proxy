@@ -16,7 +16,7 @@ import (
 // 额度相关常量
 const (
 	// 默认同步间隔
-	DefaultQuotaSyncInterval = 5 * time.Minute
+	DefaultQuotaSyncInterval = 2 * time.Minute
 
 	// 额度耗尽阈值
 	QuotaExhaustedThreshold = 0.0
@@ -36,6 +36,7 @@ type QuotaInfo struct {
 	CopilotPlan      string  `json:"copilot_plan"`
 	Unlimited        bool    `json:"unlimited"`   // business 的 chat/completions 为 true
 	Entitlement      int     `json:"entitlement"` // 月度总额度（premium requests）
+	Remaining        int     `json:"remaining"`   // 剩余 premium requests
 }
 
 // QuotaManager 管理 Copilot 账户额度
@@ -129,6 +130,7 @@ func (r *gitHubCopilotUserResponse) extractQuotaInfo() *QuotaInfo {
 		info.PercentRemaining = pi.PercentRemaining
 		info.Unlimited = pi.Unlimited
 		info.Entitlement = pi.Entitlement
+		info.Remaining = pi.Remaining
 		return info
 	}
 
@@ -279,6 +281,10 @@ func (m *QuotaManager) syncAllAccounts(ctx context.Context, store *nosql.Copilot
 			account.QuotaResetAt = quotaInfo.ResetAt
 		}
 		account.QuotaLastSyncAt = time.Now().UTC().Format(time.RFC3339)
+		if quotaInfo.Entitlement > 0 {
+			account.QuotaEntitlement = quotaInfo.Entitlement
+		}
+		account.QuotaRemaining = quotaInfo.Remaining
 
 		// 根据额度调整状态
 		if quotaInfo.PercentRemaining <= QuotaExhaustedThreshold {

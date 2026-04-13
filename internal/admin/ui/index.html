@@ -2457,13 +2457,21 @@
         return "<span class='acct-badge " + esc(status) + "'>" + esc(label) + "</span>";
       }
 
-      function quotaBar(remainPct) {
-        var remaining = Number(remainPct || 0);
-        var used = 100 - remaining; // 可超过 100（如 632.2%）
+      function quotaBar(remainPct, entitlement, remaining) {
+        var pct = Number(remainPct || 0);
+        var used = 100 - pct; // 可超过 100（如 632.2%）
         var displayUsed = Math.max(0, used);
         var barWidth = Math.min(displayUsed, 100); // 进度条最大 100%
         var color = displayUsed < 50 ? "#22c55e" : displayUsed < 80 ? "#f59e0b" : "#ef4444";
-        var label = displayUsed >= 100 ? displayUsed.toFixed(0) + "%" : displayUsed.toFixed(1) + "%";
+        var ent = Number(entitlement || 0);
+        var rem = Number(remaining || 0);
+        var label;
+        if (ent > 0) {
+          var usedCount = ent - rem;
+          label = usedCount + " / " + ent + " 次";
+        } else {
+          label = displayUsed >= 100 ? displayUsed.toFixed(0) + "%" : displayUsed.toFixed(1) + "%";
+        }
         return "<div class='quota-bar-wrap'>"
           + "<div class='quota-bar'><div class='quota-bar-inner' style='width:" + barWidth.toFixed(1) + "%;background:" + color + ";'></div></div>"
           + "<span class='quota-pct'>" + label + "</span>"
@@ -2513,7 +2521,7 @@
             + "<td>" + esc(acct.sort_order || 0) + "</td>"
             + "<td>" + esc(acct.github_username || "-") + "</td>"
             + "<td>" + acctStatusBadge(acct.status) + "</td>"
-            + "<td>" + quotaBar(acct.quota_percent_remaining) + "</td>"
+            + "<td>" + quotaBar(acct.quota_percent_remaining, acct.quota_entitlement, acct.quota_remaining) + "</td>"
             + "<td>" + overageToggle + "</td>"
             + "<td>" + esc(fmtTime(acct.quota_last_sync_at)) + "</td>"
             + "<td><div class='btn-group'>" + acctActionButtons(acct) + "</div></td>"

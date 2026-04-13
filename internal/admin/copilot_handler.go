@@ -430,7 +430,23 @@ func (h *Handler) handleCompleteCopilotAuth(w http.ResponseWriter, r *http.Reque
 	defer cancel()
 
 	if err := h.copilotService.CompleteAuth(ctx, id); err != nil {
-		h.writeInternalError(w, "failed to complete copilot auth", err)
+		var noCopilot *copilot.NoCopilotAccessError
+		switch {
+		case errors.As(err, &noCopilot):
+			// 获取 username 用于展示（CompleteAuth 已提前保存）
+			displayName := noCopilot.GitHubUserID
+			if acct, lookupErr := h.copilotAcctStore.Get(id); lookupErr == nil && acct.GitHubUsername != "" {
+				displayName = acct.GitHubUsername
+			}
+			msg := fmt.Sprintf("该 GitHub 账户 %s 未开通 Copilot 订阅，请先开通后再添加", displayName)
+			writeJSON(w, http.StatusForbidden, errorResponse(msg))
+		case errors.Is(err, copilot.ErrDeviceCodeExpired):
+			writeJSON(w, http.StatusBadRequest, errorResponse("授权码已过期，请重新发起授权"))
+		case errors.Is(err, copilot.ErrAccessDenied):
+			writeJSON(w, http.StatusForbidden, errorResponse("用户拒绝了授权请求"))
+		default:
+			h.writeInternalError(w, "failed to complete copilot auth", err)
+		}
 		return
 	}
 
@@ -587,6 +603,8 @@ func (h *Handler) handleGetCopilotQuota(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"account_id":              id,
 		"quota_percent_remaining": account.QuotaPercentRemaining,
+		"quota_entitlement":       account.QuotaEntitlement,
+		"quota_remaining":         account.QuotaRemaining,
 		"quota_reset_at":          account.QuotaResetAt,
 		"quota_last_sync_at":      account.QuotaLastSyncAt,
 	})
@@ -630,16 +648,22 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 		account.QuotaResetAt = quotaInfo.ResetAt
 	}
 	account.QuotaLastSyncAt = time.Now().UTC().Format(time.RFC3339)
+	if quotaInfo.Entitlement > 0 {
+		account.QuotaEntitlement = quotaInfo.Entitlement
+	}
+	account.QuotaRemaining = quotaInfo.Remaining
 
 	if err := h.copilotAcctStore.Update(id, *account); err != nil {
 		h.writeInternalError(w, "failed to update copilot account quota", err)
 		return
 	}
 
-	h.recordAudit(r, "copilot.quota.sync", id, "success", fmt.Sprintf("remaining=%.1f%%", quotaInfo.PercentRemaining))
+	h.recordAudit(r, "copilot.quota.sync", id, "success", fmt.Sprintf("remaining=%.1f%% (%d/%d)", quotaInfo.PercentRemaining, quotaInfo.Remaining, quotaInfo.Entitlement))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"account_id":              id,
 		"quota_percent_remaining": quotaInfo.PercentRemaining,
+		"quota_entitlement":       quotaInfo.Entitlement,
+		"quota_remaining":         quotaInfo.Remaining,
 		"quota_reset_at":          quotaInfo.ResetAt,
 		"quota_last_sync_at":      account.QuotaLastSyncAt,
 		"copilot_plan":            quotaInfo.CopilotPlan,
