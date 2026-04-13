@@ -90,8 +90,6 @@ func TestSelectAccount_OrderBySort(t *testing.T) {
 		t.Fatalf("create pool: %v", err)
 	}
 
-	// 创建两个 active 账户，SortOrder 2 先创建（自动 SortOrder=1），SortOrder 1 后创建（自动=2）
-	// 然后手动设置 SortOrder
 	acct1 := nosql.CopilotAccount{
 		PoolName:              "pool1",
 		GitHubUsername:        "user-second",
@@ -115,8 +113,8 @@ func TestSelectAccount_OrderBySort(t *testing.T) {
 
 	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	// 使用付费模型（copilot_claude-sonnet-4，乘数=1）
-	got, err := copilotSvc.SelectAccount("pool1", "copilot_claude-sonnet-4")
+	// 使用付费模型（Copilot claude-sonnet-4，乘数=1）
+	got, err := copilotSvc.SelectAccount("pool1", "Copilot claude-sonnet-4")
 	if err != nil {
 		t.Fatalf("SelectAccount: %v", err)
 	}
@@ -136,7 +134,6 @@ func TestSelectAccount_SkipQuotaExhausted(t *testing.T) {
 		t.Fatalf("create pool: %v", err)
 	}
 
-	// 账户1：额度耗尽（active 但 quota=0）
 	acct1 := nosql.CopilotAccount{
 		PoolName:              "pool1",
 		GitHubUsername:        "user-exhausted",
@@ -144,7 +141,6 @@ func TestSelectAccount_SkipQuotaExhausted(t *testing.T) {
 		SortOrder:             1,
 		QuotaPercentRemaining: 0,
 	}
-	// 账户2：有额度
 	acct2 := nosql.CopilotAccount{
 		PoolName:              "pool1",
 		GitHubUsername:        "user-available",
@@ -162,7 +158,7 @@ func TestSelectAccount_SkipQuotaExhausted(t *testing.T) {
 	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
 	// 付费模型应跳过额度耗尽的
-	got, err := copilotSvc.SelectAccount("pool1", "copilot_claude-sonnet-4")
+	got, err := copilotSvc.SelectAccount("pool1", "Copilot claude-sonnet-4")
 	if err != nil {
 		t.Fatalf("SelectAccount: %v", err)
 	}
@@ -181,7 +177,6 @@ func TestSelectAccount_FreeModelIgnoresQuota(t *testing.T) {
 		t.Fatalf("create pool: %v", err)
 	}
 
-	// 唯一账户：quota_exceeded 状态，额度为 0
 	acct := nosql.CopilotAccount{
 		PoolName:              "pool1",
 		GitHubUsername:        "user-quota-exceeded",
@@ -195,8 +190,8 @@ func TestSelectAccount_FreeModelIgnoresQuota(t *testing.T) {
 
 	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	// 免费模型（copilot_gpt-4o，乘数=0）应该不受额度限制
-	got, err := copilotSvc.SelectAccount("pool1", "copilot_gpt-4o")
+	// 免费模型（Copilot gpt-4o，乘数=0）应该不受额度限制
+	got, err := copilotSvc.SelectAccount("pool1", "Copilot gpt-4o")
 	if err != nil {
 		t.Fatalf("SelectAccount: %v", err)
 	}
@@ -215,7 +210,6 @@ func TestSelectAccount_NoAvailable(t *testing.T) {
 		t.Fatalf("create pool: %v", err)
 	}
 
-	// 唯一账户：disabled
 	acct := nosql.CopilotAccount{
 		PoolName:       "pool1",
 		GitHubUsername: "user-disabled",
@@ -228,7 +222,7 @@ func TestSelectAccount_NoAvailable(t *testing.T) {
 
 	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	_, err := copilotSvc.SelectAccount("pool1", "copilot_gpt-4o")
+	_, err := copilotSvc.SelectAccount("pool1", "Copilot gpt-4o")
 	if err == nil {
 		t.Fatal("expected error when no accounts available")
 	}
@@ -246,7 +240,7 @@ func TestSelectAccount_EmptyPool(t *testing.T) {
 
 	copilotSvc := copilot.NewCopilotService(acctStore, poolStore, nil, nil)
 
-	_, err := copilotSvc.SelectAccount("pool1", "copilot_gpt-4o")
+	_, err := copilotSvc.SelectAccount("pool1", "Copilot gpt-4o")
 	if err == nil {
 		t.Fatal("expected error for empty pool")
 	}
@@ -255,7 +249,7 @@ func TestSelectAccount_EmptyPool(t *testing.T) {
 // ---------- replaceModelInBody ----------
 
 func TestReplaceModelInBody_Normal(t *testing.T) {
-	body := []byte(`{"model":"copilot_gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	body := []byte(`{"model":"Copilot gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
 	result := replaceModelInBody(body, "gpt-4o")
 
 	var parsed map[string]interface{}
@@ -265,7 +259,6 @@ func TestReplaceModelInBody_Normal(t *testing.T) {
 	if parsed["model"] != "gpt-4o" {
 		t.Fatalf("expected model gpt-4o, got %v", parsed["model"])
 	}
-	// messages 应保留
 	if _, ok := parsed["messages"]; !ok {
 		t.Fatal("messages field lost after replace")
 	}
@@ -279,7 +272,6 @@ func TestReplaceModelInBody_NoModelField(t *testing.T) {
 	if err := json.Unmarshal(result, &parsed); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
-	// 没有 model 字段，不应添加
 	if _, ok := parsed["model"]; ok {
 		t.Fatal("model field should not be added when not present")
 	}
@@ -289,7 +281,6 @@ func TestReplaceModelInBody_InvalidJSON(t *testing.T) {
 	body := []byte(`not json at all`)
 	result := replaceModelInBody(body, "gpt-4o")
 
-	// 应返回原始 body
 	if string(result) != string(body) {
 		t.Fatalf("expected original body for invalid JSON, got %q", string(result))
 	}

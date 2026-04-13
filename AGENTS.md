@@ -1,10 +1,10 @@
 # 项目总览
 
-本项目是一个 **多类型上游端点代理服务**：对外提供统一的 HTTP 入口，对内统一转发到多个上游终端（Azure OpenAI、OpenAI、Claude、Gemini、网宿 OpenAI/Claude/Gemini），帮助内部客户端在一个入口下完成鉴权、路由、日志、故障切换与运维管理。
+本项目是一个 **多类型上游端点代理服务**：对外提供统一的 HTTP 入口，对内统一转发到多个上游终端（Azure OpenAI、OpenAI、Claude、Gemini、网宿 OpenAI/Claude/Gemini、GitHub Copilot），帮助内部客户端在一个入口下完成鉴权、路由、日志、故障切换与运维管理。
 
 ## 业务目标
-- 统一入口：屏蔽多个上游终端差异（Azure OpenAI / OpenAI / Claude / Gemini / 网宿 OpenAI / 网宿 Claude / 网宿 Gemini），对外按各协议原生方式透传。
-- 多类型上游：通过 `endpoint_type` 字段区分目标类型，支持 `azure_openai`（默认）、`openai`、`claude`、`gemini`、`wangsu_openai`、`wangsu_claude`、`wangsu_gemini` 共 7 种上游，并按类型自动适配认证方式与请求格式。
+- 统一入口：屏蔽多个上游终端差异，对外按各协议原生方式透传。
+- 多类型上游：通过 `endpoint_type` 字段区分目标类型，支持多种上游，并按类型自动适配认证方式与请求格式。
 - 权限隔离：按客户端令牌控制可访问的目标集合。
 - 稳定性：支持目标选择、失败静默、重试与自动切换。
 - 可观测性：提供结构化日志、健康检查、指标统计与请求 ID 追踪。
@@ -21,7 +21,7 @@
 - `internal/config` 负责配置读取、校验、克隆和热加载缓存。
 - 配置模型包括：
   - `server`：监听地址、请求超时；
-  - `targets`：上游终端配置，每个目标包含 `endpoint_type`（`azure_openai` | `openai` | `claude` | `gemini` | `wangsu_openai` | `wangsu_claude` | `wangsu_gemini`，默认 `azure_openai`）、端点地址、API Key、允许模型等；`resource_path_prefix` 仅 `azure_openai` 类型必填；
+  - `targets`：上游终端配置，每个目标包含 `endpoint_type`、端点地址、API Key、允许模型等；`resource_path_prefix` 仅 `azure_openai` 类型必填；
   - `data_store`：嵌入式 bbolt 数据库配置（`db_path` 指定单一 DB 文件路径）；
   - `data_files`（遗留，`omitempty`）：旧版 JSON/JSONL 数据文件路径，仅用于启动时自动迁移到 bbolt；迁移完成后可删除；
   - `admin_session`：管理后台会话配置；
@@ -43,11 +43,10 @@
     - `openai` → 设置 `Authorization: Bearer <key>`；
     - `claude` → 设置 `x-api-key` + 自动补充 `anthropic-version: 2023-06-01`；
     - `gemini` → 设置 `x-goog-api-key` header；
-    - `wangsu_openai` → 设置 `Authorization: Bearer <key>`（同 `openai`）；
-    - `wangsu_claude` → 设置 `x-api-key` + 自动补充 `anthropic-version: 2023-06-01`（同 `claude`）；
-    - `wangsu_gemini` → 设置 `x-goog-api-key` header（同 `gemini`）；
-  - **路径感知路由**：目标选择时按 `endpoint_type` 检查请求路径兼容性；`wangsu_openai` 仅支持 `/chat/completions`、`/images/generations`、`/embeddings`，不兼容路径的目标自动跳过；其余类型全放行；
-  - **连接粘连（Affinity）**：同客户端 + 同模型的请求倾向路由到同一 target，提升上游 token 缓存（KV cache / prompt cache）命中率；粘连条目 TTL 为 5 分钟，惰性过期；粘连目标不可用或路径不兼容时自动降级为轮询选择；
+    - `wangsu_openai` / `wangsu_claude` / `wangsu_gemini` → 分别同 `openai` / `claude` / `gemini`；
+  - **路径感知路由**（`path_capability.go`）：目标选择时按 `endpoint_type` 检查请求路径兼容性；例如 `wangsu_openai` 仅支持 `/chat/completions`、`/images/generations`、`/embeddings`，不兼容路径的目标自动跳过；
+  - **连接粘连**（`affinity.go`）：同客户端 + 同模型的请求倾向路由到同一 target，提升上游 token 缓存（KV cache / prompt cache）命中率；粘连条目 TTL 为 5 分钟，惰性过期；粘连目标不可用或路径不兼容时自动降级为轮询选择；
+  - **Copilot 请求拦截**：当模型名带 `Copilot ` 前缀时，请求进入 Copilot 专用处理链路（见下方第 8 层）；
   - 模型名提取支持多种来源：请求体 JSON `model` 字段、Azure 路径 `/deployments/{model}/`、Gemini 路径 `/models/{model}:action`；
   - 用量采集兼容 OpenAI（`usage.prompt_tokens`）、Claude（`usage.input_tokens`）和 Gemini（`usageMetadata.promptTokenCount`/`candidatesTokenCount`）三种响应格式；
   - 对 Azure v1 不兼容字段做白名单过滤（仅对 `azure_openai` 类型目标生效，其他类型透传原始请求体）；
@@ -81,6 +80,22 @@
 - `internal/middleware` 提供请求 ID、panic 恢复和访问日志。
 - `internal/logging` 负责错误日志、访问日志与轮转。
 
+### 8. Copilot 集成层
+- `internal/copilot/` 提供 GitHub Copilot 上游的专用集成逻辑。
+- **OAuth 与 Token 管理**（`oauth.go`、`token.go`）：
+  - 通过 GitHub OAuth Device Flow 获取用户授权，交换 Copilot access token；
+  - Token 自动刷新（到期前续签），池化管理多个 OAuth 账户。
+- **模型管理**（`models.go`）：
+  - 下游模型名前缀为 `Copilot `（大写 C + 空格），例如 `Copilot claude-sonnet-4.6`、`Copilot gpt-4o`；
+  - `MapModelName` / `ReverseMapModelName` 负责前缀剥离与添加；
+  - `ModelMultipliers` 维护模型 premium request 乘数表（免费/低消耗/标准/高消耗分类）；
+  - `FetchModelsFromAPI` / `FetchModelDetails` 从 Copilot API 获取实时可用模型列表与元数据。
+- **配额管理**（`quota.go`）：跟踪用户 premium request 配额使用情况。
+- **请求处理**（`internal/proxy/copilot_handler.go`）：
+  - Pool 查找 → 顺序选号 → 动态 Token 注入 → 模型名映射 → 转发 → 额度扣减；
+  - 路径规则：`/v1/*` 去除 `/v1` 前缀后透传，其他路径直通；
+  - Copilot 上游统一使用 OpenAI 兼容的 `/chat/completions` 端点，无论底层模型是 GPT、Claude 还是 Gemini，客户端需以 OpenAI 格式调用。
+
 ## 请求处理链路
 1. 请求进入 HTTP Server。
 2. 中间件注入 `X-Request-ID`、记录访问日志、兜底 panic。
@@ -90,20 +105,23 @@
    - `/api/ping`：已鉴权后返回客户端信息；
    - `/admin/*`：管理接口；
    - 其余路径进入代理转发。
-5. 代理层根据目标/模型/权限选择上游后端，按 `endpoint_type` 适配认证与请求体，必要时执行重试或 failover。
+5. 代理层判断模型类型：
+   - 模型名带 `Copilot ` 前缀 → 进入 Copilot 专用链路（Token 池选号、模型名映射、透传转发）；
+   - 其他模型 → 按 `endpoint_type` 适配认证与请求体，执行目标选择、重试或 failover。
 6. 结果透传给客户端，并在响应头中标记 `X-Proxy-Target`（规范）和 `X-Azure-Target`（向后兼容）。
 
 ## 关键业务规则
-- 每个目标（Target）通过 `endpoint_type` 标识上游类型，支持 `azure_openai`（默认）、`openai`、`claude`、`gemini`、`wangsu_openai`、`wangsu_claude`、`wangsu_gemini` 共 7 种；空值等同于 `azure_openai`。
+- 每个目标（Target）通过 `endpoint_type` 标识上游类型。
 - 客户端令牌与可访问目标绑定；`allowed_targets` 为空表示允许访问全部目标。
 - 显式目标可通过 `X-Proxy-Target` 或 `target` 查询参数指定。
 - 若目标配置了 `allowed_models`，请求必须携带可识别的 `model`，且模型必须命中白名单。
 - 代理会剥离内部/旧版参数：`target`、`api-version`、`api_version`、`api-key`。
 - 对部分 JSON 接口执行顶层字段白名单过滤（chat completions、responses、embeddings），**仅对 `azure_openai` 类型目标生效**；`openai`、`claude` 和 `gemini` 类型透传原始请求体。
-- **路径兼容性**：目标选择时按 `endpoint_type` 检查路径兼容性；`wangsu_openai` 仅允许 `/chat/completions`、`/images/generations`、`/embeddings`；不兼容的目标自动跳过，不参与选择；其余类型全放行。
-- **连接粘连**：同客户端 + 同模型的请求倾向路由到同一 target，提升上游 token 缓存命中率；粘连条目 TTL 为 5 分钟，惰性过期；粘连目标不可用或路径不兼容时自动降级为轮询选择。
+- **路径兼容性**：按 `endpoint_type` 检查路径兼容性，不兼容的目标自动跳过（详见代理层）。
+- **连接粘连**：同客户端 + 同模型倾向路由到同一 target；粘连目标不可用时降级为轮询（详见代理层）。
 - 某个目标连续失败后会进入静默窗口，优先切换到其他可用目标。
 - 模型费用（`model_costs`）和用量事件（`usage_events`）均包含 `endpoint_type` 维度；`CostTable` 支持双键查找（`endpoint_type:model` → `model` 降级兼容）。
+- Copilot 模型通过 `Copilot ` 前缀识别，进入独立的 Token 池化与额度管理链路。
 
 ## 目录说明
 - `cmd/proxy/`：应用入口。
@@ -111,7 +129,8 @@
 - `internal/`：核心实现。
   - `internal/config/`：配置读取、校验、热加载；定义 `EndpointType` 常量。
   - `internal/auth/`：客户端鉴权与授权。
-  - `internal/proxy/`：核心转发逻辑（含多类型上游适配、路径感知路由 `path_capability.go`、连接粘连 `affinity.go`）。
+  - `internal/proxy/`：核心转发逻辑（含多类型上游适配、路径感知路由 `path_capability.go`、连接粘连 `affinity.go`、Copilot 处理 `copilot_handler.go`）。
+  - `internal/copilot/`：GitHub Copilot 专用集成（OAuth、Token 管理、模型管理、配额管理）。
   - `internal/admin/`：管理接口与 admin UI。
   - `internal/catalog/`：嵌入式模型元数据目录（`go:embed data/models.json`），支持按 `endpoint_type` 查询和别名解析。
   - `internal/nosql/`：bbolt 嵌入式 NoSQL 数据存储（clients、model_costs、usage_events、admin_users、admin_audit），单一 DB 文件，启动时支持从旧 JSON 文件自动迁移。
@@ -119,7 +138,7 @@
   - `internal/middleware/`：请求 ID、panic 恢复、访问日志。
   - `internal/logging/`：错误日志、访问日志与轮转。
 - `docs/`：接口契约、运维手册、参数白名单、发布说明。
-- `deploy/`：部署模板（如 systemd）。
+- `deploy/`：部署模板（如 systemd、Docker）。
 - `scripts/`：测试与辅助脚本（含 `update-model-catalog.py` 用于更新模型目录数据）。
 - `test/`：集成测试。
 - `logs/`：默认日志目录。
@@ -128,6 +147,7 @@
 - 修改接口行为时，优先同步 `docs/api-contract.md`。
 - 修改路由/鉴权/转发行为时，优先检查 `internal/auth`、`internal/proxy`、`internal/admin`。
 - 新增或调整 `endpoint_type` 时，需同时更新 `internal/config`（常量与校验）、`internal/proxy`（认证分支）、`internal/proxy/path_capability.go`（路径能力表）、`internal/catalog`（模型数据）。
+- 修改 Copilot 集成时，需同时关注 `internal/copilot/`（模型、Token、配额）和 `internal/proxy/copilot_handler.go`（请求处理）。
 - 修改模型目录数据时，通过 `scripts/update-model-catalog.py` 生成新的 `internal/catalog/data/models.json`。
 - 修改费用或用量逻辑时，注意 `CostTable` 的双键查找机制（`endpoint_type:model` 优先，`model` 降级）。
 - 修改日志或运维行为时，检查 `internal/logging` 与 `docs/operations.md`。
@@ -205,61 +225,3 @@ tar -xOf llms-proxy-latest.tar repositories
 tar -tf llms-proxy-latest.tar | head -20
 docker load -i llms-proxy-latest.tar   # 应输出：Loaded image: llms-proxy:latest
 ```
-
-### 导入到 QNAP
-
-> ⚠️ **重要：必须用 SSH `docker load`，禁止用 Container Station UI 导入**
->
-> Container Station 3 UI 导入存在已知缺陷：即使 tar 文件内 `manifest.json` 的 `RepoTags`
-> 和 `repositories` 均格式正确、无多余前缀，UI 导入后镜像名和版本仍会显示 `<none>:<none>`。
-> 本地 `docker load` 验证通过（`Loaded image: llms-proxy:latest`）不代表 QNAP UI 导入正常。
-> **唯一可靠方法是通过 SSH 用 `docker load` 命令导入。**
->
-> ✅ **已验证（2026-04-12）**：按上述完整流程（buildx → skopeo → 前缀修复 → SSH docker load）
-> 导入 QNAP 后，镜像名和版本号显示正常（`llms-proxy:latest`），方案可复用。
-
-**正确导入步骤：**
-
-```bash
-# 1. 把 tar 文件传到 QNAP（从开发机执行，替换实际路径）
-scp llms-proxy-latest.tar admin@<QNAP-IP>:/share/homes/admin/
-
-# 2. SSH 登录 QNAP
-ssh admin@<QNAP-IP>
-
-# 3. 在 QNAP 上执行 docker load（需要切换到 root 或有 docker 权限的用户）
-docker load -i /share/homes/admin/llms-proxy-latest.tar
-# 应输出：Loaded image: llms-proxy:latest
-
-# 4. 验证
-docker images | grep llms-proxy
-
-# 5. 删除临时 tar 文件
-rm /share/homes/admin/llms-proxy-latest.tar
-```
-
-### QNAP compose 挂载要求
-容器使用 bbolt 数据库（`/var/lib/llms-proxy`），**三个目录必须全部挂载**，缺任何一个都会导致启动失败：
-
-```yaml
-volumes:
-  - /path/to/config:/etc/llms-proxy        # 配置文件
-  - /path/to/data:/var/lib/llms-proxy      # bbolt 数据库（不能省略）
-  - /path/to/logs:/var/log/llms-proxy      # 日志
-```
-
-启动前在 QNAP SSH 上提前建好所有目录：
-```bash
-mkdir -p /path/to/config /path/to/data /path/to/logs
-```
-
-### 注意事项
-- 导出文件使用 `.tar`（不压缩），不要用 `.tar.gz`；
-- `docker save` 直接导出在此环境下输出 OCI 格式（含 `oci-layout`+`blobs/sha256/` 路径），**不可直接用于 QNAP 导入**；
-- skopeo 输出的 `repositories`/`manifest.json` 含 `docker.io/library/` 前缀，**必须执行步骤 4 修复**，否则 QNAP 导入后镜像名和版本均显示 `<none>`；
-- 即使步骤 4 修复后 tar 文件格式已完全正确（本机 `docker load` 验证通过），**Container Station 3 UI 导入仍会丢失 tag**，必须用 SSH `docker load`；
-- 容器用户 `llmsproxy` 固定为 uid=1000/gid=1000，QNAP 宿主机挂载目录的属主须为同一用户（即登录 QNAP 的当前用户，通常 uid=1000）；
-- ARM 架构的 QNAP 需修改 Dockerfile 第 27 行 `GOARCH=amd64` → `GOARCH=arm64`，并在 `docker buildx build` 加 `--platform linux/arm64`。
-
-## 适用范围
-本文件用于帮助后续维护者和自动化代理快速理解项目结构与业务边界；如实现发生变化，应同步更新本文件与对应设计文档。

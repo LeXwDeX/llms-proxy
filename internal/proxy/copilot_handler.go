@@ -1,5 +1,8 @@
 // copilot_handler.go — Copilot 专用请求处理：
 // Pool 查找 → 顺序选号 → 动态 Token 注入 → 模型名映射 → 转发 → 额度扣减。
+//
+// Copilot 上游统一使用 OpenAI 兼容的 /chat/completions 端点，
+// 无论底层模型是 GPT、Claude 还是 Gemini。
 package proxy
 
 import (
@@ -23,8 +26,7 @@ var copilotPathRules = []struct {
 	Prefix  string // 客户端请求路径前缀
 	StripV1 bool   // 是否去除 /v1 前缀
 }{
-	{Prefix: "/v1/messages", StripV1: false}, // Anthropic: 必须保留 /v1
-	{Prefix: "/v1/", StripV1: true},          // 其他 /v1 路径：去除 /v1
+	{Prefix: "/v1/", StripV1: true}, // /v1 路径：去除 /v1 前缀
 }
 
 // handleCopilotRequest 处理 Copilot 类型的请求。
@@ -86,31 +88,24 @@ func (s *Service) handleCopilotRequest(
 		return
 	}
 
-	// 4. 模型名映射：copilot_xxx → xxx
+	// 4. 模型名映射：Copilot xxx → xxx
 	upstreamModel := model
 	if mapped, found := copilot.MapModelName(model); found {
 		upstreamModel = mapped
 	}
 
-	// 5. 替换请求体中的 model 字段
+	// 5. 替换请求体中的 model 名
 	forwardBody := body
 	if upstreamModel != model {
 		forwardBody = replaceModelInBody(body, upstreamModel)
 	}
 
-	// 6. 构建上游请求（使用账户动态 API 端点 + 客户端原始路径）
-	// 上游路径跟随客户端请求路径，不强制改写为 /chat/completions，
-	// 使得 /responses、/embeddings 等路径可以直接透传给 Copilot 上游。
-	//
-	// Copilot 上游路径规则不统一：
-	//   - /chat/completions : 不接受 /v1 前缀（/v1/chat/completions → 404）
-	//   - /responses        : 有无 /v1 均可
-	//   - /v1/messages      : 必须保留 /v1 前缀（/messages → 404，Anthropic 原生格式）
-	// 因此仅对非 /v1/messages 路径去除 /v1 前缀。
+	// 6. 构建上游请求 URL
 	baseURL := copilot.CopilotIndividualBase
 	if account.APIBaseURL != "" {
 		baseURL = strings.TrimRight(account.APIBaseURL, "/")
 	}
+
 	requestPath := r.URL.Path
 	for _, rule := range copilotPathRules {
 		if strings.HasPrefix(requestPath, rule.Prefix) {
@@ -123,6 +118,7 @@ func (s *Service) handleCopilotRequest(
 	if requestPath == "" {
 		requestPath = "/chat/completions"
 	}
+
 	upstreamURL := baseURL + requestPath
 	if r.URL.RawQuery != "" {
 		upstreamURL += "?" + r.URL.RawQuery
@@ -188,7 +184,10 @@ func (s *Service) handleCopilotRequest(
 		s.metrics.totalFailures.Add(1)
 	}
 
-	// 9. 写回响应
+	// 9. 透传响应
+	w.Header().Set("X-Copilot-Account", account.GitHubUsername)
+	w.Header().Set("X-Copilot-Quota-Remaining", fmt.Sprintf("%.1f", account.QuotaPercentRemaining))
+
 	for key, values := range resp.Header {
 		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
 			continue
@@ -197,11 +196,7 @@ func (s *Service) handleCopilotRequest(
 			w.Header().Add(key, v)
 		}
 	}
-	w.Header().Set("X-Copilot-Account", account.GitHubUsername)
-	w.Header().Set("X-Copilot-Quota-Remaining", fmt.Sprintf("%.1f", account.QuotaPercentRemaining))
 	w.WriteHeader(resp.StatusCode)
-
-	// 使用 streaming writer 保证 SSE 实时刷新
 	writer := newStreamingWriter(w)
 	_, _ = io.Copy(writer, resp.Body)
 }

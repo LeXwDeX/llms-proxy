@@ -267,7 +267,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Copilot 请求拦截：模型名以 copilot_ 前缀开头且 copilotService 已配置时，
+	// Copilot 请求拦截：模型名以 Copilot 前缀开头且 copilotService 已配置时，
 	// 走独立的 Copilot 处理链（动态 token、模型名映射、额度扣减）。
 	if s.copilotService != nil && strings.HasPrefix(model, strings.ToLower(copilot.ModelPrefix)) {
 		s.handleCopilotRequest(w, r, principal, bodyBytes, model)

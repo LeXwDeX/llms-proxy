@@ -213,8 +213,8 @@ func TestDeductQuota(t *testing.T) {
 			expectedPercent: 0.0 - (1.0/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
-			name:              "带 copilot_ 前缀",
-			model:             "copilot_gpt-4o",
+			name:              "带 Copilot 前缀",
+			model:             "Copilot gpt-4o",
 			initialPercent:    80.0,
 			expectedPercent:   80.0,
 			shouldBeUnchanged: true,

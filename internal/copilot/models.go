@@ -49,8 +49,9 @@ func SortModelDetailByCategory(models []CopilotModelDetail) {
 	})
 }
 
-// 模型名前缀（下游使用）
-const ModelPrefix = "copilot_"
+// 模型名前缀（下游使用）。
+// 下游模型名格式示例：Copilot claude-sonnet-4.6、Copilot gpt-4o。
+const ModelPrefix = "Copilot "
 
 // ModelMultipliers 定义所有已知模型的 premium request 乘数。
 // key 为小写模型名。
@@ -86,7 +87,7 @@ var ModelMultipliers = map[string]float64{
 }
 
 // MapModelName 将下游模型名映射为上游模型名。
-// 例如：copilot_gpt-4o → gpt-4o
+// 例如：Copilot gpt-4o → gpt-4o
 // 大小写不敏感。
 func MapModelName(downstreamModel string) (upstreamModel string, found bool) {
 	lower := strings.ToLower(downstreamModel)
@@ -98,7 +99,7 @@ func MapModelName(downstreamModel string) (upstreamModel string, found bool) {
 }
 
 // ReverseMapModelName 将上游模型名映射为下游模型名。
-// 例如：gpt-4o → copilot_gpt-4o
+// 例如：gpt-4o → Copilot gpt-4o
 func ReverseMapModelName(upstreamModel string) string {
 	return ModelPrefix + upstreamModel
 }
@@ -107,7 +108,7 @@ func ReverseMapModelName(upstreamModel string) string {
 // 未知模型返回 1.0（保守策略）。
 // 大小写不敏感。
 func GetMultiplier(model string) float64 {
-	// 如果有 copilot_ 前缀先去掉
+	// 如果有 Copilot 前缀先去掉
 	mapped, _ := MapModelName(model)
 	lower := strings.ToLower(mapped)
 	if m, ok := ModelMultipliers[lower]; ok {

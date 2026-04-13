@@ -12,8 +12,8 @@ func TestMapModelName(t *testing.T) {
 		wantFound bool
 	}{
 		{
-			name:      "有 copilot_ 前缀",
-			input:     "copilot_gpt-4o",
+			name:      "有 Copilot 前缀（规范格式）",
+			input:     "Copilot gpt-4o",
 			wantModel: "gpt-4o",
 			wantFound: true,
 		},
@@ -24,14 +24,20 @@ func TestMapModelName(t *testing.T) {
 			wantFound: false,
 		},
 		{
-			name:      "大小写不敏感 - 全大写前缀",
-			input:     "COPILOT_gpt-4o",
+			name:      "大小写不敏感 - 全小写前缀",
+			input:     "copilot gpt-4o",
 			wantModel: "gpt-4o",
 			wantFound: true,
 		},
 		{
-			name:      "大小写不敏感 - 混合大小写前缀",
-			input:     "Copilot_claude-sonnet-4",
+			name:      "大小写不敏感 - 全大写前缀",
+			input:     "COPILOT gpt-4o",
+			wantModel: "gpt-4o",
+			wantFound: true,
+		},
+		{
+			name:      "大小写不敏感 - 混合大小写",
+			input:     "Copilot claude-sonnet-4",
 			wantModel: "claude-sonnet-4",
 			wantFound: true,
 		},
@@ -43,14 +49,20 @@ func TestMapModelName(t *testing.T) {
 		},
 		{
 			name:      "仅前缀",
-			input:     "copilot_",
+			input:     "Copilot ",
 			wantModel: "",
 			wantFound: true,
 		},
 		{
 			name:      "前缀不完整",
-			input:     "copilo_gpt-4o",
-			wantModel: "copilo_gpt-4o",
+			input:     "Copilo gpt-4o",
+			wantModel: "Copilo gpt-4o",
+			wantFound: false,
+		},
+		{
+			name:      "旧格式 copilot_ 不再匹配",
+			input:     "copilot_gpt-4o",
+			wantModel: "copilot_gpt-4o",
 			wantFound: false,
 		},
 	}
@@ -77,17 +89,17 @@ func TestReverseMapModelName(t *testing.T) {
 		{
 			name:  "正常映射",
 			input: "gpt-4o",
-			want:  "copilot_gpt-4o",
+			want:  "Copilot gpt-4o",
 		},
 		{
 			name:  "claude 模型",
 			input: "claude-sonnet-4",
-			want:  "copilot_claude-sonnet-4",
+			want:  "Copilot claude-sonnet-4",
 		},
 		{
 			name:  "空字符串",
 			input: "",
-			want:  "copilot_",
+			want:  "Copilot ",
 		},
 	}
 
@@ -128,15 +140,15 @@ func TestGetMultiplier(t *testing.T) {
 		// 未知模型默认 1.0
 		{name: "未知模型", model: "unknown-model-xyz", want: 1.0},
 
-		// copilot_ 前缀处理
-		{name: "带 copilot_ 前缀的免费模型", model: "copilot_gpt-4o", want: 0},
-		{name: "带 copilot_ 前缀的标准模型", model: "copilot_claude-sonnet-4", want: 1},
-		{name: "带 copilot_ 前缀的未知模型", model: "copilot_unknown-model", want: 1.0},
+		// Copilot 前缀处理
+		{name: "带 Copilot 前缀的免费模型", model: "Copilot gpt-4o", want: 0},
+		{name: "带 Copilot 前缀的标准模型", model: "Copilot claude-sonnet-4", want: 1},
+		{name: "带 Copilot 前缀的未知模型", model: "Copilot unknown-model", want: 1.0},
 
 		// 大小写不敏感
 		{name: "大写模型名", model: "GPT-4O", want: 0},
 		{name: "混合大小写", model: "Claude-Sonnet-4", want: 1},
-		{name: "大写前缀", model: "COPILOT_gpt-4o", want: 0},
+		{name: "小写前缀", model: "copilot gpt-4o", want: 0},
 	}
 
 	for _, tt := range tests {
@@ -210,8 +222,8 @@ func TestIsFreeModel(t *testing.T) {
 		{name: "非免费模型 claude-sonnet-4", model: "claude-sonnet-4", want: false},
 		{name: "非免费模型 claude-opus-4.5", model: "claude-opus-4.5", want: false},
 		{name: "未知模型（默认乘数 1.0，非免费）", model: "unknown", want: false},
-		{name: "带前缀免费模型", model: "copilot_gpt-4o", want: true},
-		{name: "带前缀非免费模型", model: "copilot_claude-opus-4.5", want: false},
+		{name: "带前缀免费模型", model: "Copilot gpt-4o", want: true},
+		{name: "带前缀非免费模型", model: "Copilot claude-opus-4.5", want: false},
 	}
 
 	for _, tt := range tests {

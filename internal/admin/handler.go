@@ -530,7 +530,7 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Copilot 模型走订阅额度，不支持 token 计费
-	if strings.HasPrefix(model, "copilot_") {
+	if strings.HasPrefix(model, copilot.ModelPrefix) || strings.HasPrefix(strings.ToLower(model), strings.ToLower(copilot.ModelPrefix)) {
 		writeJSON(w, http.StatusBadRequest, errorResponse("copilot models use subscription quota, not token billing"))
 		return
 	}
