@@ -147,7 +147,18 @@ func (s *Service) HandleCopilotAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCopilotQuotaSummary 处理 GET /copilot/quota —— 汇总该客户端所在池的 premium request 配额。
-// 仅对已认证客户端可见，返回跨所有账户的剩余和总额之和。
+// 仅对已认证客户端可见，返回跨所有账户的剩余和总额之和，以及账号数统计。
+//
+// 响应格式：
+//
+//	{
+//	  "remaining":        133,   // 池内所有活跃账户剩余 premium requests 之和
+//	  "entitlement":      300,   // 池内所有活跃账户月度总额度之和
+//	  "accounts_active":  1,     // 活跃（active + quota_exceeded）账户数
+//	  "accounts_total":   2      // 池内全部账户数（含 disabled/error 等）
+//	}
+//
+// 客户端可据此显示 [accounts_active/accounts_total | remaining/entitlement]。
 func (s *Service) HandleCopilotQuotaSummary(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || principal == nil {
@@ -186,18 +197,22 @@ func (s *Service) HandleCopilotQuotaSummary(w http.ResponseWriter, r *http.Reque
 
 	totalRemaining := 0
 	totalEntitlement := 0
+	active := 0
 	for _, a := range accounts {
 		if a.Status != nosql.AccountStatusActive && a.Status != nosql.AccountStatusQuotaExceeded {
 			continue
 		}
+		active++
 		totalRemaining += a.QuotaRemaining
 		totalEntitlement += a.QuotaEntitlement
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"remaining":   totalRemaining,
-		"entitlement": totalEntitlement,
+		"remaining":       totalRemaining,
+		"entitlement":     totalEntitlement,
+		"accounts_active": active,
+		"accounts_total":  len(accounts),
 	})
 }
 
