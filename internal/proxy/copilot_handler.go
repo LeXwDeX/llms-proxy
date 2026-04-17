@@ -170,9 +170,8 @@ func (s *Service) handleCopilotRequest(
 	}
 	defer resp.Body.Close()
 
-	// 8. 记录指标（不做本地额度扣减——GitHub 按 interaction 计费，
-	//    agent 自主的后续 LLM 调用不算 premium request，
-	//    本地逐请求扣减会严重高估消耗。额度由 QuotaManager 定期同步 GitHub API 获取真实值。）
+	// 8. 记录指标；非 2xx 时记录响应体便于排查上游错误
+	logUpstream4xx(s, resp, requestID, r.URL.Path, requestPath)
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		s.metrics.totalSuccess.Add(1)
 	} else {

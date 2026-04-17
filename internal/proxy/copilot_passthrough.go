@@ -496,10 +496,7 @@ func logUpstream4xx(s *Service, resp *http.Response, requestID, path, upstreamPa
 	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
 		return
 	}
-	if !strings.Contains(path, "/messages") {
-		return
-	}
-	errBody, readErr := io.ReadAll(resp.Body)
+	errBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if readErr != nil {
 		return
 	}
@@ -507,7 +504,7 @@ func logUpstream4xx(s *Service, resp *http.Response, requestID, path, upstreamPa
 	if len(preview) > 1024 {
 		preview = preview[:1024] + "...(truncated)"
 	}
-	s.logger.Warn("copilot upstream 4xx on /messages",
+	s.logger.Warn("copilot upstream 4xx",
 		"request_id", requestID,
 		"status", resp.StatusCode,
 		"path", path,
