@@ -2,6 +2,67 @@
 
 本项目是一个 **多类型上游端点代理服务**：对外提供统一的 HTTP 入口，对内统一转发到多个上游终端（Azure OpenAI、OpenAI、Claude、Gemini、网宿 OpenAI/Claude/Gemini、GitHub Copilot），帮助内部客户端在一个入口下完成鉴权、路由、日志、故障切换与运维管理。
 
+---
+
+## 🚨 Agent 强约束：发布到 33.110
+
+**触发条件**：用户说出任一关键词 —— "发布到 33.110"、"部署到 33.110"、"push 到 33.110"、"上线"、"deploy 到 192.168.33.110"、或类似表达。
+
+**强制执行顺序（禁止跳步、禁止自创流程）**：
+
+1. **必读**：先读 `docs/部署要求.md` 顶部的「红线清单」和「事故复盘」章节。
+2. **本地准备**：
+   - `go build ./... && go test ./...` 必须通过才能继续。
+   - `git status` 必须干净或用户已确认要提交。
+   - 若有改动，先 `git commit` 并 `git push origin main`。
+3. **部署唯一命令**（不要自创任何其他命令组合）：
+   ```bash
+   ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh"
+   ```
+4. **脚本会自动**：发布锁 → 预检 → 备份到 `/DATA/Backups/llms-proxy/` → `git reset --hard` 目标分支 → 恢复 config/data → 重建容器 → 30 秒健康检查 → 失败时打印回滚命令。
+5. **部署后验证**（必做）：
+   - `curl http://192.168.33.110:8000/healthz` → 应返回 `{"status":"ok"}`
+   - 查看容器日志最后 20 行，确认无 panic / 启动错误。
+   - 若用户提到某个具体功能（如 Copilot 某模型），发一次真实请求确认。
+6. **重要**：若脚本退出非 0 或健康检查失败，**立即停止**，按脚本输出的回滚命令恢复，不要自作主张继续。
+
+**红线（绝对禁止）**：
+
+| # | 禁止动作 | 理由 |
+|---|---|---|
+| ❌ | 在 33.110 上执行 `git clean -fdx` / `git clean -fd` | 会删除 `data/llms-proxy.db`、`config/config.json`、`logs/*`（2026-04-17 事故元凶） |
+| ❌ | 绕过 `scripts/deploy.sh` 直接跑 `git reset --hard` + `docker compose up` | 缺少备份和健康检查链路 |
+| ❌ | `rm -rf data/`、`rm -rf config/`、`docker compose down -v` | 数据丢失 |
+| ❌ | 在 admin UI 里"重置"或"删除"默认 admin 账号 | 会导致下次启动触发 seed 流程 |
+| ❌ | 修改 `scripts/deploy.sh` 中备份/恢复/预检环节但不做同步测试 | 任何一处失效都会引发事故 |
+
+**应急（admin 密码忘记）**：
+
+```bash
+ssh root@192.168.33.110
+cd /DATA/AppData/llms_proxy
+docker compose stop
+/tmp/reset-admin-pw -db data/llms-proxy.db -list
+/tmp/reset-admin-pw -db data/llms-proxy.db -user admin -password <新密码>
+docker compose start
+```
+
+若 `/tmp/reset-admin-pw` 不存在，从本项目 `scripts/reset-admin-password/` 交叉编译 Linux 版本 scp 上传。
+
+**服务器信息**：
+
+| 项 | 值 |
+|---|---|
+| 连接 | `ssh root@192.168.33.110` |
+| 项目路径 | `/DATA/AppData/llms_proxy/` |
+| 对外地址 | `http://192.168.33.110:8000` |
+| Admin 后台 | `http://192.168.33.110:8000/admin/`（`admin` / `suntao341`） |
+| 备份路径 | `/DATA/Backups/llms-proxy/<时间戳>/`（保留最近 20 份） |
+| Docker | 29.1.2（containerd image store） |
+| 默认分支 | `origin/main`（脚本自动探测 main/master） |
+
+---
+
 ## 业务目标
 - 统一入口：屏蔽多个上游终端差异，对外按各协议原生方式透传。
 - 多类型上游：通过 `endpoint_type` 字段区分目标类型，支持多种上游，并按类型自动适配认证方式与请求格式。
