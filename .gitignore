@@ -43,6 +43,10 @@ logs/
 config/*
 !config/.gitkeep
 
+# Runtime data directory (bbolt database - NEVER commit, NEVER let git clean remove!)
+data/
+!data/.gitkeep
+
 # Vibe-coding / AI assistant artifacts
 AGENTS.md
 CLAUDE.md
