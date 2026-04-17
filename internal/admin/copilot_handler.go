@@ -789,3 +789,51 @@ func (h *Handler) handleListCopilotPoolModels(w http.ResponseWriter, r *http.Req
 		"source":        "copilot_api_intersection",
 	})
 }
+
+// handleRefreshCopilotToken 强制清空并重新获取账户的 Copilot Token。
+// 常用场景：账户加入组织 Business seat 后，旧 Token 记录了 individual 端点，
+// 调用此接口可强制刷新，使 api_base_url 更新为正确的 business 端点。
+func (h *Handler) handleRefreshCopilotToken(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCopilotService(w) {
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("missing account id"))
+		return
+	}
+
+	account, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	// 清空旧 Token，强制 EnsureValidToken 重新向 GitHub 获取
+	account.CopilotToken = ""
+	account.CopilotTokenExpiresAt = 0
+	if err := h.copilotAcctStore.Update(id, *account); err != nil {
+		h.writeInternalError(w, "failed to clear copilot token", err)
+		return
+	}
+
+	// 立即触发一次刷新，拿到新 token 和最新的 api_base_url
+	if _, err := h.copilotService.GetToken(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusBadGateway, errorResponse("token refresh failed: "+err.Error()))
+		return
+	}
+
+	// 读回更新后的账户，返回最新 api_base_url
+	updated, err := h.copilotAcctStore.Get(id)
+	if err != nil {
+		h.writeInternalError(w, "failed to read updated account", err)
+		return
+	}
+
+	h.recordAudit(r, "copilot.account.refresh_token", id, "success", "api_base_url="+updated.APIBaseURL)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":       "ok",
+		"api_base_url": updated.APIBaseURL,
+	})
+}

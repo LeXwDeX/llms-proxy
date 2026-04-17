@@ -122,6 +122,7 @@ func NewHandler(
 		r.Post("/copilot-accounts/{id}/disable", h.handleDisableCopilotAccount)
 		r.Post("/copilot-accounts/{id}/enable", h.handleEnableCopilotAccount)
 		r.Post("/copilot-accounts/{id}/toggle-overage", h.handleToggleCopilotOverage)
+		r.Post("/copilot-accounts/{id}/refresh-token", h.handleRefreshCopilotToken)
 		r.Delete("/copilot-accounts/{id}", h.handleDeleteCopilotAccount)
 		r.Get("/copilot-accounts/{id}/quota", h.handleGetCopilotQuota)
 		r.Post("/copilot-accounts/{id}/quota/sync", h.handleSyncCopilotQuota)

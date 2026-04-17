@@ -1067,6 +1067,7 @@
                     <tr>
                       <th>#</th>
                       <th>GitHub 用户名</th>
+                      <th>类型</th>
                       <th>状态</th>
                       <th>已使用额度</th>
                       <th>超额</th>
@@ -1075,7 +1076,7 @@
                     </tr>
                   </thead>
                   <tbody id="copilotAccountsTableBody">
-                    <tr class="empty-row"><td colspan="7">请选择订阅池</td></tr>
+                    <tr class="empty-row"><td colspan="8">请选择订阅池</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -2484,6 +2485,7 @@
         var btns = "";
         if (s === "active") {
           btns += "<button class='btn btn-sm' data-acct-sync='" + esc(id) + "'>同步额度</button>";
+          btns += "<button class='btn btn-sm' data-acct-refresh-token='" + esc(id) + "' title='强制重新获取 Copilot Token，可修复 Individual/Business 端点错误'>刷新 Token</button>";
           btns += "<button class='btn btn-sm' data-acct-disable='" + esc(id) + "'>禁用</button>";
           btns += "<button class='btn btn-sm' data-acct-revoke='" + esc(id) + "'>注销</button>";
           btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
@@ -2492,12 +2494,14 @@
           btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
         } else if (s === "disabled") {
           btns += "<button class='btn btn-sm' data-acct-enable='" + esc(id) + "'>启用</button>";
+          btns += "<button class='btn btn-sm' data-acct-refresh-token='" + esc(id) + "' title='强制重新获取 Copilot Token，可修复 Individual/Business 端点错误'>刷新 Token</button>";
           btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
         } else if (s === "token_expired") {
           btns += "<button class='btn btn-sm' data-acct-revoke='" + esc(id) + "'>注销</button>";
           btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
         } else if (s === "quota_exceeded") {
           btns += "<button class='btn btn-sm' data-acct-sync='" + esc(id) + "'>同步额度</button>";
+          btns += "<button class='btn btn-sm' data-acct-refresh-token='" + esc(id) + "' title='强制重新获取 Copilot Token，可修复 Individual/Business 端点错误'>刷新 Token</button>";
           btns += "<button class='btn btn-sm' data-acct-disable='" + esc(id) + "'>禁用</button>";
           btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
         } else {
@@ -2509,7 +2513,7 @@
       function renderCopilotAccounts() {
         var tb = document.getElementById("copilotAccountsTableBody");
         if (!state.copilotAccounts.length) {
-          tb.innerHTML = "<tr class='empty-row'><td colspan='7'>暂无账户</td></tr>";
+          tb.innerHTML = "<tr class='empty-row'><td colspan='8'>暂无账户</td></tr>";
           return;
         }
         tb.innerHTML = state.copilotAccounts.slice().sort(function(a, b) {
@@ -2517,9 +2521,16 @@
         }).map(function(acct) {
           var overageToggle = "<button class='btn btn-sm' data-acct-toggle-overage='" + esc(acct.id) + "' title='点击切换超额调用开关'>"
             + (acct.allow_overage ? "✅ 允许" : "⛔ 禁止") + "</button>";
+          var apiBase = acct.api_base_url || "";
+          var acctTypeBadge = apiBase.indexOf("business") >= 0
+            ? "<span style='background:#dbeafe;color:#2563eb;padding:2px 8px;border-radius:4px;font-size:12px;' title='" + esc(apiBase) + "'>Business</span>"
+            : apiBase.indexOf("individual") >= 0
+              ? "<span style='background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:4px;font-size:12px;' title='" + esc(apiBase) + "'>Individual</span>"
+              : "<span style='background:#f1f5f9;color:#94a3b8;padding:2px 8px;border-radius:4px;font-size:12px;' title='尚未获取 Token'>-</span>";
           return "<tr>"
             + "<td>" + esc(acct.sort_order || 0) + "</td>"
             + "<td>" + esc(acct.github_username || "-") + "</td>"
+            + "<td>" + acctTypeBadge + "</td>"
             + "<td>" + acctStatusBadge(acct.status) + "</td>"
             + "<td>" + quotaBar(acct.quota_percent_remaining, acct.quota_entitlement, acct.quota_remaining) + "</td>"
             + "<td>" + overageToggle + "</td>"
@@ -2552,7 +2563,18 @@
         if (t.dataset.acctToggleOverage) {
           toggleOverage(t.dataset.acctToggleOverage);
         }
+        if (t.dataset.acctRefreshToken) {
+          refreshAccountToken(t.dataset.acctRefreshToken);
+        }
       });
+
+      async function refreshAccountToken(id) {
+        try {
+          await api("/admin/data/copilot-accounts/" + encodeURIComponent(id) + "/refresh-token", { method: "POST" });
+          toast("Token 已刷新，类型已更新", "success");
+          await loadCopilotAccounts(state.currentPoolName);
+        } catch(e) { toast("刷新失败: " + e.message, "error"); }
+      }
 
       async function toggleOverage(id) {
         try {
