@@ -85,6 +85,7 @@ var ModelMultipliers = map[string]float64{
 	// 高消耗模型（乘数 >1）
 	"claude-opus-4.5": 3,
 	"claude-opus-4.6": 3,
+	"claude-opus-4.7": 3,
 }
 
 // MapModelName 将下游模型名映射为上游模型名。

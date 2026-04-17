@@ -136,6 +136,7 @@ func TestGetMultiplier(t *testing.T) {
 		// 高消耗模型
 		{name: "高消耗 claude-opus-4.5", model: "claude-opus-4.5", want: 3},
 		{name: "高消耗 claude-opus-4.6", model: "claude-opus-4.6", want: 3},
+		{name: "高消耗 claude-opus-4.7", model: "claude-opus-4.7", want: 3},
 
 		// 未知模型默认 1.0
 		{name: "未知模型", model: "unknown-model-xyz", want: 1.0},

@@ -75,6 +75,24 @@
   },
   {
     "endpoint_type": "azure_openai",
+    "model": "claude-opus-4-7",
+    "display_name": "Claude Opus 4.7",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 25,
+      "cached_input_per_1m_tokens": 0.5
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "reasoning"
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 128000,
+    "model_family": "claude-opus"
+  },
+  {
+    "endpoint_type": "azure_openai",
     "model": "claude-sonnet-4-5",
     "display_name": "Claude Sonnet 4.5",
     "default_cost": {
@@ -2018,6 +2036,24 @@
     "endpoint_type": "claude",
     "model": "claude-opus-4-6",
     "display_name": "Claude Opus 4.6",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 25,
+      "cached_input_per_1m_tokens": 0.5
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "reasoning"
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 128000,
+    "model_family": "claude-opus"
+  },
+  {
+    "endpoint_type": "claude",
+    "model": "claude-opus-4-7",
+    "display_name": "Claude Opus 4.7",
     "default_cost": {
       "input_per_1m_tokens": 5,
       "output_per_1m_tokens": 25,
