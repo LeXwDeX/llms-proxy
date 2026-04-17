@@ -197,23 +197,36 @@ func (s *Service) handleCopilotRequest(
 }
 
 // replaceModelInBody 替换请求体 JSON 中的 "model" 字段值。
+// 使用 json.RawMessage 保留其他字段的原始字节，避免重新序列化破坏
+// thinking block 中的 signature 等二进制/编码敏感字段。
 func replaceModelInBody(body []byte, newModel string) []byte {
 	if len(body) == 0 {
 		return body
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]json.RawMessage
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return body // 解析失败返回原始 body
 	}
 
 	if _, ok := parsed["model"]; ok {
-		parsed["model"] = newModel
-		modified, err := json.Marshal(parsed)
+		modelJSON, err := json.Marshal(newModel)
 		if err != nil {
 			return body
 		}
-		return modified
+		parsed["model"] = json.RawMessage(modelJSON)
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(parsed); err != nil {
+			return body
+		}
+		// json.Encoder.Encode appends a newline; trim it.
+		result := buf.Bytes()
+		if len(result) > 0 && result[len(result)-1] == '\n' {
+			result = result[:len(result)-1]
+		}
+		return result
 	}
 
 	return body
