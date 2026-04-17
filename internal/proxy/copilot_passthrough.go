@@ -316,6 +316,19 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 		logThinkingBlockDiagnostics(s, requestID, body, "passthrough-received")
 	}
 
+	// 诊断日志：记录 x-initiator 和模型名称，用于排查 Copilot 扣次异常
+	xInitiator := r.Header.Get("x-initiator")
+	reqModel := extractModelFromBody(body)
+	if r.Method == http.MethodPost {
+		s.logger.Info("copilot passthrough billing-diag",
+			"request_id", requestID,
+			"client", principal.Name,
+			"x-initiator", xInitiator,
+			"model", reqModel,
+			"path", r.URL.Path,
+		)
+	}
+
 	// 路径映射：去除 /copilot 前缀
 	upstreamPath := strings.TrimPrefix(r.URL.Path, "/copilot")
 	if upstreamPath == "" {
@@ -411,6 +424,20 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 		"upstream_path", upstreamPath,
 		"status", resp.StatusCode,
 	)
+}
+
+// extractModelFromBody 从请求体 JSON 中提取 "model" 字段值。
+func extractModelFromBody(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var partial struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &partial); err != nil {
+		return ""
+	}
+	return partial.Model
 }
 
 // logThinkingBlockDiagnostics 解析请求体中 messages 数组，找出所有 thinking block，
