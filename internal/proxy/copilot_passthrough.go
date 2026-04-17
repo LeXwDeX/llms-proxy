@@ -311,6 +311,11 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// 诊断日志：检查请求体中 thinking block 的 signature 完整性
+	if len(body) > 0 && strings.Contains(r.URL.Path, "/messages") {
+		logThinkingBlockDiagnostics(s, requestID, body, "passthrough-received")
+	}
+
 	// 路径映射：去除 /copilot 前缀
 	upstreamPath := strings.TrimPrefix(r.URL.Path, "/copilot")
 	if upstreamPath == "" {
@@ -371,6 +376,9 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 	}
 	defer resp.Body.Close()
 
+	// 诊断：4xx 响应记录上游错误详情（含 "Invalid signature" 等）
+	logUpstream4xx(s, resp, requestID, r.URL.Path, upstreamPath)
+
 	// 透传响应
 	w.Header().Set("X-Copilot-Account", account.GitHubUsername)
 	w.Header().Set("X-Copilot-Quota-Remaining", fmt.Sprintf("%.1f", account.QuotaPercentRemaining))
@@ -403,4 +411,81 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 		"upstream_path", upstreamPath,
 		"status", resp.StatusCode,
 	)
+}
+
+// logThinkingBlockDiagnostics 解析请求体中 messages 数组，找出所有 thinking block，
+// 记录 signature 长度、前 40 字符和 thinking 文本长度，用于诊断
+// "Invalid signature in thinking block" 错误。
+func logThinkingBlockDiagnostics(s *Service, requestID string, body []byte, phase string) {
+	var payload struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return
+	}
+	for i, msg := range payload.Messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		var blocks []struct {
+			Type      string `json:"type"`
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
+			Data      string `json:"data"` // redacted_thinking
+		}
+		if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+			continue
+		}
+		for j, block := range blocks {
+			if block.Type != "thinking" && block.Type != "redacted_thinking" {
+				continue
+			}
+			sigPreview := block.Signature
+			if len(sigPreview) > 40 {
+				sigPreview = sigPreview[:40] + "..."
+			}
+			s.logger.Info("thinking-block-diag",
+				"phase", phase,
+				"request_id", requestID,
+				"msg_index", i,
+				"block_index", j,
+				"block_type", block.Type,
+				"thinking_len", len(block.Thinking),
+				"signature_len", len(block.Signature),
+				"signature_preview", sigPreview,
+				"redacted_data_len", len(block.Data),
+				"body_total_len", len(body),
+			)
+		}
+	}
+}
+
+// logUpstream4xx 在 /messages 路径遇到 4xx 时，读取并记录上游错误体（最多 1KB），
+// 然后还原 resp.Body 以便下游正常读取。
+func logUpstream4xx(s *Service, resp *http.Response, requestID, path, upstreamPath string) {
+	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+		return
+	}
+	if !strings.Contains(path, "/messages") {
+		return
+	}
+	errBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return
+	}
+	preview := string(errBody)
+	if len(preview) > 1024 {
+		preview = preview[:1024] + "...(truncated)"
+	}
+	s.logger.Warn("copilot upstream 4xx on /messages",
+		"request_id", requestID,
+		"status", resp.StatusCode,
+		"path", path,
+		"upstream_path", upstreamPath,
+		"error_body", preview,
+	)
+	resp.Body = io.NopCloser(bytes.NewReader(errBody))
 }

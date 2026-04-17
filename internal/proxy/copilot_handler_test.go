@@ -286,6 +286,48 @@ func TestReplaceModelInBody_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestReplaceModelInBody_ThinkingSignaturePreserved(t *testing.T) {
+	// Simulate an Anthropic Messages API request containing a thinking block
+	// with a signature field. The signature is a base64 string that MUST be
+	// preserved byte-for-byte; any alteration causes Anthropic to reject the
+	// request with "Invalid signature in thinking block".
+	body := []byte(`{"model":"Copilot claude-sonnet-4","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"let me think...","signature":"ErUBCkYIAxgCIkD+Q3kD/cBs8G/abc123+/def456==KhBzb21lLXJhbmRvbS1pZBIwc29tZS1yYW5kb20tZXh0cmEtZGF0YS1oZXJl"}]},{"role":"user","content":"continue"},{"role":"assistant","content":[{"type":"thinking","thinking":"more thinking <with> special & chars","signature":"XyZaBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789+/=="}]}]}`)
+	result := replaceModelInBody(body, "claude-sonnet-4")
+
+	// Verify byte-for-byte preservation of the signature values.
+	if !json.Valid(result) {
+		t.Fatalf("result is not valid JSON")
+	}
+
+	// Extract signatures from original and result
+	type msg struct {
+		Content json.RawMessage `json:"content"`
+	}
+	type req struct {
+		Model    string `json:"model"`
+		Messages []msg  `json:"messages"`
+	}
+
+	var orig, replaced req
+	if err := json.Unmarshal(body, &orig); err != nil {
+		t.Fatalf("unmarshal original: %v", err)
+	}
+	if err := json.Unmarshal(result, &replaced); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	if replaced.Model != "claude-sonnet-4" {
+		t.Fatalf("model not replaced: got %q", replaced.Model)
+	}
+
+	// Compare raw bytes of each message's content to ensure no mutation
+	for i, origMsg := range orig.Messages {
+		if string(origMsg.Content) != string(replaced.Messages[i].Content) {
+			t.Errorf("message[%d] content mutated:\n  orig:    %s\n  replaced:%s", i, origMsg.Content, replaced.Messages[i].Content)
+		}
+	}
+}
+
 func TestReplaceModelInBody_EmptyBody(t *testing.T) {
 	result := replaceModelInBody(nil, "gpt-4o")
 	if result != nil {
