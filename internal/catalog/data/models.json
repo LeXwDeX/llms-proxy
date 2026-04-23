@@ -75,24 +75,6 @@
   },
   {
     "endpoint_type": "azure_openai",
-    "model": "claude-opus-4-7",
-    "display_name": "Claude Opus 4.7",
-    "default_cost": {
-      "input_per_1m_tokens": 5,
-      "output_per_1m_tokens": 25,
-      "cached_input_per_1m_tokens": 0.5
-    },
-    "capabilities": [
-      "vision",
-      "function_calling",
-      "reasoning"
-    ],
-    "context_window": 200000,
-    "max_output_tokens": 128000,
-    "model_family": "claude-opus"
-  },
-  {
-    "endpoint_type": "azure_openai",
     "model": "claude-sonnet-4-5",
     "display_name": "Claude Sonnet 4.5",
     "default_cost": {
@@ -2263,7 +2245,7 @@
     "default_cost": {
       "input_per_1m_tokens": 0.3,
       "output_per_1m_tokens": 2.5,
-      "cached_input_per_1m_tokens": 0.075
+      "cached_input_per_1m_tokens": 0.03
     },
     "capabilities": [
       "vision",
@@ -2452,7 +2434,7 @@
     "default_cost": {
       "input_per_1m_tokens": 1.25,
       "output_per_1m_tokens": 10,
-      "cached_input_per_1m_tokens": 0.31
+      "cached_input_per_1m_tokens": 0.125
     },
     "capabilities": [
       "vision",
@@ -2779,7 +2761,7 @@
   },
   {
     "endpoint_type": "gemini",
-    "model": "gemma-4-26b-it",
+    "model": "gemma-4-26b-a4b-it",
     "display_name": "Gemma 4 26B",
     "capabilities": [
       "vision",
@@ -2813,23 +2795,6 @@
       "image_generation"
     ],
     "model_family": "gpt-image"
-  },
-  {
-    "endpoint_type": "openai",
-    "model": "codex-mini-latest",
-    "display_name": "Codex Mini",
-    "default_cost": {
-      "input_per_1m_tokens": 1.5,
-      "output_per_1m_tokens": 6,
-      "cached_input_per_1m_tokens": 0.375
-    },
-    "capabilities": [
-      "function_calling",
-      "reasoning"
-    ],
-    "context_window": 200000,
-    "max_output_tokens": 100000,
-    "model_family": "gpt-codex-mini"
   },
   {
     "endpoint_type": "openai",
