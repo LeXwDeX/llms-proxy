@@ -51,13 +51,6 @@ func needsMultipartConvert(r *http.Request) bool {
 	return false
 }
 
-// fileEntry 表示一个 base64 编码的文件。
-type fileEntry struct {
-	Type      string `json:"type"`
-	MediaType string `json:"media_type"`
-	Data      string `json:"data"`
-}
-
 // convertMultipartToJSON 将 multipart/form-data body 转换为等效的 JSON body。
 //
 // 返回值：
@@ -66,9 +59,12 @@ type fileEntry struct {
 //   - err: 解析或转换错误
 //
 // 转换规则：
-//   - 有 filename 的 part（文件字段）→ base64 数组 [{type,media_type,data}]
+//   - 有 filename 的 part（文件字段）→ data URI 字符串 "data:<mime>;base64,<b64>"
+//   - 同名文件字段多次出现 → 聚合为 data URI 字符串数组
+//   - 单文件字段 → 直接输出字符串（而非数组）
 //   - 无 filename 的 part（文本字段）→ 字符串值（numericFields 转为数字）
-//   - 同名文件字段多次出现 → 聚合为数组
+//
+// 该格式与 OpenAI /images/edits API 的 image 参数兼容（String | Array[String]）。
 func convertMultipartToJSON(r *http.Request, body []byte) ([]byte, string, error) {
 	if r == nil || len(body) == 0 {
 		return nil, "", errors.New("empty request or body")
@@ -86,7 +82,7 @@ func convertMultipartToJSON(r *http.Request, body []byte) ([]byte, string, error
 
 	// 解析结果：文本字段和文件字段分开收集
 	textFields := make(map[string]string)
-	fileFields := make(map[string][]fileEntry)
+	fileFields := make(map[string][]string) // data URI 字符串
 
 	reader := multipart.NewReader(bytes.NewReader(body), boundary)
 	for {
@@ -102,7 +98,7 @@ func convertMultipartToJSON(r *http.Request, body []byte) ([]byte, string, error
 		fileName := part.FileName()
 
 		if fileName != "" {
-			// 文件字段 → 读取内容并 base64 编码
+			// 文件字段 → 读取内容并转为 data URI
 			data, readErr := io.ReadAll(part)
 			_ = part.Close()
 			if readErr != nil {
@@ -115,12 +111,8 @@ func convertMultipartToJSON(r *http.Request, body []byte) ([]byte, string, error
 				partCT = detectMimeType(fileName)
 			}
 
-			entry := fileEntry{
-				Type:      "base64",
-				MediaType: partCT,
-				Data:      base64.StdEncoding.EncodeToString(data),
-			}
-			fileFields[fieldName] = append(fileFields[fieldName], entry)
+			dataURI := "data:" + partCT + ";base64," + base64.StdEncoding.EncodeToString(data)
+			fileFields[fieldName] = append(fileFields[fieldName], dataURI)
 		} else {
 			// 文本字段 → 读取值
 			data, readErr := io.ReadAll(io.LimitReader(part, 64*1024)) // 文本字段限 64KB
@@ -146,7 +138,13 @@ func convertMultipartToJSON(r *http.Request, body []byte) ([]byte, string, error
 	}
 
 	for k, entries := range fileFields {
-		payload[k] = entries
+		if len(entries) == 1 {
+			// 单文件 → 字符串（兼容 OpenAI image: String 格式）
+			payload[k] = entries[0]
+		} else {
+			// 多文件 → 字符串数组（兼容 OpenAI image: Array[String] 格式）
+			payload[k] = entries
+		}
 	}
 
 	jsonBody, marshalErr := json.Marshal(payload)

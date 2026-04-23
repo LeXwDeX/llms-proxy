@@ -147,24 +147,15 @@ func TestConvertMultipartToJSON_SingleFile(t *testing.T) {
 		t.Errorf("n = %v (type %T), want 1 (float64)", payload["n"], payload["n"])
 	}
 
-	// Check image field
-	imageArr, ok := payload["image"].([]any)
-	if !ok || len(imageArr) != 1 {
-		t.Fatalf("image should be array of 1, got %T %v", payload["image"], payload["image"])
-	}
-	entry, ok := imageArr[0].(map[string]any)
+	// Check image field — 单文件应输出为 data URI 字符串
+	imageStr, ok := payload["image"].(string)
 	if !ok {
-		t.Fatalf("image[0] should be object, got %T", imageArr[0])
-	}
-	if entry["type"] != "base64" {
-		t.Errorf("image[0].type = %v", entry["type"])
-	}
-	if entry["media_type"] != "image/png" {
-		t.Errorf("image[0].media_type = %v", entry["media_type"])
+		t.Fatalf("image should be string (data URI), got %T %v", payload["image"], payload["image"])
 	}
 	expectedB64 := base64.StdEncoding.EncodeToString(imgData)
-	if entry["data"] != expectedB64 {
-		t.Errorf("image[0].data mismatch")
+	expectedDataURI := "data:image/png;base64," + expectedB64
+	if imageStr != expectedDataURI {
+		t.Errorf("image data URI mismatch, got len=%d", len(imageStr))
 	}
 }
 
@@ -200,10 +191,21 @@ func TestConvertMultipartToJSON_MultipleFiles(t *testing.T) {
 
 	imageArr, ok := payload["image"].([]any)
 	if !ok {
-		t.Fatalf("image should be array, got %T", payload["image"])
+		t.Fatalf("image should be array for multi-file, got %T", payload["image"])
 	}
 	if len(imageArr) != 3 {
 		t.Errorf("expected 3 image entries, got %d", len(imageArr))
+	}
+	// 每项应为 data URI 字符串
+	for i, item := range imageArr {
+		s, ok := item.(string)
+		if !ok {
+			t.Errorf("image[%d] should be string, got %T", i, item)
+			continue
+		}
+		if len(s) < 22 { // "data:image/png;base64," 最短前缀
+			t.Errorf("image[%d] data URI too short: %s", i, s)
+		}
 	}
 }
 
@@ -251,10 +253,13 @@ func TestConvertMultipartToJSON_FileMimeFromExtension(t *testing.T) {
 	var payload map[string]any
 	_ = json.Unmarshal(jsonBody, &payload)
 
-	imageArr := payload["image"].([]any)
-	entry := imageArr[0].(map[string]any)
-	if entry["media_type"] != "image/jpeg" {
-		t.Errorf("expected image/jpeg from .jpg extension, got %v", entry["media_type"])
+	// 单文件应输出为 data URI 字符串
+	imageStr, ok := payload["image"].(string)
+	if !ok {
+		t.Fatalf("image should be string (data URI), got %T", payload["image"])
+	}
+	if imageStr[:16] != "data:image/jpeg;" {
+		t.Errorf("expected data:image/jpeg; prefix from .jpg extension, got %s", imageStr[:30])
 	}
 }
 
