@@ -25,6 +25,8 @@ func TestPathSupportedByEndpointType(t *testing.T) {
 		// wangsu_openai 受限
 		{config.EndpointTypeWangsuOpenAI, "/v1/chat/completions", true},
 		{config.EndpointTypeWangsuOpenAI, "/v1/images/generations", true},
+		{config.EndpointTypeWangsuOpenAI, "/v1/images/edits", true},
+		{config.EndpointTypeWangsuOpenAI, "/v1/images/variations", true},
 		{config.EndpointTypeWangsuOpenAI, "/v1/embeddings", true},
 		{config.EndpointTypeWangsuOpenAI, "/openai/deployments/gpt-4o/chat/completions", true},
 		// wangsu_openai 不支持

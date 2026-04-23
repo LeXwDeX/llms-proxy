@@ -11,6 +11,8 @@ import (
 var wangsuOpenAISupportedPaths = []string{
 	"/chat/completions",
 	"/images/generations",
+	"/images/edits",
+	"/images/variations",
 	"/embeddings",
 }
 
