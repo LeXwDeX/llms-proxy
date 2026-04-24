@@ -322,9 +322,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// 对非 Azure target 的 multipart 请求，自动转换为 JSON。
 		// 部分上游网关（如 aigateway）只接受 application/json，不支持 multipart/form-data。
+		// 例外：网宿图像编辑端点（wangsu_openai_image_edit）原生要求 multipart/form-data，
+		// 必须保留原样透传；wangsu_openai_image 也原生支持 multipart，同样保留。
 		// Azure 端点保持原样透传 multipart（原生支持）。
 		var origContentType string
-		if target.EndpointType != config.EndpointTypeAzureOpenAI && needsMultipartConvert(r) {
+		preserveMultipart := target.EndpointType == config.EndpointTypeAzureOpenAI ||
+			target.EndpointType == config.EndpointTypeWangsuOpenAIImage ||
+			target.EndpointType == config.EndpointTypeWangsuOpenAIImageEdit
+		if !preserveMultipart && needsMultipartConvert(r) {
 			if converted, newCT, convErr := convertMultipartToJSON(r, bodyBytes); convErr == nil {
 				forwardBody = converted
 				origContentType = r.Header.Get("Content-Type")
