@@ -16,14 +16,27 @@ const (
 	EndpointTypeOpenAI       = "openai"
 	EndpointTypeClaude       = "claude"
 	EndpointTypeGemini       = "gemini"
-	EndpointTypeWangsuOpenAI = "wangsu_openai"
-	EndpointTypeWangsuClaude = "wangsu_claude"
-	EndpointTypeWangsuGemini = "wangsu_gemini"
-	EndpointTypeCopilot      = "copilot"
+	EndpointTypeWangsuOpenAI          = "wangsu_openai"
+	EndpointTypeWangsuClaude          = "wangsu_claude"
+	EndpointTypeWangsuGemini          = "wangsu_gemini"
+	EndpointTypeWangsuOpenAIImage     = "wangsu_openai_image"      // 网宿文生图（独立终态 URL）
+	EndpointTypeWangsuOpenAIImageEdit = "wangsu_openai_image_edit" // 网宿图编辑（独立终态 URL）
+	EndpointTypeCopilot               = "copilot"
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
-var ValidEndpointTypes = []string{EndpointTypeAzureOpenAI, EndpointTypeOpenAI, EndpointTypeClaude, EndpointTypeGemini, EndpointTypeWangsuOpenAI, EndpointTypeWangsuClaude, EndpointTypeWangsuGemini, EndpointTypeCopilot}
+var ValidEndpointTypes = []string{
+	EndpointTypeAzureOpenAI,
+	EndpointTypeOpenAI,
+	EndpointTypeClaude,
+	EndpointTypeGemini,
+	EndpointTypeWangsuOpenAI,
+	EndpointTypeWangsuClaude,
+	EndpointTypeWangsuGemini,
+	EndpointTypeWangsuOpenAIImage,
+	EndpointTypeWangsuOpenAIImageEdit,
+	EndpointTypeCopilot,
+}
 
 // NormalizeEndpointType returns a canonical endpoint type; empty defaults to azure_openai.
 func NormalizeEndpointType(t string) string {

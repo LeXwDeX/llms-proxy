@@ -34,6 +34,15 @@ func TestPathSupportedByEndpointType(t *testing.T) {
 		{config.EndpointTypeWangsuOpenAI, "/v1/audio/transcriptions", false},
 		{config.EndpointTypeWangsuOpenAI, "/v1/models", false},
 		{config.EndpointTypeWangsuOpenAI, "/", false},
+		// wangsu_openai_image：仅文生图
+		{config.EndpointTypeWangsuOpenAIImage, "/v1/images/generations", true},
+		{config.EndpointTypeWangsuOpenAIImage, "/v1/images/edits", false},
+		{config.EndpointTypeWangsuOpenAIImage, "/v1/chat/completions", false},
+		{config.EndpointTypeWangsuOpenAIImage, "/", false},
+		// wangsu_openai_image_edit：仅图编辑
+		{config.EndpointTypeWangsuOpenAIImageEdit, "/v1/images/edits", true},
+		{config.EndpointTypeWangsuOpenAIImageEdit, "/v1/images/generations", false},
+		{config.EndpointTypeWangsuOpenAIImageEdit, "/v1/chat/completions", false},
 	}
 	for _, tt := range tests {
 		got := PathSupportedByEndpointType(tt.epType, tt.path)

@@ -3701,5 +3701,65 @@
     "capabilities": [
       "audio_input"
     ]
+  },
+  {
+    "endpoint_type": "wangsu_openai_image",
+    "model": "gpt-image-1.5",
+    "display_name": "GPT Image 1.5 (Wangsu - Generations)",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
+    },
+    "capabilities": [
+      "image_generation"
+    ],
+    "model_family": "gpt-image"
+  },
+  {
+    "endpoint_type": "wangsu_openai_image",
+    "model": "gpt-image-2",
+    "display_name": "GPT Image 2 (Wangsu - Generations)",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
+    },
+    "capabilities": [
+      "image_generation"
+    ],
+    "aliases": [
+      "gpt-image-2-2026-04-21"
+    ],
+    "model_family": "gpt-image"
+  },
+  {
+    "endpoint_type": "wangsu_openai_image_edit",
+    "model": "gpt-image-1.5",
+    "display_name": "GPT Image 1.5 (Wangsu - Edits)",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
+    },
+    "capabilities": [
+      "vision",
+      "image_generation"
+    ],
+    "model_family": "gpt-image"
+  },
+  {
+    "endpoint_type": "wangsu_openai_image_edit",
+    "model": "gpt-image-2",
+    "display_name": "GPT Image 2 (Wangsu - Edits)",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
+    },
+    "capabilities": [
+      "vision",
+      "image_generation"
+    ],
+    "aliases": [
+      "gpt-image-2-2026-04-21"
+    ],
+    "model_family": "gpt-image"
   }
 ]

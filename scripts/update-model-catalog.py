@@ -217,6 +217,44 @@ def _supplementary_models() -> list[dict]:
     # 注意: claude-sonnet-4, claude-opus-4, claude-4-sonnet, claude-4-opus, claude-sonnet-4.5
     #       以及 claude-3.5-* 变体均通过 _add_aliases() 添加为别名，不再创建独立条目。
 
+    # --- 网宿图像通道（独立终态 URL）：文生图 + 图编辑 ---
+    # endpoint_type 不在 wangsuToCanonical 映射中，需独立注册。
+    # gpt-image-2 的元数据来自 OpenAI 官方文档（models.dev 暂未收录）。
+    wangsu_image_models = [
+        ("gpt-image-1.5", "GPT Image 1.5", {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40}, []),
+        (
+            "gpt-image-2",
+            "GPT Image 2",
+            {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40},
+            ["gpt-image-2-2026-04-21"],
+        ),
+    ]
+    for model_id, name, cost, aliases in wangsu_image_models:
+        # 文生图通道
+        gen_entry = {
+            "endpoint_type": "wangsu_openai_image",
+            "model": model_id,
+            "display_name": f"{name} (Wangsu - Generations)",
+            "default_cost": cost,
+            "capabilities": ["image_generation"],
+            "model_family": "gpt-image",
+        }
+        if aliases:
+            gen_entry["aliases"] = list(aliases)
+        extras.append(gen_entry)
+        # 图编辑通道（含 vision 能力）
+        edit_entry = {
+            "endpoint_type": "wangsu_openai_image_edit",
+            "model": model_id,
+            "display_name": f"{name} (Wangsu - Edits)",
+            "default_cost": cost,
+            "capabilities": ["vision", "image_generation"],
+            "model_family": "gpt-image",
+        }
+        if aliases:
+            edit_entry["aliases"] = list(aliases)
+        extras.append(edit_entry)
+
     return extras
 
 

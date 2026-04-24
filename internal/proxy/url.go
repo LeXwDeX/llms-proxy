@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) {
@@ -12,11 +14,18 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 		return nil, errors.New("target not configured")
 	}
 
-	path := mergePaths(target.ResourcePathPrefix, original.Path)
-
 	forward := *target.Endpoint
 	forward.RawQuery = ""
 	forward.Fragment = ""
+
+	// 网宿图像通道：endpoint 是终态 URL（如 .../openai-image），不拼接客户端 path。
+	// 客户端发 POST /v1/images/generations，但上游只认固定 URL，因此整体覆盖。
+	if isTerminalEndpointType(target.EndpointType) {
+		forward.RawQuery = normalizeForwardQuery(original)
+		return &forward, nil
+	}
+
+	path := mergePaths(target.ResourcePathPrefix, original.Path)
 
 	// Concatenate paths explicitly instead of using url.URL.Parse, because
 	// url.Parse treats paths starting with "/" as absolute and would discard
@@ -25,6 +34,16 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	forward.Path = strings.TrimRight(forward.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	forward.RawQuery = normalizeForwardQuery(original)
 	return &forward, nil
+}
+
+// isTerminalEndpointType 判断 endpoint_type 是否使用「终态 URL」语义
+// （上游只接受固定 URL，buildURL 应整体覆盖客户端 path）。
+func isTerminalEndpointType(epType string) bool {
+	switch epType {
+	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
+		return true
+	}
+	return false
 }
 
 func normalizeForwardQuery(original *url.URL) string {

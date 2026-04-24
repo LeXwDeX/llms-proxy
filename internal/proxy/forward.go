@@ -130,6 +130,9 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	case config.EndpointTypeWangsuGemini:
 		req.Header.Set("x-goog-api-key", target.APIKey)
+	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
+		// 网宿图像通道（文生图 / 图编辑）：Bearer 认证，URL 由 buildURL 整体替换。
+		req.Header.Set("Authorization", "Bearer "+target.APIKey)
 	case config.EndpointTypeCopilot:
 		// Copilot 动态 token 由 handleCopilotRequest 在 ServeHTTP 中处理。
 		// 此处仅作为降级路径（copilotService 未配置时使用静态 APIKey）。

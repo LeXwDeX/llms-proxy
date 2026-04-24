@@ -105,6 +105,7 @@ docker compose start
     - `claude` → 设置 `x-api-key` + 自动补充 `anthropic-version: 2023-06-01`；
     - `gemini` → 设置 `x-goog-api-key` header；
     - `wangsu_openai` / `wangsu_claude` / `wangsu_gemini` → 分别同 `openai` / `claude` / `gemini`；
+    - `wangsu_openai_image` / `wangsu_openai_image_edit` → 网宿图像通道（独立终态 URL）；Bearer 认证；buildURL 整体覆盖客户端 path（不做拼接），客户端按 OpenAI 官方 `/v1/images/generations`、`/v1/images/edits` 调用；
   - **路径感知路由**（`path_capability.go`）：目标选择时按 `endpoint_type` 检查请求路径兼容性；例如 `wangsu_openai` 仅支持 `/chat/completions`、`/images/generations`、`/embeddings`，不兼容路径的目标自动跳过；
   - **连接粘连**（`affinity.go`）：同客户端 + 同模型的请求倾向路由到同一 target，提升上游 token 缓存（KV cache / prompt cache）命中率；粘连条目 TTL 为 5 分钟，惰性过期；粘连目标不可用或路径不兼容时自动降级为轮询选择；
   - **Copilot 请求拦截**：当模型名带 `Copilot ` 前缀时，请求进入 Copilot 专用处理链路（见下方第 8 层）；

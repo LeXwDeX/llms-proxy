@@ -16,15 +16,30 @@ var wangsuOpenAISupportedPaths = []string{
 	"/embeddings",
 }
 
+// 网宿图像通道（独立终态 URL），各自只接受一条客户端路径，用以路由消歧。
+var (
+	wangsuOpenAIImageSupportedPaths     = []string{"/images/generations"}
+	wangsuOpenAIImageEditSupportedPaths = []string{"/images/edits"}
+)
+
 // PathSupportedByEndpointType 检查指定 endpoint_type 是否支持给定的请求路径。
-// 仅 wangsu_openai 有路径限制；其余类型全放行。
+// wangsu_openai / wangsu_openai_image / wangsu_openai_image_edit 有路径限制；其余类型全放行。
 func PathSupportedByEndpointType(epType, path string) bool {
-	if epType != config.EndpointTypeWangsuOpenAI {
-		return true
-	}
 	pathLower := strings.ToLower(path)
-	for _, supported := range wangsuOpenAISupportedPaths {
-		if strings.HasSuffix(pathLower, supported) {
+	switch epType {
+	case config.EndpointTypeWangsuOpenAI:
+		return pathHasAnySuffix(pathLower, wangsuOpenAISupportedPaths)
+	case config.EndpointTypeWangsuOpenAIImage:
+		return pathHasAnySuffix(pathLower, wangsuOpenAIImageSupportedPaths)
+	case config.EndpointTypeWangsuOpenAIImageEdit:
+		return pathHasAnySuffix(pathLower, wangsuOpenAIImageEditSupportedPaths)
+	}
+	return true
+}
+
+func pathHasAnySuffix(pathLower string, suffixes []string) bool {
+	for _, suf := range suffixes {
+		if strings.HasSuffix(pathLower, suf) {
 			return true
 		}
 	}
