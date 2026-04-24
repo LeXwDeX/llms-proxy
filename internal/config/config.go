@@ -25,18 +25,17 @@ const (
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
-var ValidEndpointTypes = []string{
-	EndpointTypeAzureOpenAI,
-	EndpointTypeOpenAI,
-	EndpointTypeClaude,
-	EndpointTypeGemini,
-	EndpointTypeWangsuOpenAI,
-	EndpointTypeWangsuClaude,
-	EndpointTypeWangsuGemini,
-	EndpointTypeWangsuOpenAIImage,
-	EndpointTypeWangsuOpenAIImageEdit,
-	EndpointTypeCopilot,
-}
+//
+// 从 endpoint_type.go 的 endpointTypes 元数据派生，保持单一信息源。
+// 新增类型请在 endpoint_type.go 的 endpointTypes 切片中追加，无需修改此处。
+var ValidEndpointTypes = func() []string {
+	metas := AllEndpointTypeMetas()
+	out := make([]string, 0, len(metas))
+	for _, m := range metas {
+		out = append(out, m.Code)
+	}
+	return out
+}()
 
 // NormalizeEndpointType returns a canonical endpoint type; empty defaults to azure_openai.
 func NormalizeEndpointType(t string) string {
@@ -49,12 +48,8 @@ func NormalizeEndpointType(t string) string {
 
 // IsValidEndpointType reports whether t is a recognised endpoint type.
 func IsValidEndpointType(t string) bool {
-	for _, valid := range ValidEndpointTypes {
-		if t == valid {
-			return true
-		}
-	}
-	return false
+	_, ok := EndpointTypeMetaOf(t)
+	return ok
 }
 
 // DataStore configures the bbolt embedded database.

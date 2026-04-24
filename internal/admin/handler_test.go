@@ -593,3 +593,63 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 		t.Fatal("test setup issue: catalog default same as custom override value")
 	}
 }
+
+func TestHandlerEndpointTypesEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg := testConfig(tempDir, 1, []string{"k1"})
+	clients := testClients([]string{"k1"})
+	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
+	manager := config.NewManager(configPath)
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("init auth store: %v", err)
+	}
+	service, err := proxy.NewService(cfg, logger)
+	if err != nil {
+		t.Fatalf("init proxy service: %v", err)
+	}
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/data/endpoint-types", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Count         int                        `json:"count"`
+		EndpointTypes []config.EndpointTypeMeta  `json:"endpoint_types"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Count == 0 || len(resp.EndpointTypes) == 0 {
+		t.Fatal("expected non-empty endpoint types")
+	}
+	if resp.Count != len(resp.EndpointTypes) {
+		t.Fatalf("count(%d) != len(%d)", resp.Count, len(resp.EndpointTypes))
+	}
+	// 必须包含本轮新增的两个 wangsu 图像类型
+	want := map[string]bool{"wangsu_openai_image": false, "wangsu_openai_image_edit": false}
+	for _, m := range resp.EndpointTypes {
+		if _, ok := want[m.Code]; ok {
+			want[m.Code] = true
+			if m.DisplayName == "" || m.ShortLabel == "" {
+				t.Errorf("%s 缺少 DisplayName 或 ShortLabel", m.Code)
+			}
+		}
+	}
+	for code, found := range want {
+		if !found {
+			t.Errorf("API 未返回 %s", code)
+		}
+	}
+}
