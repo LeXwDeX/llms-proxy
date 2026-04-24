@@ -343,7 +343,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		resp, cancel, fErr := s.forwardRequestWith503Retry(r, state, forwardBody)
+		resp, cancel, fErr := s.forwardRequest(r, state, forwardBody)
 
 		// 恢复原始 Content-Type（支持重试时路由到其他 target，如 Azure 需原始 multipart）
 		if origContentType != "" {
@@ -496,7 +496,7 @@ func (s *Service) getRequestTimeout() time.Duration {
 
 func normalizeRequestTimeout(timeout time.Duration) time.Duration {
 	if timeout <= 0 {
-		return 300 * time.Second
+		return 600 * time.Second
 	}
 	return timeout
 }

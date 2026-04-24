@@ -210,7 +210,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
 			Bind:                  "0.0.0.0:8080",
-			RequestTimeoutSeconds: 300,
+			RequestTimeoutSeconds: 600,
 		},
 		Targets: []Target{},
 		DataStore: DataStore{

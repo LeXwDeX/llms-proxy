@@ -254,140 +254,6 @@ func TestServiceTimeoutDoesNotRetryOrMute(t *testing.T) {
 	}
 }
 
-func TestServiceRetriesOnUpstream503(t *testing.T) {
-	restore := setUpstream503RetryConfig(2, 2*time.Millisecond, 0)
-	defer restore()
-
-	var attempts atomic.Int64
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if attempts.Add(1) <= 2 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"error":"busy"}`))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer upstream.Close()
-
-	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Bind:                  "127.0.0.1:0",
-			RequestTimeoutSeconds: 5,
-		},
-		Targets: []config.Target{{
-			Name:               "image",
-			Endpoint:           upstream.URL,
-			ResourcePathPrefix: "/openai",
-			APIKey:             "key",
-			AllowedModels:      []string{"gpt-image-1"},
-		}},
-		Logging: config.LoggingConfig{
-			Level:     "info",
-			AccessLog: "logs/test-access.log",
-			ErrorLog:  "logs/test-error.log",
-		},
-	}
-
-	service, err := NewService(cfg, newTestLogger())
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-
-	store := auth.NewStore()
-	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
-		t.Fatalf("load clients: %v", err)
-	}
-	principal, ok := store.Authenticate("token")
-	if !ok {
-		t.Fatal("expected principal")
-	}
-
-	body := bytes.NewBufferString(`{"model":"gpt-image-1","prompt":"draw a cat"}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", body)
-	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
-
-	rr := httptest.NewRecorder()
-	service.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if got := attempts.Load(); got != 3 {
-		t.Fatalf("expected 3 upstream attempts, got %d", got)
-	}
-
-	metrics := service.MetricsSnapshot()
-	if metrics.TotalRetries != 2 {
-		t.Fatalf("expected 2 retries for upstream 503, got %d", metrics.TotalRetries)
-	}
-}
-
-func TestServiceReturns503AfterExhaustingUpstream503Retries(t *testing.T) {
-	restore := setUpstream503RetryConfig(2, 2*time.Millisecond, 0)
-	defer restore()
-
-	var attempts atomic.Int64
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts.Add(1)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"error":"busy"}`))
-	}))
-	defer upstream.Close()
-
-	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Bind:                  "127.0.0.1:0",
-			RequestTimeoutSeconds: 5,
-		},
-		Targets: []config.Target{{
-			Name:               "image",
-			Endpoint:           upstream.URL,
-			ResourcePathPrefix: "/openai",
-			APIKey:             "key",
-			AllowedModels:      []string{"gpt-image-1"},
-		}},
-		Logging: config.LoggingConfig{
-			Level:     "info",
-			AccessLog: "logs/test-access.log",
-			ErrorLog:  "logs/test-error.log",
-		},
-	}
-
-	service, err := NewService(cfg, newTestLogger())
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-
-	store := auth.NewStore()
-	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
-		t.Fatalf("load clients: %v", err)
-	}
-	principal, ok := store.Authenticate("token")
-	if !ok {
-		t.Fatal("expected principal")
-	}
-
-	body := bytes.NewBufferString(`{"model":"gpt-image-1","prompt":"draw a cat"}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", body)
-	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
-
-	rr := httptest.NewRecorder()
-	service.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d", rr.Code)
-	}
-	if got := attempts.Load(); got != 3 {
-		t.Fatalf("expected 3 upstream attempts, got %d", got)
-	}
-
-	metrics := service.MetricsSnapshot()
-	if metrics.TotalRetries != 2 {
-		t.Fatalf("expected 2 retries for upstream 503, got %d", metrics.TotalRetries)
-	}
-}
-
 func TestServiceAllowsBearerPassthrough(t *testing.T) {
 	const bearerHeader = "Bearer azure-token"
 	var seenAuth string
@@ -1776,19 +1642,207 @@ func TestServiceTargetDefaultEndpointType(t *testing.T) {
 	}
 }
 
-func setUpstream503RetryConfig(maxRetries int, delay time.Duration, jitter time.Duration) func() {
-	oldMaxRetries := upstream503MaxRetries
-	oldDelay := upstream503RetryDelay
-	oldJitter := upstream503RetryJitter
+func TestService503PassThroughNoRetry(t *testing.T) {
+	var attempts atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"busy"}`))
+	}))
+	defer upstream.Close()
 
-	upstream503MaxRetries = maxRetries
-	upstream503RetryDelay = delay
-	upstream503RetryJitter = jitter
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{{
+			Name:               "image",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			APIKey:             "key",
+			AllowedModels:      []string{"gpt-image-1"},
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
 
-	return func() {
-		upstream503MaxRetries = oldMaxRetries
-		upstream503RetryDelay = oldDelay
-		upstream503RetryJitter = oldJitter
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"gpt-image-1","prompt":"draw a cat"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 pass-through, got %d", rr.Code)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("expected exactly 1 upstream call (no same-target retry), got %d", got)
+	}
+
+	metrics := service.MetricsSnapshot()
+	if metrics.TotalRetries != 0 {
+		t.Fatalf("expected no retries on 503 pass-through, got %d", metrics.TotalRetries)
+	}
+}
+
+func TestService429PassThrough(t *testing.T) {
+	var attempts atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate_limited"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{{
+			Name:               "openai",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			APIKey:             "key",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 pass-through, got %d", rr.Code)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("expected exactly 1 upstream call, got %d", got)
+	}
+	if got := rr.Result().Header.Get("Retry-After"); got != "42" {
+		t.Fatalf("expected Retry-After header to be passed through, got %q", got)
+	}
+
+	metrics := service.MetricsSnapshot()
+	if metrics.TotalRetries != 0 {
+		t.Fatalf("expected no retries on 429 pass-through, got %d", metrics.TotalRetries)
+	}
+}
+
+func TestServiceFailoverOnNetworkErrorPreserved(t *testing.T) {
+	// 守护测试：网络错误（连接拒绝）下仍应触发多-target failover。
+	success := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer success.Close()
+
+	successURL, err := url.Parse(success.URL)
+	if err != nil {
+		t.Fatalf("parse success URL: %v", err)
+	}
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:               "primary",
+				Endpoint:           "http://primary.local",
+				ResourcePathPrefix: "/",
+				APIKey:             "primary-key",
+			},
+			{
+				Name:               "secondary",
+				Endpoint:           success.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "secondary-key",
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	service.httpClient = &http.Client{
+		Transport: &failingTransport{successHost: successURL.Host},
+	}
+	service.quietPeriod = 10 * time.Millisecond
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"input":"hello"}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 after failover to secondary, got %d", rr.Code)
+	}
+	if got := rr.Result().Header.Get("X-Proxy-Target"); got != "secondary" {
+		t.Fatalf("expected X-Proxy-Target=secondary, got %q", got)
+	}
+
+	metrics := service.MetricsSnapshot()
+	if metrics.TotalRetries < 1 {
+		t.Fatalf("expected at least 1 failover retry, got %d", metrics.TotalRetries)
 	}
 }
 

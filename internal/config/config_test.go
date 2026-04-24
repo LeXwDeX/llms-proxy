@@ -393,3 +393,13 @@ func searchSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestRequestTimeoutDefaultIs600(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg == nil {
+		t.Fatal("DefaultConfig returned nil")
+	}
+	if got := cfg.Server.RequestTimeoutSeconds; got != 600 {
+		t.Fatalf("expected default RequestTimeoutSeconds=600, got %d", got)
+	}
+}

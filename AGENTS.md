@@ -117,6 +117,13 @@ docker compose start
   - 记录用量事件时附带 `endpoint_type` 维度；
   - 记录目标健康状态、失败静默与运行时指标。
 
+#### 代理层重试策略（v3，2026-04-24 起）
+
+- 代理层**不做同-target 重试**：上游 4xx/5xx 全部原样透传给客户端，由客户端 SDK（OpenAI 官方 SDK 默认 408/409/429/>=500 重试 2 次 + 指数退避）负责。
+- 代理层**保留多-target failover**：仅在网络错误（连接拒绝、DNS、TLS 握手等，非 `context.DeadlineExceeded`）时切换到下一 target——客户端不感知 target 拓扑无法替代。
+- 代理层**超时不重试**：由 `TestServiceTimeoutDoesNotRetryOrMute` 红线守护，防止重复扣费/重复推理。
+- 默认 `request_timeout_seconds = 600`，对齐 OpenAI 官方 SDK 默认（10 分钟）。
+
 ### 5. 管理层
 - `internal/admin/handler.go` 提供管理接口：
   - `GET /admin/healthz`：健康检查（含各目标状态与 `endpoint_type`）
