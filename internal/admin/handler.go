@@ -1140,17 +1140,27 @@ func toUsageCostTable(costs []nosql.ModelCost, cat *catalog.Catalog) usage.CostT
 			if entry.DefaultCost == nil || entry.Model == "" {
 				continue
 			}
-			model := strings.ToLower(strings.TrimSpace(entry.Model))
 			epType := strings.ToLower(strings.TrimSpace(entry.EndpointType))
 			rates := usage.CostRates{
 				InputPer1MTokens:      entry.DefaultCost.InputPer1MTokens,
 				OutputPer1MTokens:     entry.DefaultCost.OutputPer1MTokens,
 				CachedInputPer1MToken: entry.DefaultCost.CachedInputPer1MToken,
 			}
-			if epType != "" {
-				table[epType+":"+model] = rates
+			// Register canonical model name + all aliases so lookups succeed regardless
+			// of which name the client sends (e.g. "deepseek-chat" → deepseek-v4-flash price).
+			names := make([]string, 0, 1+len(entry.Aliases))
+			names = append(names, strings.ToLower(strings.TrimSpace(entry.Model)))
+			for _, a := range entry.Aliases {
+				if a = strings.ToLower(strings.TrimSpace(a)); a != "" {
+					names = append(names, a)
+				}
 			}
-			table[model] = rates
+			for _, name := range names {
+				if epType != "" {
+					table[epType+":"+name] = rates
+				}
+				table[name] = rates
+			}
 		}
 	}
 

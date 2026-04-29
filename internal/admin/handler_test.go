@@ -592,6 +592,21 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 	if catalogInput == 999 {
 		t.Fatal("test setup issue: catalog default same as custom override value")
 	}
+
+	// Scenario 5: alias lookup — deepseek-chat is an alias for deepseek-v4-flash;
+	// cost lookup by alias should return the same rates as the canonical name.
+	table = toUsageCostTable(nil, cat)
+	rateCanon, okCanon := table.LookupCost("deepseek", "deepseek-v4-flash")
+	rateAlias, okAlias := table.LookupCost("deepseek", "deepseek-chat")
+	if !okCanon {
+		t.Fatal("expected catalog cost for deepseek:deepseek-v4-flash")
+	}
+	if !okAlias {
+		t.Fatal("expected catalog cost for deepseek:deepseek-chat (alias of deepseek-v4-flash)")
+	}
+	if rateCanon != rateAlias {
+		t.Fatalf("alias rates differ from canonical: canon=%+v alias=%+v", rateCanon, rateAlias)
+	}
 }
 
 func TestHandlerEndpointTypesEndpoint(t *testing.T) {
