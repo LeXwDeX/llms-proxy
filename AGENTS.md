@@ -106,6 +106,7 @@ docker compose start
     - `gemini` → 设置 `x-goog-api-key` header；
     - `wangsu_openai` / `wangsu_claude` / `wangsu_gemini` → 分别同 `openai` / `claude` / `gemini`；
     - `wangsu_openai_image` / `wangsu_openai_image_edit` → 网宿图像通道（独立终态 URL）；Bearer 认证；buildURL 整体覆盖客户端 path（不做拼接），客户端按 OpenAI 官方 `/v1/images/generations`、`/v1/images/edits` 调用；
+    - `deepseek` → 设置 `Authorization: Bearer <key>`；通过 `/deepseek/*` 子路由统一承载 OpenAI 兼容（默认）与 Anthropic 兼容（路径含 `/v1/messages` 时自动加 `/anthropic` 上游前缀）两种格式，详见下方第 9 层；
   - **路径感知路由**（`path_capability.go`）：目标选择时按 `endpoint_type` 检查请求路径兼容性；例如 `wangsu_openai` 仅支持 `/chat/completions`、`/images/generations`、`/embeddings`，不兼容路径的目标自动跳过；
   - **连接粘连**（`affinity.go`）：同客户端 + 同模型的请求倾向路由到同一 target，提升上游 token 缓存（KV cache / prompt cache）命中率；粘连条目 TTL 为 5 分钟，惰性过期；粘连目标不可用或路径不兼容时自动降级为轮询选择；
   - **Copilot 请求拦截**：当模型名带 `Copilot ` 前缀时，请求进入 Copilot 专用处理链路（见下方第 8 层）；
@@ -165,6 +166,17 @@ docker compose start
   - 路径规则：`/v1/*` 去除 `/v1` 前缀后透传，其他路径直通；
   - Copilot 上游统一使用 OpenAI 兼容的 `/chat/completions` 端点，无论底层模型是 GPT、Claude 还是 Gemini，客户端需以 OpenAI 格式调用。
 
+### 9. DeepSeek 集成层
+- DeepSeek 官方同时提供 OpenAI 兼容（`https://api.deepseek.com`）与 Anthropic 兼容（`https://api.deepseek.com/anthropic`）两套 API，**同一把 API Key 对两套都有效**。
+- 代理在 `cmd/proxy/main.go` 挂 `/deepseek/*` 子路由，运行时强制将 target 选择约束为 `endpoint_type=deepseek`（通过 `internal/proxy/endpoint_hint.go` 的 context hint 机制注入），随后路径自动识别：
+  - 路径含 `/v1/messages*` → 上游 path 加 `/anthropic` 前缀（Anthropic 格式）；
+  - 其他路径 → 直通（OpenAI 格式）；
+  - 路径识别在 `internal/proxy/url.go::buildURL` 中完成，规则函数为 `isAnthropicStylePath`。
+- 鉴权统一为 `Authorization: Bearer <key>`（`internal/proxy/forward.go`），与上游真正的 Anthropic 用 `x-api-key` 不同。
+- 客户端 SDK 配置：OpenAI SDK / Anthropic SDK 都把 `base_url` 指到 `https://<域名>/deepseek` 即可，`api_key` 填代理客户端 token。
+- 多 target 支持：可在 `endpoint_type=deepseek` 下注册多个 target（多 key 池/容灾），标准 affinity + failover 行为生效。
+- 回归测试：`internal/proxy/deepseek_test.go`。
+
 ## 请求处理链路
 1. 请求进入 HTTP Server。
 2. 中间件注入 `X-Request-ID`、记录访问日志、兜底 panic。
@@ -173,6 +185,7 @@ docker compose start
    - `/healthz`：无需鉴权；
    - `/api/ping`：已鉴权后返回客户端信息；
    - `/admin/*`：管理接口；
+   - `/deepseek/*`：剥前缀 + 注入 `endpoint_type=deepseek` hint 后进入代理转发；
    - 其余路径进入代理转发。
 5. 代理层判断模型类型：
    - 模型名带 `Copilot ` 前缀 → 进入 Copilot 专用链路（Token 池选号、模型名映射、透传转发）；
@@ -185,7 +198,7 @@ docker compose start
 - 显式目标可通过 `X-Proxy-Target` 或 `target` 查询参数指定。
 - 若目标配置了 `allowed_models`，请求必须携带可识别的 `model`，且模型必须命中白名单。
 - 代理会剥离内部/旧版参数：`target`、`api-version`、`api_version`、`api-key`。
-- 对部分 JSON 接口执行顶层字段白名单过滤（chat completions、responses、embeddings），**仅对 `azure_openai` 类型目标生效**；`openai`、`claude` 和 `gemini` 类型透传原始请求体。
+- 对部分 JSON 接口执行顶层字段白名单过滤（chat completions、responses、embeddings），**仅对 `azure_openai` 类型目标生效**；`openai`、`claude`、`gemini`、`deepseek` 等其他类型透传原始请求体。
 - **路径兼容性**：按 `endpoint_type` 检查路径兼容性，不兼容的目标自动跳过（详见代理层）。
 - **连接粘连**：同客户端 + 同模型倾向路由到同一 target；粘连目标不可用时降级为轮询（详见代理层）。
 - 某个目标连续失败后会进入静默窗口，优先切换到其他可用目标。
@@ -221,76 +234,3 @@ docker compose start
 - 修改费用或用量逻辑时，注意 `CostTable` 的双键查找机制（`endpoint_type:model` 优先，`model` 降级）。
 - 修改日志或运维行为时，检查 `internal/logging` 与 `docs/operations.md`。
 - 避免在文档中写入真实密钥、令牌或环境专有敏感信息。
-
-## Docker 镜像构建与导出（QNAP NAS）
-
-### 背景
-本项目开发环境使用 Docker 29+（containerd image store，`io.containerd.snapshotter.v1`）。
-该模式下 `docker save` 默认输出 **OCI 格式**（含 `index.json`、`oci-layout`），
-QNAP Container Station 无法识别，必须转换为 **Docker 传统格式**（含 `repositories`、`<hash>/layer.tar`）。
-
-### 正确导出流程
-
-**前置条件**：需安装 `skopeo`（`apt-get install -y skopeo`）
-
-```bash
-# 1. 导出为 OCI tar（中间步骤）
-docker buildx build \
-  --output type=oci,dest=/tmp/llms-proxy-oci.tar \
-  --provenance=false --sbom=false \
-  -t llms-proxy:latest \
-  -f deploy/docker/Dockerfile .
-
-# 2. 解压 OCI tar
-rm -rf /tmp/llms-proxy-oci && mkdir -p /tmp/llms-proxy-oci
-tar -xf /tmp/llms-proxy-oci.tar -C /tmp/llms-proxy-oci
-
-# 3. 用 skopeo 转换为 Docker 传统格式
-rm -f llms-proxy-latest.tar
-skopeo copy \
-  oci:/tmp/llms-proxy-oci \
-  docker-archive:llms-proxy-latest.tar:llms-proxy:latest
-
-# 4. 修复镜像名（必须执行，否则 QNAP 导入后名字显示 <none>）
-#    skopeo 会在 repositories/manifest.json 中写入 docker.io/library/llms-proxy，
-#    QNAP Container Station 只认不带 registry 前缀的短名，必须去掉前缀。
-python3 - <<'EOF'
-import tarfile, json, io
-
-src = "llms-proxy-latest.tar"
-dst = "llms-proxy-latest-fixed.tar"
-
-with tarfile.open(src, "r") as tin, tarfile.open(dst, "w") as tout:
-    for member in tin.getmembers():
-        f = tin.extractfile(member)
-        if member.name == "repositories":
-            data = json.load(f)
-            fixed = {k.replace("docker.io/library/", ""): v for k, v in data.items()}
-            content = json.dumps(fixed).encode()
-            info = tarfile.TarInfo(name="repositories")
-            info.size = len(content)
-            tout.addfile(info, io.BytesIO(content))
-        elif member.name == "manifest.json":
-            data = json.load(f)
-            for entry in data:
-                entry["RepoTags"] = [t.replace("docker.io/library/", "") for t in entry.get("RepoTags", [])]
-            content = json.dumps(data).encode()
-            info = tarfile.TarInfo(name="manifest.json")
-            info.size = len(content)
-            tout.addfile(info, io.BytesIO(content))
-        else:
-            tout.addfile(member, f) if f is not None else tout.addfile(member)
-
-import os; os.replace(dst, src)
-print("完成，验证：", end="")
-EOF
-
-# 5. 验证：应输出 {"llms-proxy": {"latest": "..."}}（不含 docker.io/library 前缀）
-tar -xOf llms-proxy-latest.tar repositories
-```
-
-**验证格式**（应看到 `repositories`、`<hash>/layer.tar`，不应有 `oci-layout`；本机可直接 docker load 验证）：
-```bash
-tar -tf llms-proxy-latest.tar | head -20
-docker load -i llms-proxy-latest.tar   # 应输出：Loaded image: llms-proxy:latest
-```

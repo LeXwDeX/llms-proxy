@@ -127,6 +127,10 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
 		// 网宿图像通道（文生图 / 图编辑）：Bearer 认证，URL 由 buildURL 整体替换。
 		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+	case config.EndpointTypeDeepSeek:
+		// DeepSeek 官方：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
+		// 上游路径分流由 buildURL 完成（/v1/messages* 自动加 /anthropic 前缀）。
+		req.Header.Set("Authorization", "Bearer "+target.APIKey)
 	case config.EndpointTypeCopilot:
 		// Copilot 动态 token 由 handleCopilotRequest 在 ServeHTTP 中处理。
 		// 此处仅作为降级路径（copilotService 未配置时使用静态 APIKey）。

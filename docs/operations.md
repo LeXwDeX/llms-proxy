@@ -2,17 +2,20 @@
 
 This guide covers the preparation, deployment, and day-two operations for the Azure OpenAI proxy.
 
-> **Multi-Endpoint Support** — The proxy now supports three upstream provider
+> **Multi-Endpoint Support** — The proxy supports multiple upstream provider
 > types via the `endpoint_type` field on each target: `azure_openai` (default),
-> `openai`, `claude`, and `gemini`. All operational procedures below apply to every type
-> unless stated otherwise.
+> `openai`, `claude`, `gemini`, `wangsu_openai` / `wangsu_claude` / `wangsu_gemini`,
+> `wangsu_openai_image` / `wangsu_openai_image_edit`, `copilot`, and `deepseek`.
+> The authoritative list is exposed at runtime via `GET /admin/data/endpoint-types`.
+> All operational procedures below apply to every type unless stated otherwise.
 
 ## Pre-Deployment Checklist
 - [ ] Collect production Azure OpenAI endpoints, model allowlists (`allowed_models`), and API keys.
 - [ ] If routing to **OpenAI** upstream, prepare an OpenAI API Key (starts with `sk-`).
 - [ ] If routing to **Claude** upstream, prepare an Anthropic API Key (starts with `sk-ant-`).
+- [ ] If routing to **DeepSeek** upstream, prepare a DeepSeek API Key. The same key works for both the OpenAI-compatible and Anthropic-compatible surfaces; the proxy mounts a single `/deepseek/*` sub-route that auto-detects the format from the request path (paths matching `/v1/messages` are forwarded to the Anthropic-compatible surface, all others to the OpenAI-compatible surface). See `docs/api-contract.md` → "DeepSeek dual-format sub-route" for details.
 - [ ] Generate client tokens for each team; scope `allowed_targets` appropriately (clients are managed via the admin UI or API at `/admin/data/clients`).
-- [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions. Each entry in `targets` carries an `endpoint_type` field — accepted values are `azure_openai` (default), `openai`, `claude`, or `gemini`.
+- [ ] Review and customise the checked-in `config/config.json`, then store the runtime copy with restricted file permissions. Each entry in `targets` carries an `endpoint_type` field — see the multi-endpoint support note above for accepted values.
 - [ ] Configure `data_store.db_path` — the path to the bbolt database file (default `llms-proxy.db`, relative to config directory). Ensure the service account has read/write access to this path.
 - [ ] (Migration) If upgrading from a file-based deployment, keep old `data_files` paths in config for one-time automatic migration. On first startup with bbolt, existing JSON/JSONL data will be imported. Old files are preserved as backups.
 - [ ] Model costs can be managed via the admin UI at `/admin/data/model-costs`. Each cost record includes an `endpoint_type` field (defaults to `azure_openai` for backward compatibility).

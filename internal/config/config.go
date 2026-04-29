@@ -22,6 +22,7 @@ const (
 	EndpointTypeWangsuOpenAIImage     = "wangsu_openai_image"      // 网宿文生图（独立终态 URL）
 	EndpointTypeWangsuOpenAIImageEdit = "wangsu_openai_image_edit" // 网宿图编辑（独立终态 URL）
 	EndpointTypeCopilot               = "copilot"
+	EndpointTypeDeepSeek              = "deepseek" // DeepSeek 官方（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
 )
 
 // ValidEndpointTypes lists all supported endpoint types.

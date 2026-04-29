@@ -27,6 +27,14 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 
 	path := mergePaths(target.ResourcePathPrefix, original.Path)
 
+	// DeepSeek：同一个 base_url 下兼容 OpenAI 与 Anthropic 两种格式。
+	// 客户端发到 /v1/messages（Anthropic 风格）时，上游需要 /anthropic/v1/messages。
+	// 其余路径（/v1/chat/completions、/chat/completions、/embeddings 等）直通 OpenAI 兼容端。
+	// 使用 ResolveReference 风格的拼接前先做路径改写。
+	if target.EndpointType == config.EndpointTypeDeepSeek && isAnthropicStylePath(original.Path) {
+		path = "/anthropic" + ensureLeadingSlash(path)
+	}
+
 	// Concatenate paths explicitly instead of using url.URL.Parse, because
 	// url.Parse treats paths starting with "/" as absolute and would discard
 	// any sub-path already present in the endpoint (e.g. a gateway base path
@@ -66,6 +74,24 @@ func deleteQueryKeyCaseInsensitive(query url.Values, key string) {
 			delete(query, existing)
 		}
 	}
+}
+
+// isAnthropicStylePath 判断给定客户端 path 是否走 Anthropic API 形态。
+// DeepSeek Anthropic 兼容端口的路径以 /v1/messages 开头（包括 /v1/messages、
+// /v1/messages/count_tokens 等子路径）。其余路径视为 OpenAI 兼容形态。
+func isAnthropicStylePath(p string) bool {
+	pl := strings.ToLower(strings.TrimSpace(p))
+	return pl == "/v1/messages" || strings.HasPrefix(pl, "/v1/messages/") || strings.HasPrefix(pl, "/v1/messages?")
+}
+
+func ensureLeadingSlash(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if p[0] != '/' {
+		return "/" + p
+	}
+	return p
 }
 
 func mergePaths(prefix, path string) string {

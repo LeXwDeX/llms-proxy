@@ -66,6 +66,10 @@ var endpointTypes = []EndpointTypeMeta{
 		Code: EndpointTypeCopilot, DisplayName: "Copilot", ShortLabel: "Copilot",
 		BadgeBackground: "#f1f5f9", BadgeForeground: "#475569",
 	},
+	{
+		Code: EndpointTypeDeepSeek, DisplayName: "DeepSeek", ShortLabel: "DeepSeek",
+		BadgeBackground: "#eef2ff", BadgeForeground: "#4f46e5",
+	},
 }
 
 // AllEndpointTypeMetas returns a copy of all registered endpoint type metadata

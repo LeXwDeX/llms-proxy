@@ -277,7 +277,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		attempt++
-		state, err := s.selectTarget(principal, requestedLower, allowed, attempted, model, r.URL.Path, time.Now())
+		state, err := s.selectTarget(principal, requestedLower, allowed, attempted, model, r.URL.Path, EndpointTypeHintFromContext(r.Context()), time.Now())
 		if err != nil {
 			var selErr *selectionError
 			if errors.As(err, &selErr) {

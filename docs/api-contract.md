@@ -1,6 +1,6 @@
 # API Contract & Error Codes
 
-This document describes the externally visible HTTP contract that the proxy exposes to internal clients and operators. The proxy supports multiple upstream endpoint types: **Azure OpenAI**, **OpenAI**, **Claude (Anthropic)**, **Gemini (Google)**, **Wangsu OpenAI**, **Wangsu Claude**, and **Wangsu Gemini**. All endpoints speak JSON over HTTP/1.1. Unless noted otherwise, responses adopt UTF-8 encoding.
+This document describes the externally visible HTTP contract that the proxy exposes to internal clients and operators. The proxy supports multiple upstream endpoint types: **Azure OpenAI**, **OpenAI**, **Claude (Anthropic)**, **Gemini (Google)**, **Wangsu OpenAI / Claude / Gemini**, **Wangsu OpenAI Image / Image Edit**, **GitHub Copilot**, and **DeepSeek**. All endpoints speak JSON over HTTP/1.1. Unless noted otherwise, responses adopt UTF-8 encoding.
 
 ## Authentication
 - Client requests **must** include `Authorization: Bearer <access-key>`.
@@ -46,12 +46,28 @@ This document describes the externally visible HTTP contract that the proxy expo
   - `wangsu_openai` — injects `Authorization: Bearer <key>` (same as `openai`).
   - `wangsu_claude` — injects `x-api-key: <key>` and sets `anthropic-version: 2023-06-01` (same as `claude`).
   - `wangsu_gemini` — injects `x-goog-api-key: <key>` (same as `gemini`).
-- **Azure parameter whitelist filtering** (stripping unsupported request body fields) is applied **only** to `azure_openai` targets. Requests to `openai`, `claude`, `gemini`, and Wangsu variant targets forward the original body unmodified.
+  - `deepseek` — injects `Authorization: Bearer <key>` for both OpenAI- and Anthropic-compatible formats. See **DeepSeek dual-format sub-route** below.
+- **Azure parameter whitelist filtering** (stripping unsupported request body fields) is applied **only** to `azure_openai` targets. Requests to `openai`, `claude`, `gemini`, `deepseek`, and Wangsu variant targets forward the original body unmodified.
 - **Path compatibility**: Target selection checks path compatibility by `endpoint_type`. `wangsu_openai` only supports `/chat/completions`, `/images/generations`, and `/embeddings`; targets whose `endpoint_type` is incompatible with the request path are automatically skipped during selection. All other endpoint types accept any path.
 - **Connection affinity**: Requests from the same client with the same model are preferentially routed to the same target, improving upstream token cache (KV cache / prompt cache) hit rates. Affinity entries have a TTL of 5 minutes with lazy expiration. When the affinity target is unavailable or path-incompatible, routing falls back to round-robin selection.
 - The proxy removes internal/legacy query params before forwarding: `target`, `api-version`, `api_version`, `api-key`.
 - Successful responses set **both** `X-Proxy-Target: <target-name>` and `X-Azure-Target: <target-name>` so callers can identify the chosen backend. (`X-Azure-Target` is retained for backward compatibility with older clients.)
 - Streaming responses are relayed chunk-by-chunk (`io.Copy`), preserving status codes and headers except for hop-by-hop headers.
+
+### DeepSeek dual-format sub-route (`/deepseek/**`)
+
+DeepSeek officially exposes the same models behind two parallel API surfaces: an OpenAI-compatible base (`https://api.deepseek.com`) and an Anthropic-compatible base (`https://api.deepseek.com/anthropic`). Both surfaces accept the same Bearer API key. To avoid forcing operators to register two near-identical targets, the proxy mounts a single sub-route that auto-detects the format from the request path.
+
+- **Mount point**: `/deepseek/*` (authenticated, behind the same bearer-token middleware as other client routes).
+- **Routing constraint**: requests under `/deepseek/*` are pinned to targets whose `endpoint_type` is `deepseek` — the standard `X-Proxy-Target` / `?target=` hint and `allowed_targets` rules still apply, but only `deepseek` targets are eligible regardless of the request path.
+- **Path stripping**: the `/deepseek` prefix is removed before forwarding. The remaining path is then routed to the appropriate upstream surface:
+  - Paths matching `/v1/messages` (with or without trailing segments) are treated as Anthropic-format calls; the proxy prepends `/anthropic` to the upstream path. Example: client `POST /deepseek/v1/messages` → upstream `POST https://api.deepseek.com/anthropic/v1/messages`.
+  - All other paths (e.g. `/chat/completions`, `/v1/chat/completions`, `/embeddings`) are forwarded as-is to the OpenAI-compatible surface. Example: client `POST /deepseek/v1/chat/completions` → upstream `POST https://api.deepseek.com/v1/chat/completions`.
+- **Authentication**: both formats receive `Authorization: Bearer <key>` injected from the target's `api_key`. Unlike upstream Anthropic, DeepSeek's Anthropic-compatible surface does **not** use `x-api-key`.
+- **Client SDK configuration**:
+  - OpenAI SDK: set `base_url` to `https://<your-domain>/deepseek` (or `/deepseek/v1`, depending on the SDK's path conventions) and `api_key` to a proxy bearer token.
+  - Anthropic SDK: set `base_url` to `https://<your-domain>/deepseek` and `api_key` to a proxy bearer token; the SDK will issue `POST /v1/messages` under that base.
+- **Affinity & failover**: standard connection-affinity and multi-target failover behavior applies within the `deepseek` endpoint type — operators may register multiple `deepseek` targets (e.g. for multi-key pooling) and the proxy will round-robin / failover between them.
 
 ## Admin Authentication (Session-based)
 The admin management system uses **independent username/password authentication**, completely separate from the client proxy bearer-token auth.
@@ -210,7 +226,7 @@ All `/admin/*` endpoints require a valid session cookie (obtained via `/login`).
 - Creates a new upstream target. The new target is appended to `targets` in `config.json` and applied at runtime.
 - Required fields: `name`, `endpoint`. Either `api_key` or `allow_bearer_passthrough: true` must be provided.
 - `resource_path_prefix` is required only for `azure_openai` targets.
-- `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`, `gemini`, `wangsu_openai`, `wangsu_claude`, `wangsu_gemini`.
+- `endpoint_type` defaults to `azure_openai` when omitted. Valid values: `azure_openai`, `openai`, `claude`, `gemini`, `wangsu_openai`, `wangsu_claude`, `wangsu_gemini`, `wangsu_openai_image`, `wangsu_openai_image_edit`, `copilot`, `deepseek`. The authoritative list is exposed at runtime via `GET /admin/data/endpoint-types`.
 - Request body example:
   ```json
   {
