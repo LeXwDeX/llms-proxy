@@ -255,6 +255,45 @@ def _supplementary_models() -> list[dict]:
             edit_entry["aliases"] = list(aliases)
         extras.append(edit_entry)
 
+    # --- DeepSeek（models.dev 无收录，价格按官方 CNY 汇率 7.2 换算 USD/1M tokens）---
+    # V4 Flash: 输入 1 CNY/1M → 0.139 USD；输出 2 CNY/1M → 0.278 USD；缓存命中 0.02 → 0.0028
+    # V4 Pro:   输入 12 CNY/1M → 1.667 USD；输出 24 CNY/1M → 3.333 USD；缓存命中 0.1 → 0.0139
+    # （V4 Pro 使用原价；2.5 折优惠至 2026-05-31，届时可手动修正）
+    # deepseek-chat / deepseek-reasoner 为弃用兼容别名（→ 2026-07-24），复用对应正式名的价格
+    deepseek_models = [
+        {
+            "endpoint_type": "deepseek",
+            "model": "deepseek-v4-flash",
+            "display_name": "DeepSeek V4 Flash",
+            "aliases": ["deepseek-chat"],
+            "capabilities": ["chat", "function_calling", "structured_output"],
+            "model_family": "deepseek-v4",
+            "context_window": 1000000,
+            "max_output_tokens": 32768,
+            "default_cost": {
+                "input_per_1m_tokens": 0.139,
+                "output_per_1m_tokens": 0.278,
+                "cached_input_per_1m_tokens": 0.0028,
+            },
+        },
+        {
+            "endpoint_type": "deepseek",
+            "model": "deepseek-v4-pro",
+            "display_name": "DeepSeek V4 Pro",
+            "aliases": ["deepseek-reasoner"],
+            "capabilities": ["chat", "reasoning", "function_calling", "structured_output"],
+            "model_family": "deepseek-v4",
+            "context_window": 1000000,
+            "max_output_tokens": 32768,
+            "default_cost": {
+                "input_per_1m_tokens": 1.667,
+                "output_per_1m_tokens": 3.333,
+                "cached_input_per_1m_tokens": 0.0139,
+            },
+        },
+    ]
+    extras.extend(deepseek_models)
+
     return extras
 
 
