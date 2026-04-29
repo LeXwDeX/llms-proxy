@@ -94,6 +94,25 @@
   },
   {
     "endpoint_type": "azure_openai",
+    "model": "claude-sonnet-4-6",
+    "display_name": "Claude Sonnet 4.6",
+    "default_cost": {
+      "input_per_1m_tokens": 3,
+      "output_per_1m_tokens": 15,
+      "cached_input_per_1m_tokens": 0.3
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "context_window": 1000000,
+    "max_output_tokens": 64000,
+    "model_family": "claude-sonnet"
+  },
+  {
+    "endpoint_type": "azure_openai",
     "model": "codestral-2501",
     "display_name": "Codestral 25.01",
     "default_cost": {
@@ -837,9 +856,9 @@
       "structured_output",
       "reasoning"
     ],
-    "context_window": 400000,
+    "context_window": 1050000,
     "max_output_tokens": 128000,
-    "max_input_tokens": 272000,
+    "max_input_tokens": 922000,
     "model_family": "gpt"
   },
   {
@@ -895,10 +914,29 @@
       "function_calling",
       "reasoning"
     ],
-    "context_window": 400000,
+    "context_window": 1050000,
     "max_output_tokens": 128000,
-    "max_input_tokens": 272000,
+    "max_input_tokens": 922000,
     "model_family": "gpt-pro"
+  },
+  {
+    "endpoint_type": "azure_openai",
+    "model": "gpt-5.5",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 30,
+      "cached_input_per_1m_tokens": 0.5
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "context_window": 1050000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 922000,
+    "model_family": "gpt"
   },
   {
     "endpoint_type": "azure_openai",
@@ -923,6 +961,22 @@
     "capabilities": [
       "image_generation"
     ]
+  },
+  {
+    "endpoint_type": "azure_openai",
+    "model": "gpt-image-2",
+    "display_name": "GPT Image 2 (Preview)",
+    "aliases": [
+      "gpt-image-2-2026-04-21"
+    ],
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
+    },
+    "capabilities": [
+      "image_generation"
+    ],
+    "model_family": "gpt-image"
   },
   {
     "endpoint_type": "azure_openai",
@@ -1118,6 +1172,24 @@
     "default_cost": {
       "input_per_1m_tokens": 0.6,
       "output_per_1m_tokens": 3
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "context_window": 262144,
+    "max_output_tokens": 262144,
+    "model_family": "kimi"
+  },
+  {
+    "endpoint_type": "azure_openai",
+    "model": "kimi-k2.6",
+    "display_name": "Kimi K2.6",
+    "default_cost": {
+      "input_per_1m_tokens": 0.95,
+      "output_per_1m_tokens": 4
     },
     "capabilities": [
       "vision",
@@ -2146,6 +2218,49 @@
     "context_window": 1000000,
     "max_output_tokens": 64000,
     "model_family": "claude-sonnet"
+  },
+  {
+    "endpoint_type": "deepseek",
+    "model": "deepseek-v4-flash",
+    "display_name": "DeepSeek V4 Flash",
+    "aliases": [
+      "deepseek-chat"
+    ],
+    "capabilities": [
+      "chat",
+      "function_calling",
+      "structured_output"
+    ],
+    "model_family": "deepseek-v4",
+    "context_window": 1000000,
+    "max_output_tokens": 32768,
+    "default_cost": {
+      "input_per_1m_tokens": 0.139,
+      "output_per_1m_tokens": 0.278,
+      "cached_input_per_1m_tokens": 0.0028
+    }
+  },
+  {
+    "endpoint_type": "deepseek",
+    "model": "deepseek-v4-pro",
+    "display_name": "DeepSeek V4 Pro",
+    "aliases": [
+      "deepseek-reasoner"
+    ],
+    "capabilities": [
+      "chat",
+      "reasoning",
+      "function_calling",
+      "structured_output"
+    ],
+    "model_family": "deepseek-v4",
+    "context_window": 1000000,
+    "max_output_tokens": 32768,
+    "default_cost": {
+      "input_per_1m_tokens": 1.667,
+      "output_per_1m_tokens": 3.333,
+      "cached_input_per_1m_tokens": 0.0139
+    }
   },
   {
     "endpoint_type": "gemini",
@@ -3444,6 +3559,44 @@
   },
   {
     "endpoint_type": "openai",
+    "model": "gpt-5.5",
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 30,
+      "cached_input_per_1m_tokens": 0.5
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "context_window": 1050000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 922000,
+    "model_family": "gpt"
+  },
+  {
+    "endpoint_type": "openai",
+    "model": "gpt-5.5-pro",
+    "display_name": "GPT-5.5 Pro",
+    "default_cost": {
+      "input_per_1m_tokens": 30,
+      "output_per_1m_tokens": 180
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "context_window": 1050000,
+    "max_output_tokens": 128000,
+    "max_input_tokens": 922000,
+    "model_family": "gpt-pro"
+  },
+  {
+    "endpoint_type": "openai",
     "model": "gpt-image-1",
     "capabilities": [
       "vision",
@@ -3465,6 +3618,22 @@
     "model": "gpt-image-1.5",
     "capabilities": [
       "vision",
+      "image_generation"
+    ],
+    "model_family": "gpt-image"
+  },
+  {
+    "endpoint_type": "openai",
+    "model": "gpt-image-2",
+    "display_name": "GPT Image 2 (Preview)",
+    "aliases": [
+      "gpt-image-2-2026-04-21"
+    ],
+    "default_cost": {
+      "input_per_1m_tokens": 5,
+      "output_per_1m_tokens": 40
+    },
+    "capabilities": [
       "image_generation"
     ],
     "model_family": "gpt-image"
@@ -3703,6 +3872,23 @@
     ]
   },
   {
+    "endpoint_type": "wangsu_openai",
+    "model": "gpt-5.5",
+    "display_name": "GPT-5.5 (Preview)",
+    "default_cost": {
+      "input_per_1m_tokens": 2.5,
+      "output_per_1m_tokens": 15,
+      "cached_input_per_1m_tokens": 0.25
+    },
+    "capabilities": [
+      "vision",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "model_family": "gpt-5"
+  },
+  {
     "endpoint_type": "wangsu_openai_image",
     "model": "gpt-image-1.5",
     "display_name": "GPT Image 1.5 (Wangsu - Generations)",
@@ -3726,10 +3912,10 @@
     "capabilities": [
       "image_generation"
     ],
+    "model_family": "gpt-image",
     "aliases": [
       "gpt-image-2-2026-04-21"
-    ],
-    "model_family": "gpt-image"
+    ]
   },
   {
     "endpoint_type": "wangsu_openai_image_edit",
@@ -3757,171 +3943,9 @@
       "vision",
       "image_generation"
     ],
+    "model_family": "gpt-image",
     "aliases": [
       "gpt-image-2-2026-04-21"
-    ],
-    "model_family": "gpt-image"
-  },
-  {
-    "endpoint_type": "deepseek",
-    "model": "deepseek-v4-flash",
-    "display_name": "DeepSeek V4 Flash",
-    "default_cost": {
-      "input_per_1m_tokens": 0.139,
-      "output_per_1m_tokens": 0.278,
-      "cached_input_per_1m_tokens": 0.0028
-    },
-    "capabilities": [
-      "function_calling",
-      "structured_output",
-      "reasoning"
-    ],
-    "context_window": 1000000,
-    "max_output_tokens": 393216,
-    "model_family": "deepseek"
-  },
-  {
-    "endpoint_type": "deepseek",
-    "model": "deepseek-v4-pro",
-    "display_name": "DeepSeek V4 Pro",
-    "default_cost": {
-      "input_per_1m_tokens": 1.667,
-      "output_per_1m_tokens": 3.333,
-      "cached_input_per_1m_tokens": 0.0139
-    },
-    "capabilities": [
-      "function_calling",
-      "structured_output",
-      "reasoning"
-    ],
-    "context_window": 1000000,
-    "max_output_tokens": 393216,
-    "model_family": "deepseek-thinking"
-  },
-  {
-    "endpoint_type": "deepseek",
-    "model": "deepseek-chat",
-    "display_name": "DeepSeek Chat (legacy alias of v4-flash non-thinking)",
-    "default_cost": {
-      "input_per_1m_tokens": 0.139,
-      "output_per_1m_tokens": 0.278,
-      "cached_input_per_1m_tokens": 0.0028
-    },
-    "capabilities": [
-      "function_calling",
-      "structured_output"
-    ],
-    "context_window": 1000000,
-    "max_output_tokens": 393216,
-    "model_family": "deepseek"
-  },
-  {
-    "endpoint_type": "deepseek",
-    "model": "deepseek-reasoner",
-    "display_name": "DeepSeek Reasoner (legacy alias of v4-flash thinking)",
-    "default_cost": {
-      "input_per_1m_tokens": 0.139,
-      "output_per_1m_tokens": 0.278,
-      "cached_input_per_1m_tokens": 0.0028
-    },
-    "capabilities": [
-      "function_calling",
-      "structured_output",
-      "reasoning"
-    ],
-    "context_window": 1000000,
-    "max_output_tokens": 393216,
-    "model_family": "deepseek-thinking"
-  },
-  {
-    "endpoint_type": "azure_openai",
-    "model": "gpt-5.5",
-    "display_name": "GPT-5.5 (Preview)",
-    "default_cost": {
-      "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 15,
-      "cached_input_per_1m_tokens": 0.25
-    },
-    "capabilities": [
-      "vision",
-      "function_calling",
-      "structured_output",
-      "reasoning"
-    ],
-    "context_window": 400000,
-    "max_output_tokens": 128000,
-    "model_family": "gpt-5"
-  },
-  {
-    "endpoint_type": "openai",
-    "model": "gpt-5.5",
-    "display_name": "GPT-5.5 (Preview)",
-    "default_cost": {
-      "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 15,
-      "cached_input_per_1m_tokens": 0.25
-    },
-    "capabilities": [
-      "vision",
-      "function_calling",
-      "structured_output",
-      "reasoning"
-    ],
-    "context_window": 1050000,
-    "max_output_tokens": 128000,
-    "model_family": "gpt-5"
-  },
-  {
-    "endpoint_type": "wangsu_openai",
-    "model": "gpt-5.5",
-    "display_name": "GPT-5.5 (Preview, Wangsu)",
-    "default_cost": {
-      "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 15,
-      "cached_input_per_1m_tokens": 0.25
-    },
-    "capabilities": [
-      "vision",
-      "function_calling",
-      "structured_output",
-      "reasoning"
-    ],
-    "context_window": 1050000,
-    "max_output_tokens": 128000,
-    "model_family": "gpt-5"
-  },
-  {
-    "endpoint_type": "azure_openai",
-    "model": "gpt-image-2",
-    "display_name": "GPT Image 2 (Preview)",
-    "default_cost": {
-      "input_per_1m_tokens": 5,
-      "output_per_1m_tokens": 40
-    },
-    "capabilities": [
-      "vision",
-      "image_generation"
-    ],
-    "aliases": [
-      "gpt-image-2-2026-04-21"
-    ],
-    "model_family": "gpt-image"
-  },
-  {
-    "endpoint_type": "openai",
-    "model": "gpt-image-2",
-    "display_name": "GPT Image 2 (Preview)",
-    "default_cost": {
-      "input_per_1m_tokens": 5,
-      "output_per_1m_tokens": 40
-    },
-    "capabilities": [
-      "vision",
-      "image_generation"
-    ],
-    "aliases": [
-      "gpt-image-2-2026-04-21"
-    ],
-    "model_family": "gpt-image"
+    ]
   }
 ]

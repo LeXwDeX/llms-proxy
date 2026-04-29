@@ -320,6 +320,13 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 		endpointType = target.EndpointType
 	}
 
+	// 规范化模型名：把客户端传入的 alias（如 deepseek-chat）解析为 catalog 中的
+	// 规范名（如 deepseek-v4-flash），让用量统计、价格匹配全链路按规范名聚合。
+	// 找不到 catalog 或 model 不是别名时，ResolveAlias 原样返回。
+	if cat := getLocalCatalog(); cat != nil && model != "" {
+		model = cat.ResolveAlias(endpointType, model)
+	}
+
 	evt := usage.Event{
 		Timestamp:    time.Now().UTC(),
 		ClientName:   principal.Name,

@@ -1525,8 +1525,11 @@
       }
 
       /* ===== Shared catalog helpers ===== */
-      async function loadCatalog(epType) {
-        if (state.catalogCache[epType]) return state.catalogCache[epType];
+      async function loadCatalog(epType, opts) {
+        // opts.force=true 跳过缓存（用于打开 modal 等需要新鲜数据的场景，
+        // 避免后台 catalog 更新后前端仍显示旧列表）
+        var force = opts && opts.force;
+        if (!force && state.catalogCache[epType]) return state.catalogCache[epType];
         try {
           var data = await api("/admin/data/catalog/"+encodeURIComponent(epType));
           var models = Array.isArray(data.models) ? data.models : [];
@@ -2017,7 +2020,9 @@
       async function renderMcModelSuggestions(epType, filterText) {
         var container = document.getElementById("mcModelSuggestions");
         container.innerHTML = "";
-        var models = await loadCatalog(epType);
+        // 打开建议面板时强制刷新一次 catalog，避免 deploy 后前端缓存陈旧
+        // 导致新增模型（如 deepseek-chat）搜不到
+        var models = await loadCatalog(epType, { force: true });
         var filtered = catalogFilterModels(models, filterText);
         filtered.slice(0, 50).forEach(function(m) {
           var tag = document.createElement("span");

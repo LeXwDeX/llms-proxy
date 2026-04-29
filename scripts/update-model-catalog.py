@@ -189,6 +189,53 @@ def _supplementary_models() -> list[dict]:
         }
     )
 
+    # --- GPT-5.5 (Preview): models.dev 暂未收录，价格沿用 GPT-5.4 系列 ---
+    # 标记 (Preview) 提示运维：等 OpenAI 官方公布定价后用本脚本同步修正
+    gpt55_cost = {
+        "input_per_1m_tokens": 2.5,
+        "output_per_1m_tokens": 15,
+        "cached_input_per_1m_tokens": 0.25,
+    }
+    gpt55_caps = ["vision", "function_calling", "structured_output", "reasoning"]
+    for ep in ("azure_openai", "openai", "wangsu_openai"):
+        extras.append(
+            {
+                "endpoint_type": ep,
+                "model": "gpt-5.5",
+                "display_name": "GPT-5.5 (Preview)",
+                "default_cost": gpt55_cost,
+                "capabilities": list(gpt55_caps),
+                "model_family": "gpt-5",
+            }
+        )
+    # OpenAI 还有 gpt-5.5-pro 变体
+    extras.append(
+        {
+            "endpoint_type": "openai",
+            "model": "gpt-5.5-pro",
+            "display_name": "GPT-5.5 Pro (Preview)",
+            "default_cost": gpt55_cost,
+            "capabilities": list(gpt55_caps),
+            "model_family": "gpt-5",
+        }
+    )
+
+    # --- GPT-IMAGE-2 (Preview): models.dev 暂未收录 ---
+    # 网宿图像通道在下方 wangsu_image_models 已有；此处补 azure_openai / openai
+    gpt_image2_cost = {"input_per_1m_tokens": 5, "output_per_1m_tokens": 40}
+    for ep in ("azure_openai", "openai"):
+        extras.append(
+            {
+                "endpoint_type": ep,
+                "model": "gpt-image-2",
+                "display_name": "GPT Image 2 (Preview)",
+                "aliases": ["gpt-image-2-2026-04-21"],
+                "default_cost": gpt_image2_cost,
+                "capabilities": ["image_generation"],
+                "model_family": "gpt-image",
+            }
+        )
+
     # --- Azure OpenAI: 同样补充图像和音频模型 ---
     for model_id, name, cost in image_models:
         extras.append(

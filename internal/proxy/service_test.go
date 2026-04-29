@@ -1099,6 +1099,80 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 	}
 }
 
+// TestServiceUsageEventResolvesAlias 红线：客户端用 DeepSeek 兼容别名 "deepseek-chat"
+// 调用时，记录的用量事件 model 字段必须被规范化为 "deepseek-v4-flash"，
+// 否则下游 CostTable 查不到价格、用量统计也无法按真实模型聚合。
+func TestServiceUsageEventResolvesAlias(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"deepseek-chat","usage":{"prompt_tokens":5,"completion_tokens":3}}`))
+	}))
+	defer upstream.Close()
+
+	tmpDir := t.TempDir()
+	db, err := nosql.OpenDB(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	usageStore := nosql.NewUsageStore(db)
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{{
+			Name:         "ds1",
+			EndpointType: config.EndpointTypeDeepSeek,
+			Endpoint:     upstream.URL,
+			APIKey:       "key",
+		}},
+		DataStore: config.DataStore{DBPath: filepath.Join(tmpDir, "test.db")},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	service.SetUsageRecorder(usageStore)
+
+	authStore := auth.NewStore()
+	if err := authStore.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := authStore.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	events, err := usageStore.List(usage.Filter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list usage events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 usage event, got %d", len(events))
+	}
+	if got := events[0].Model; got != "deepseek-v4-flash" {
+		t.Fatalf("expected model normalized to deepseek-v4-flash, got %q", got)
+	}
+}
+
 func TestExtractUsageFromClaudeSSE(t *testing.T) {
 	// Claude streaming responses split usage across two events:
 	// - message_start: contains input_tokens under message.usage

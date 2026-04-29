@@ -150,6 +150,14 @@ func TestResolveAlias(t *testing.T) {
 	if resolved != "claude-sonnet-4-20250514" {
 		t.Errorf("expected claude-sonnet-4-20250514, got %s", resolved)
 	}
+
+	// DeepSeek 兼容别名（官方 2026-07-24 弃用）应解析为 v4 规范名
+	if got := c.ResolveAlias("deepseek", "deepseek-chat"); got != "deepseek-v4-flash" {
+		t.Errorf("expected deepseek-v4-flash, got %s", got)
+	}
+	if got := c.ResolveAlias("deepseek", "deepseek-reasoner"); got != "deepseek-v4-pro" {
+		t.Errorf("expected deepseek-v4-pro, got %s", got)
+	}
 }
 
 func TestNewFromData(t *testing.T) {
