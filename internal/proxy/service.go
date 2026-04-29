@@ -496,7 +496,7 @@ func (s *Service) getRequestTimeout() time.Duration {
 
 func normalizeRequestTimeout(timeout time.Duration) time.Duration {
 	if timeout <= 0 {
-		return 600 * time.Second
+		return 1800 * time.Second
 	}
 	return timeout
 }

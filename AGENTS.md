@@ -123,7 +123,7 @@ docker compose start
 - 代理层**不做同-target 重试**：上游 4xx/5xx 全部原样透传给客户端，由客户端 SDK（OpenAI 官方 SDK 默认 408/409/429/>=500 重试 2 次 + 指数退避）负责。
 - 代理层**保留多-target failover**：仅在网络错误（连接拒绝、DNS、TLS 握手等，非 `context.DeadlineExceeded`）时切换到下一 target——客户端不感知 target 拓扑无法替代。
 - 代理层**超时不重试**：由 `TestServiceTimeoutDoesNotRetryOrMute` 红线守护，防止重复扣费/重复推理。
-- 默认 `request_timeout_seconds = 600`，对齐 OpenAI 官方 SDK 默认（10 分钟）。
+- 默认 `request_timeout_seconds = 1800`（30 分钟），覆盖 gpt-image-2 等长耗时图像生成场景。
 
 ### 5. 管理层
 - `internal/admin/handler.go` 提供管理接口：
