@@ -252,7 +252,7 @@ func (s *Service) writeResponse(
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	if resp.StatusCode >= 500 {
+	if isUpstreamFailureStatus(resp.StatusCode) {
 		state.MarkFailure(time.Now(), s.quietPeriod)
 		stats := state.Stats()
 		s.metrics.totalFailures.Add(1)
@@ -420,4 +420,23 @@ func targetName(t *Target) string {
 		return ""
 	}
 	return t.Name
+}
+
+// isUpstreamFailureStatus 判定上游响应状态码是否应触发 MarkFailure（进而 mute + 下次请求 fallback）。
+//
+// 触发条件：
+//   - 5xx：上游服务端错误（502/503/504 等），通用故障切换信号；
+//   - 429：上游过载/限流（OpenAI/Azure 在模型容量瓶颈时常返回此码，含 "Engine is overloaded"）；
+//   - 408：上游请求超时（典型见于网宿/Azure 长耗时图像生成接口）。
+//
+// 4xx 其他状态（400/401/403/404 等）属于客户端请求问题，不切换 target。
+func isUpstreamFailureStatus(statusCode int) bool {
+	if statusCode >= 500 {
+		return true
+	}
+	switch statusCode {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return true
+	}
+	return false
 }
