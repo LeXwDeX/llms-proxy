@@ -3,9 +3,14 @@ BINARY := $(BIN_DIR)/llms-proxy
 CATALOG_RAW := /tmp/models_dev_raw.json
 CATALOG_OUT := internal/catalog/data/models.json
 
-.PHONY: all build test integration clean catalog
+.PHONY: all build test integration clean catalog docker
 
 all: test build
+
+# ⚠️ Docker 构建必须 --no-cache，否则 BuildKit 缓存旧二进制
+docker:
+	@echo ">> building docker image (--no-cache)"
+	docker build --no-cache -t llms-proxy:latest -f deploy/docker/Dockerfile .
 
 catalog:
 	@echo ">> updating model catalog from models.dev"

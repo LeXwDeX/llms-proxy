@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ycgame/llms-proxy/internal/errorlog"
 )
 
 type contextKey string
@@ -46,6 +49,15 @@ func Recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 						"method", r.Method,
 						"path", r.URL.Path,
 					)
+					// 旁路：写结构化错误日志便于事后 grep。failure 不阻塞响应。
+					errorlog.Write(errorlog.Entry{
+						TraceID:  RequestIDFromContext(r.Context()),
+						Kind:     errorlog.KindProxyPanic,
+						Method:   r.Method,
+						Path:     r.URL.Path,
+						ClientIP: remoteIP(r),
+						Error:    fmt.Sprintf("%v", rec),
+					})
 					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				}
 			}()

@@ -4,16 +4,19 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 	"time"
 
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/errorlog"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
@@ -33,9 +36,12 @@ var hopHeaders = map[string]struct{}{
 }
 
 type forwardAttemptError struct {
-	status    int
-	retryable bool
-	err       error
+	status          int
+	retryable       bool
+	err             error
+	startedAt       time.Time // forwardRequest 进入的时刻；用于 errorlog duration 统计
+	upstreamURL     string    // 已构造的上游 URL（去 query）；buildURL 后填充，便于错误日志归因
+	upstreamFullURL string    // 完整 URL（含 query），用于核验 buildURL 输出（如 azure api-version）
 }
 
 func (e *forwardAttemptError) Error() string {
@@ -53,12 +59,14 @@ func (e *forwardAttemptError) Unwrap() error {
 }
 
 func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byte) (*http.Response, context.CancelFunc, error) {
+	startedAt := time.Now()
 	target := state.Target()
 	if target == nil {
 		return nil, nil, &forwardAttemptError{
 			status:    http.StatusBadGateway,
 			retryable: false,
 			err:       errors.New("target not configured"),
+			startedAt: startedAt,
 		}
 	}
 
@@ -69,8 +77,11 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 			status:    http.StatusBadGateway,
 			retryable: false,
 			err:       err,
+			startedAt: startedAt,
 		}
 	}
+	upstreamURL := stripURLQuery(forwardURL.String())
+	upstreamFullURL := forwardURL.String()
 
 	var bodyReader io.Reader
 	if len(body) > 0 {
@@ -83,9 +94,12 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	if err != nil {
 		cancel()
 		return nil, nil, &forwardAttemptError{
-			status:    http.StatusBadRequest,
-			retryable: false,
-			err:       err,
+			status:          http.StatusBadRequest,
+			retryable:       false,
+			err:             err,
+			startedAt:       startedAt,
+			upstreamURL:     upstreamURL,
+			upstreamFullURL: upstreamFullURL,
 		}
 	}
 
@@ -143,9 +157,12 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 			if target.APIKey == "" {
 				cancel()
 				return nil, nil, &forwardAttemptError{
-					status:    http.StatusBadRequest,
-					retryable: false,
-					err:       errors.New("proxy: missing azure credential; provide api key or X-Azure-Authorization"),
+					status:          http.StatusBadRequest,
+					retryable:       false,
+					err:             errors.New("proxy: missing azure credential; provide api key or X-Azure-Authorization"),
+					startedAt:       startedAt,
+					upstreamURL:     upstreamURL,
+					upstreamFullURL: upstreamFullURL,
 				}
 			}
 			req.Header.Set("api-key", target.APIKey)
@@ -153,21 +170,121 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	default:
 		cancel()
 		return nil, nil, &forwardAttemptError{
-			status:    http.StatusInternalServerError,
-			retryable: false,
-			err:       fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
+			status:          http.StatusInternalServerError,
+			retryable:       false,
+			err:             fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
+			startedAt:       startedAt,
+			upstreamURL:     upstreamURL,
+			upstreamFullURL: upstreamFullURL,
 		}
 	}
 	req.Host = target.Endpoint.Host
 
+	// ─── httptrace 埋点：记录连接各阶段耗时，定位大 body 上传卡顿位置 ───
+	reqID := appmiddleware.RequestIDFromContext(r.Context())
+	reqBodySize := len(body)
+	traceStart := time.Now()
+	var (
+		dnsStart, dnsDone       time.Time
+		connStart, connDone     time.Time
+		tlsStart, tlsDone       time.Time
+		gotConn                 time.Time
+		wroteHeaders            time.Time
+		wroteRequest            time.Time
+		gotFirstResponseByte    time.Time
+		connReused              bool
+		connRemoteAddr          string
+		tlsVersion              string
+		httpProto               string
+	)
+	trace := &httptrace.ClientTrace{
+		DNSStart:  func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
+		DNSDone:   func(_ httptrace.DNSDoneInfo) { dnsDone = time.Now() },
+		ConnectStart: func(_, _ string) { connStart = time.Now() },
+		ConnectDone:  func(_, _ string, _ error) { connDone = time.Now() },
+		TLSHandshakeStart: func() { tlsStart = time.Now() },
+		TLSHandshakeDone: func(state tls.ConnectionState, _ error) {
+			tlsDone = time.Now()
+			switch state.Version {
+			case tls.VersionTLS13:
+				tlsVersion = "TLS1.3"
+			case tls.VersionTLS12:
+				tlsVersion = "TLS1.2"
+			default:
+				tlsVersion = fmt.Sprintf("0x%04x", state.Version)
+			}
+			httpProto = state.NegotiatedProtocol // "h2" or "http/1.1"
+		},
+		GotConn: func(info httptrace.GotConnInfo) {
+			gotConn = time.Now()
+			connReused = info.Reused
+			if info.Conn != nil {
+				connRemoteAddr = info.Conn.RemoteAddr().String()
+			}
+		},
+		WroteHeaders: func() { wroteHeaders = time.Now() },
+		WroteRequest: func(_ httptrace.WroteRequestInfo) { wroteRequest = time.Now() },
+		GotFirstResponseByte: func() { gotFirstResponseByte = time.Now() },
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
 	resp, err := s.httpClient.Do(req)
+
+	// 对大请求（>100KB）或慢请求（>5s）输出详细 trace 日志
+	totalDuration := time.Since(traceStart)
+	if reqBodySize > 100*1024 || totalDuration > 5*time.Second {
+		logFields := []any{
+			"request_id", reqID,
+			"target", targetName(target),
+			"method", r.Method,
+			"path", r.URL.Path,
+			"req_bytes", reqBodySize,
+			"total_ms", totalDuration.Milliseconds(),
+			"conn_reused", connReused,
+			"remote_addr", connRemoteAddr,
+			"tls_version", tlsVersion,
+			"http_proto", httpProto,
+		}
+		if !dnsStart.IsZero() && !dnsDone.IsZero() {
+			logFields = append(logFields, "dns_ms", dnsDone.Sub(dnsStart).Milliseconds())
+		}
+		if !connStart.IsZero() && !connDone.IsZero() {
+			logFields = append(logFields, "tcp_connect_ms", connDone.Sub(connStart).Milliseconds())
+		}
+		if !tlsStart.IsZero() && !tlsDone.IsZero() {
+			logFields = append(logFields, "tls_handshake_ms", tlsDone.Sub(tlsStart).Milliseconds())
+		}
+		if !gotConn.IsZero() {
+			logFields = append(logFields, "get_conn_ms", gotConn.Sub(traceStart).Milliseconds())
+		}
+		if !wroteHeaders.IsZero() && !gotConn.IsZero() {
+			logFields = append(logFields, "write_headers_ms", wroteHeaders.Sub(gotConn).Milliseconds())
+		}
+		if !wroteRequest.IsZero() && !wroteHeaders.IsZero() {
+			logFields = append(logFields, "write_body_ms", wroteRequest.Sub(wroteHeaders).Milliseconds())
+		}
+		if !gotFirstResponseByte.IsZero() && !wroteRequest.IsZero() {
+			logFields = append(logFields, "wait_response_ms", gotFirstResponseByte.Sub(wroteRequest).Milliseconds())
+		}
+		if resp != nil {
+			logFields = append(logFields, "status", resp.StatusCode)
+		}
+		if err != nil {
+			logFields = append(logFields, "error", err.Error())
+		}
+		s.logger.Warn("upstream request trace", logFields...)
+	}
+
 	if err != nil {
 		cancel()
 		retryable := !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)
 		return nil, nil, &forwardAttemptError{
-			status:    classifyTransportError(err),
-			retryable: retryable,
-			err:       err,
+			status:          classifyTransportError(err),
+			retryable:       retryable,
+			err:             err,
+			startedAt:       startedAt,
+			upstreamURL:     upstreamURL,
+			upstreamFullURL: upstreamFullURL,
 		}
 	}
 
@@ -183,6 +300,7 @@ func (s *Service) writeResponse(
 	attempt int,
 	model string,
 	requestBody []byte,
+	startedAt time.Time,
 ) {
 	defer deferCancel(cancel)
 	defer resp.Body.Close()
@@ -292,6 +410,51 @@ func (s *Service) writeResponse(
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		s.recordUsageEvent(r, target, resp.StatusCode, model, resp.Header.Get("Content-Type"), capture.Bytes())
 	}
+
+	// 上游 4xx/5xx：写结构化错误日志（旁路 access/error log，便于事后 grep）。
+	// 触发条件覆盖 4xx 与 5xx 完整范围；用户主动 abort 由 io.Copy err 分支拦截不入此路径。
+	if resp.StatusCode >= 400 {
+		writeUpstreamErrorLog(r, target, resp, capture.Bytes(), startedAt)
+	}
+}
+
+// writeUpstreamErrorLog 在 writeResponse 写完响应体后落一条 NDJSON 错误日志。
+// resp_excerpt 取 capture（已限 2MB）的前 1024 字节。
+func writeUpstreamErrorLog(r *http.Request, target *Target, resp *http.Response, body []byte, startedAt time.Time) {
+	kind := errorlog.KindUpstream4xx
+	if resp.StatusCode >= 500 {
+		kind = errorlog.KindUpstream5xx
+	}
+
+	excerpt := body
+	if len(excerpt) > 1024 {
+		excerpt = excerpt[:1024]
+	}
+
+	entry := errorlog.Entry{
+		TraceID:        appmiddleware.RequestIDFromContext(r.Context()),
+		Kind:           kind,
+		Method:         r.Method,
+		Path:           r.URL.Path,
+		ClientIP:       clientIP(r),
+		UpstreamStatus: resp.StatusCode,
+		DurationMS:     time.Since(startedAt).Milliseconds(),
+		ReqBytes:       int(r.ContentLength),
+		RespBytes:      len(body),
+		RespExcerpt:    string(excerpt),
+	}
+	if target != nil {
+		entry.Target = target.Name
+		entry.EndpointType = target.EndpointType
+		if target.Endpoint != nil {
+			entry.UpstreamURL = stripURLQuery(target.Endpoint.String())
+		}
+	}
+	// 完整 URL（含 query）从实际发出的请求取，便于核验 buildURL 输出（如 azure api-version）。
+	if resp != nil && resp.Request != nil && resp.Request.URL != nil {
+		entry.UpstreamFullURL = resp.Request.URL.String()
+	}
+	errorlog.Write(entry)
 }
 
 func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode int, model string, contentType string, body []byte) {
@@ -368,6 +531,64 @@ func (s *Service) handleForwardError(r *http.Request, state *targetState, err er
 		"total_failures", stats.TotalFailure,
 		"muted_until", stats.MutedUntil,
 	)
+}
+
+// writeForwardErrorLog 在 forwardRequest 失败（网络错误 / 配置错误 / Azure 缺凭据 等）时落错误日志。
+// 由 service.go 在拿到 forwardAttemptError 后统一调用，传入完整 startedAt / upstreamURL。
+func writeForwardErrorLog(r *http.Request, state *targetState, fe *forwardAttemptError) {
+	if fe == nil {
+		return
+	}
+	target := state.Target()
+
+	entry := errorlog.Entry{
+		TraceID:         appmiddleware.RequestIDFromContext(r.Context()),
+		Kind:            errorlog.KindUpstreamNetErr,
+		Method:          r.Method,
+		Path:            r.URL.Path,
+		ClientIP:        clientIP(r),
+		UpstreamStatus:  0, // net error 时上游无响应
+		UpstreamURL:     fe.upstreamURL,
+		UpstreamFullURL: fe.upstreamFullURL,
+		ReqBytes:        int(r.ContentLength),
+	}
+	if !fe.startedAt.IsZero() {
+		entry.DurationMS = time.Since(fe.startedAt).Milliseconds()
+	}
+	if fe.err != nil {
+		entry.Error = fe.err.Error()
+	}
+	if target != nil {
+		entry.Target = target.Name
+		entry.EndpointType = target.EndpointType
+	}
+	errorlog.Write(entry)
+}
+
+// clientIP 提取请求来源 IP，与 access log 的 remote_ip 字段语义一致。
+func clientIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if comma := strings.Index(xff, ","); comma > 0 {
+			return strings.TrimSpace(xff[:comma])
+		}
+		return strings.TrimSpace(xff)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// stripURLQuery 去掉 URL 中的 query string，避免 errorlog 泄露 api key 等查询参数。
+func stripURLQuery(raw string) string {
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		return raw[:i]
+	}
+	return raw
 }
 
 func copyHeaders(dst, src http.Header) {

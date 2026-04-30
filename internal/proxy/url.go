@@ -41,6 +41,15 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	// like /v2/gws/<id>/anthropic).
 	forward.Path = strings.TrimRight(forward.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	forward.RawQuery = normalizeForwardQuery(original)
+
+	// Azure OpenAI deployment-based API（/deployments/{name}/...）需要 api-version 查询参数。
+	// v1 API（/openai/v1/...）明确不需要 api-version，preview 特性通过 feature-specific header 控制。
+	// 参考：https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle
+	// "The v1 API simplifies authentication, removes the need for dated api-version parameters"
+	if target.EndpointType == config.EndpointTypeAzureOpenAI && isDeploymentBasedPath(forward.Path) {
+		forward.RawQuery = appendAzureAPIVersion(forward.RawQuery, "2025-04-01-preview")
+	}
+
 	return &forward, nil
 }
 
@@ -52,6 +61,13 @@ func isTerminalEndpointType(epType string) bool {
 		return true
 	}
 	return false
+}
+
+// isDeploymentBasedPath 判断路径是否为 Azure 的 deployment-based 格式
+// （如 /openai/deployments/gpt-4o/chat/completions），该格式需要 api-version 查询参数。
+// v1 路径（如 /openai/v1/images/edits）不需要 api-version。
+func isDeploymentBasedPath(path string) bool {
+	return strings.Contains(strings.ToLower(path), "/deployments/")
 }
 
 func normalizeForwardQuery(original *url.URL) string {
@@ -66,6 +82,15 @@ func normalizeForwardQuery(original *url.URL) string {
 	deleteQueryKeyCaseInsensitive(query, "api-key")
 
 	return query.Encode()
+}
+
+// appendAzureAPIVersion 向已编码的 query string 追加 api-version 参数。
+// 如果已存在 api-version（不应发生，因为 normalizeForwardQuery 会剥离），则不重复追加。
+func appendAzureAPIVersion(rawQuery, version string) string {
+	if rawQuery == "" {
+		return "api-version=" + url.QueryEscape(version)
+	}
+	return rawQuery + "&api-version=" + url.QueryEscape(version)
 }
 
 func deleteQueryKeyCaseInsensitive(query url.Values, key string) {

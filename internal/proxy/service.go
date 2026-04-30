@@ -343,6 +343,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		startedAt := time.Now()
 		resp, cancel, fErr := s.forwardRequest(r, state, forwardBody)
 
 		// 恢复原始 Content-Type（支持重试时路由到其他 target，如 Azure 需原始 multipart）
@@ -356,6 +357,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status := http.StatusBadGateway
 			if ok && fe.status != 0 {
 				status = fe.status
+			}
+
+			// 旁路：上游网络错误 / 配置错误 → upstream-error.log
+			if ok {
+				writeForwardErrorLog(r, state, fe)
 			}
 
 			if ok && fe.retryable {
@@ -398,7 +404,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody)
+		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody, startedAt)
 		// 更新连接粘连
 		if principal != nil && target != nil {
 			s.affinity.Set(affinityKey(principal.Name, model), strings.ToLower(target.Name), time.Now())

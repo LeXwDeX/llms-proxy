@@ -437,8 +437,11 @@ func TestServiceStripsAPIVersionAndInternalQueryParams(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
-	if seenVersion != "" {
-		t.Fatalf("expected api-version to be stripped, got %q", seenVersion)
+	// Azure targets inject api-version=2025-04-01-preview for deployment-based paths
+	// after stripping client-supplied versions.
+	// The test target has no endpoint_type set → defaults to azure_openai → must see dated version.
+	if seenVersion != "2025-04-01-preview" {
+		t.Fatalf("expected api-version=2025-04-01-preview for azure_openai deployment path, got %q", seenVersion)
 	}
 	if seenOther != "yes" {
 		t.Fatalf("expected other query param preserved, got %q", seenOther)

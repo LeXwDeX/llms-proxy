@@ -20,6 +20,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/catalog"
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/copilot"
+	"github.com/ycgame/llms-proxy/internal/errorlog"
 	"github.com/ycgame/llms-proxy/internal/logging"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 	"github.com/ycgame/llms-proxy/internal/nosql"
@@ -70,6 +71,17 @@ func main() {
 	}
 
 	appLogger := logManager.App()
+
+	// 上游错误日志（旁路 access/error log，仅记 4xx/5xx/net error/panic）。
+	// 路径可通过 UPSTREAM_ERROR_LOG_PATH 覆盖，默认 /var/log/llms-proxy/upstream-error.log。
+	// 打不开时 Init 内部 slog.Warn 后降级为 noop，不阻断启动。
+	errorlog.SetSlogger(appLogger)
+	errorlog.Init(strings.TrimSpace(os.Getenv("UPSTREAM_ERROR_LOG_PATH")))
+	defer func() {
+		if err := errorlog.Close(); err != nil {
+			appLogger.Warn("upstream-error log close failed", "error", err)
+		}
+	}()
 
 	// Open bbolt database.
 	dbPath := cfg.DataStore.DBPath
