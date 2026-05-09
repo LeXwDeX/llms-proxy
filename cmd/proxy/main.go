@@ -97,6 +97,15 @@ func main() {
 		appLogger.Warn("json migration encountered errors", "error", err)
 	}
 
+	// One-shot backfill of hourly usage aggregation (idempotent via meta marker).
+	// Must run BEFORE proxy starts accepting traffic so reads see consistent agg data.
+	backfillStart := time.Now()
+	if err := nosql.BackfillUsageAgg(db); err != nil {
+		appLogger.Error("usage agg backfill failed", "error", err)
+		os.Exit(1)
+	}
+	appLogger.Info("usage agg backfill done", "duration", time.Since(backfillStart).String())
+
 	// Create all bbolt-backed stores.
 	clientStore := nosql.NewClientStore(db)
 	modelCostStore := nosql.NewModelCostStore(db)

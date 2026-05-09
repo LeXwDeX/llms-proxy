@@ -15,6 +15,12 @@ import (
 
 // UsageStore manages usage events backed by bbolt.
 // It implements the usage.Recorder interface.
+//
+// Two buckets are involved:
+//   - usage_events     : raw event detail (RFC3339Nano + uuid key)  → for List()
+//   - usage_agg_hourly : pre-aggregated hourly rollups               → for Summary/Aggregate/Count
+//
+// Record() writes to both in the same write tx so they stay consistent.
 type UsageStore struct {
 	db *bolt.DB
 }
@@ -24,7 +30,7 @@ func NewUsageStore(db *bolt.DB) *UsageStore {
 	return &UsageStore{db: db}
 }
 
-// Record appends one usage event (implements usage.Recorder).
+// Record appends one usage event AND bumps the hourly aggregation cell atomically.
 func (s *UsageStore) Record(event usage.Event) error {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
@@ -39,16 +45,27 @@ func (s *UsageStore) Record(event usage.Event) error {
 	key := usageKey(event.Timestamp, uuid.NewString())
 
 	return s.db.Update(func(tx *bolt.Tx) error {
+		// 1. Append raw detail.
 		b := tx.Bucket([]byte(BucketUsageEvents))
 		data, err := json.Marshal(event)
 		if err != nil {
 			return fmt.Errorf("marshal usage event: %w", err)
 		}
-		return b.Put([]byte(key), data)
+		if err := b.Put([]byte(key), data); err != nil {
+			return err
+		}
+		// 2. Bump hourly aggregation cell.
+		return bumpAgg(tx, event)
 	})
 }
 
 // List returns events matching the filter, sorted by timestamp descending.
+//
+// Optimization: scans usage_events bucket in REVERSE (Last → Prev), early-stopping
+// once limit is reached. Avoids the previous full-scan + collect + sort pattern.
+// For the common case (no filter or recent time window), this stops after `limit` keys.
+//
+// Filter semantics unchanged.
 func (s *UsageStore) List(filter usage.Filter) ([]usage.Event, error) {
 	limit := filter.Limit
 	if limit <= 0 {
@@ -58,7 +75,10 @@ func (s *UsageStore) List(filter usage.Filter) ([]usage.Event, error) {
 		limit = 2000
 	}
 
-	var events []usage.Event
+	clientKey := strings.TrimSpace(filter.ClientName)
+	modelKey := strings.ToLower(strings.TrimSpace(filter.Model))
+
+	events := make([]usage.Event, 0, limit)
 	err := s.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(BucketUsageEvents))
 		if b == nil {
@@ -66,31 +86,39 @@ func (s *UsageStore) List(filter usage.Filter) ([]usage.Event, error) {
 		}
 		c := b.Cursor()
 
-		// Determine seek start point.
-		var startKey []byte
-		if filter.From != nil {
-			startKey = []byte(filter.From.UTC().Format(time.RFC3339Nano))
-		}
-
-		// Determine end boundary.
-		var endPrefix string
+		// Compute end-bound seek key (we walk backwards from `to`).
+		// Keys are "<RFC3339Nano>_<uuid>". For an inclusive upper bound on time `to`,
+		// we seek to "<to+1ns>_" then step back, OR simply seek to a sentinel above all
+		// keys whose timestamp ≤ to.
+		var seekStart []byte
 		if filter.To != nil {
-			endPrefix = filter.To.UTC().Format(time.RFC3339Nano)
+			// Sentinel that sorts strictly after any "<to>_*" key but before any later timestamp.
+			seekStart = []byte(filter.To.UTC().Format(time.RFC3339Nano) + "_\xff")
 		}
 
-		clientKey := strings.TrimSpace(filter.ClientName)
-		modelKey := strings.ToLower(strings.TrimSpace(filter.Model))
+		// Compute lower-bound prefix for early termination.
+		var lowPrefix string
+		if filter.From != nil {
+			lowPrefix = filter.From.UTC().Format(time.RFC3339Nano)
+		}
 
 		var k, v []byte
-		if startKey != nil {
-			k, v = c.Seek(startKey)
+		if seekStart != nil {
+			// Seek finds first key >= seekStart, then we step back to land on the
+			// largest key <= our intended bound.
+			k, v = c.Seek(seekStart)
+			if k == nil {
+				k, v = c.Last()
+			} else {
+				k, v = c.Prev()
+			}
 		} else {
-			k, v = c.First()
+			k, v = c.Last()
 		}
 
-		for ; k != nil; k, v = c.Next() {
-			// If we have an end boundary, stop when key exceeds it.
-			if endPrefix != "" && string(k) > endPrefix+"_\xff" {
+		for ; k != nil; k, v = c.Prev() {
+			// Lower bound check: stop scanning once we go below `from`.
+			if lowPrefix != "" && string(k) < lowPrefix {
 				break
 			}
 
@@ -99,64 +127,53 @@ func (s *UsageStore) List(filter usage.Filter) ([]usage.Event, error) {
 				continue
 			}
 
+			// Defensive bound checks via timestamp (handles tz / format edge cases).
 			if !usageFilterMatch(evt, filter, clientKey, modelKey) {
 				continue
 			}
+
 			events = append(events, evt)
+			if len(events) >= limit {
+				break
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Sort descending by timestamp.
-	sort.Slice(events, func(i, j int) bool {
-		return events[i].Timestamp.After(events[j].Timestamp)
-	})
-
-	if len(events) > limit {
-		events = events[:limit]
-	}
+	// Already in descending order due to reverse scan.
 	return events, nil
 }
 
 // Count returns total and success request counts within the given time range.
-// It is more efficient than List() because it only unmarshals the status_code
-// field and does not build a full event slice or apply a limit cap.
+//
+// New implementation: scans the hourly agg bucket — bounded to ~hours-in-range cells
+// times unique (et,client,model) combos per hour. For 72h window this is typically
+// < 1000 cells vs. previously scanning every event in that window.
 func (s *UsageStore) Count(from, to time.Time) (total, success int64, err error) {
 	from = from.UTC()
 	to = to.UTC()
-	startKey := []byte(from.Format(time.RFC3339Nano))
-	endPrefix := to.Format(time.RFC3339Nano)
 
 	err = s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(BucketUsageEvents))
-		if b == nil {
+		return aggIter(tx, from, to, func(_ time.Time, _, _, _ string, cell AggCell) error {
+			total += cell.Requests
+			success += cell.Success
 			return nil
-		}
-		c := b.Cursor()
-		for k, v := c.Seek(startKey); k != nil; k, v = c.Next() {
-			if string(k) > endPrefix+"_\xff" {
-				break
-			}
-			total++
-			// Lightweight partial unmarshal for status_code only.
-			var partial struct {
-				StatusCode int `json:"status_code"`
-			}
-			if err := json.Unmarshal(v, &partial); err == nil {
-				if partial.StatusCode > 0 && partial.StatusCode < 500 {
-					success++
-				}
-			}
-		}
-		return nil
+		})
 	})
 	return
 }
 
-// Aggregate aggregates usage in requested time buckets.
+// Aggregate aggregates usage in requested time buckets, served from the hourly agg bucket.
+//
+// For group_by=hour: each agg cell maps 1:1 to a Bucket entry (further accumulated by hour).
+// For group_by=day:  hour cells are accumulated into the corresponding day bucket.
+// by_client / by_model totals are accumulated in the same pass.
+//
+// Filter semantics: ClientName / Model filters apply at the agg cell level. From/To
+// are honored as inclusive hour-bucket bounds (an event whose hour falls within the
+// range counts; partial-hour exclusion is approximate to ±1h, acceptable for the UI).
 func (s *UsageStore) Aggregate(filter usage.Filter, groupBy string, costs usage.CostTable) (usage.AggregateResult, error) {
 	groupBy = usageNormalizeGroupBy(groupBy)
 
@@ -168,93 +185,74 @@ func (s *UsageStore) Aggregate(filter usage.Filter, groupBy string, costs usage.
 		result.To = filter.To.UTC()
 	}
 
+	from := time.Time{}
+	if filter.From != nil {
+		from = filter.From.UTC()
+	}
+	to := time.Now().UTC().Add(time.Hour)
+	if filter.To != nil {
+		to = filter.To.UTC()
+	}
+
+	clientKey := strings.TrimSpace(filter.ClientName)
+	modelKey := strings.ToLower(strings.TrimSpace(filter.Model))
+
 	bucketMap := map[time.Time]*usage.Bucket{}
 	byClient := map[string]*usage.DimensionTotals{}
 	byModel := map[string]*usage.DimensionTotals{}
 
 	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(BucketUsageEvents))
-		if b == nil {
-			return nil
-		}
-		c := b.Cursor()
-
-		var startKey []byte
-		if filter.From != nil {
-			startKey = []byte(filter.From.UTC().Format(time.RFC3339Nano))
-		}
-
-		var endPrefix string
-		if filter.To != nil {
-			endPrefix = filter.To.UTC().Format(time.RFC3339Nano)
-		}
-
-		clientKey := strings.TrimSpace(filter.ClientName)
-		modelKey := strings.ToLower(strings.TrimSpace(filter.Model))
-
-		var k, v []byte
-		if startKey != nil {
-			k, v = c.Seek(startKey)
-		} else {
-			k, v = c.First()
-		}
-
-		for ; k != nil; k, v = c.Next() {
-			if endPrefix != "" && string(k) > endPrefix+"_\xff" {
-				break
+		return aggIter(tx, from, to, func(hour time.Time, et, client, model string, cell AggCell) error {
+			// Apply dimension filters.
+			if clientKey != "" && client != clientKey {
+				return nil
+			}
+			if modelKey != "" && model != modelKey {
+				return nil
 			}
 
-			var evt usage.Event
-			if err := json.Unmarshal(v, &evt); err != nil {
-				continue
-			}
+			cost := aggCellCost(cell, et, model, costs)
+			addCellToTotals(&result.Totals, cell, cost)
 
-			if !usageFilterMatch(evt, filter, clientKey, modelKey) {
-				continue
-			}
-
-			usageAddEventTotals(&result.Totals, evt, costs)
-
-			bucketStart := usageBucketStartFor(evt.Timestamp.UTC(), groupBy)
+			bucketStart := bucketStartFromHour(hour, groupBy)
 			bkt, ok := bucketMap[bucketStart]
 			if !ok {
 				bkt = &usage.Bucket{
 					BucketStart: bucketStart,
-					BucketEnd:   usageBucketStartFor(bucketStart.Add(usageStepDuration(groupBy)), groupBy),
+					BucketEnd:   bucketStart.Add(usageStepDuration(groupBy)),
 				}
 				bucketMap[bucketStart] = bkt
 			}
-			usageAddEventTotals(&bkt.Totals, evt, costs)
+			addCellToTotals(&bkt.Totals, cell, cost)
 
-			ck := evt.ClientName
+			ck := client
 			if ck == "" {
 				ck = "unknown"
 			}
-			clientDim := byClient[ck]
-			if clientDim == nil {
-				clientDim = &usage.DimensionTotals{Key: ck}
-				byClient[ck] = clientDim
+			cd := byClient[ck]
+			if cd == nil {
+				cd = &usage.DimensionTotals{Key: ck}
+				byClient[ck] = cd
 			}
-			usageAddEventTotals(&clientDim.Totals, evt, costs)
+			addCellToTotals(&cd.Totals, cell, cost)
 
-			mk := evt.Model
+			mk := model
 			if mk == "" {
 				mk = "unknown"
 			}
-			modelDim := byModel[mk]
-			if modelDim == nil {
-				modelDim = &usage.DimensionTotals{Key: mk}
-				byModel[mk] = modelDim
+			md := byModel[mk]
+			if md == nil {
+				md = &usage.DimensionTotals{Key: mk}
+				byModel[mk] = md
 			}
-			usageAddEventTotals(&modelDim.Totals, evt, costs)
-		}
-		return nil
+			addCellToTotals(&md.Totals, cell, cost)
+			return nil
+		})
 	})
 	if err != nil {
 		return usage.AggregateResult{}, err
 	}
 
-	// Sort buckets by time.
 	bucketKeys := make([]time.Time, 0, len(bucketMap))
 	for key := range bucketMap {
 		bucketKeys = append(bucketKeys, key)
@@ -270,6 +268,15 @@ func (s *UsageStore) Aggregate(filter usage.Filter, groupBy string, costs usage.
 }
 
 // Summary returns predefined window totals for the UI.
+//
+// Implementation:
+//   - last_hour:  scans raw usage_events for the past 1h (small volume, exact precision).
+//   - today/yesterday/last_7d/last_30d: served from the hourly agg bucket.
+//
+// Why split: agg cells are aligned to whole hours, so a window whose start is not on
+// an hour boundary (e.g. now-1h) cannot be answered exactly from agg without ±1h drift.
+// last_hour is the only such window; resolving it from raw events keeps semantics exact
+// while still avoiding the slow 30-day full scan that the old implementation did.
 func (s *UsageStore) Summary(now time.Time, costs usage.CostTable) (usage.SummaryResult, error) {
 	now = now.UTC()
 	result := usage.SummaryResult{GeneratedAt: now}
@@ -283,51 +290,43 @@ func (s *UsageStore) Summary(now time.Time, costs usage.CostTable) (usage.Summar
 	last30Start := now.AddDate(0, 0, -30)
 
 	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(BucketUsageEvents))
-		if b == nil {
+		// --- last_hour: precise scan over raw events ---
+		eventsBucket := tx.Bucket([]byte(BucketUsageEvents))
+		if eventsBucket != nil {
+			c := eventsBucket.Cursor()
+			seekKey := []byte(lastHourStart.Format(time.RFC3339Nano))
+			for k, v := c.Seek(seekKey); k != nil; k, v = c.Next() {
+				var evt usage.Event
+				if err := json.Unmarshal(v, &evt); err != nil {
+					continue
+				}
+				t := evt.Timestamp.UTC()
+				if t.After(now) || t.Before(lastHourStart) {
+					continue
+				}
+				cost := usageEstimateEventCost(evt, costs)
+				addEventToTotals(&result.LastHour, evt, cost)
+			}
+		}
+
+		// --- other windows: from hourly agg bucket ---
+		return aggIter(tx, last30Start, now, func(hour time.Time, et, _, model string, cell AggCell) error {
+			cost := aggCellCost(cell, et, model, costs)
+
+			if !hour.Before(last30Start) && !hour.After(now) {
+				addCellToTotals(&result.Last30Days, cell, cost)
+				if !hour.Before(last7Start) {
+					addCellToTotals(&result.Last7Days, cell, cost)
+				}
+				if !hour.Before(todayStart) {
+					addCellToTotals(&result.Today, cell, cost)
+				}
+				if !hour.Before(yStart) && hour.Before(yEnd) {
+					addCellToTotals(&result.Yesterday, cell, cost)
+				}
+			}
 			return nil
-		}
-		c := b.Cursor()
-
-		// Seek to last30Start to minimize scanning.
-		seekKey := []byte(last30Start.Format(time.RFC3339Nano))
-		for k, v := c.Seek(seekKey); k != nil; k, v = c.Next() {
-			var evt usage.Event
-			if err := json.Unmarshal(v, &evt); err != nil {
-				continue
-			}
-
-			t := evt.Timestamp.UTC()
-			if t.After(now) {
-				continue
-			}
-
-			// Last 30 days.
-			if !t.Before(last30Start) {
-				usageAddEventTotals(&result.Last30Days, evt, costs)
-
-				// Last 7 days.
-				if !t.Before(last7Start) {
-					usageAddEventTotals(&result.Last7Days, evt, costs)
-				}
-
-				// Today.
-				if !t.Before(todayStart) {
-					usageAddEventTotals(&result.Today, evt, costs)
-				}
-
-				// Last hour.
-				if !t.Before(lastHourStart) {
-					usageAddEventTotals(&result.LastHour, evt, costs)
-				}
-
-				// Yesterday.
-				if !t.Before(yStart) && t.Before(yEnd) {
-					usageAddEventTotals(&result.Yesterday, evt, costs)
-				}
-			}
-		}
-		return nil
+		})
 	})
 	if err != nil {
 		return usage.SummaryResult{}, err
@@ -336,7 +335,30 @@ func (s *UsageStore) Summary(now time.Time, costs usage.CostTable) (usage.Summar
 	return result, nil
 }
 
-// --- Internal helper functions (reimplemented from usage package) ---
+// addEventToTotals adds one raw event into a Totals accumulator (used by last_hour scan).
+func addEventToTotals(target *usage.Totals, evt usage.Event, cost float64) {
+	target.Requests++
+	target.InputTokens += evt.InputTokens
+	target.OutputTokens += evt.OutputTokens
+	target.CachedTokens += evt.CachedTokens
+	target.EstimatedCost += cost
+}
+
+// usageEstimateEventCost computes cost for a single raw event.
+func usageEstimateEventCost(evt usage.Event, costs usage.CostTable) float64 {
+	if costs == nil {
+		return 0
+	}
+	rate, ok := costs.LookupCost(evt.EndpointType, evt.Model)
+	if !ok {
+		return 0
+	}
+	return float64(evt.InputTokens)/1_000_000*rate.InputPer1MTokens +
+		float64(evt.OutputTokens)/1_000_000*rate.OutputPer1MTokens +
+		float64(evt.CachedTokens)/1_000_000*rate.CachedInputPer1MToken
+}
+
+// --- Internal helpers ---
 
 func usageKey(t time.Time, id string) string {
 	return t.UTC().Format(time.RFC3339Nano) + "_" + id
@@ -367,14 +389,6 @@ func usageNormalizeGroupBy(groupBy string) string {
 	return groupBy
 }
 
-func usageBucketStartFor(t time.Time, groupBy string) time.Time {
-	t = t.UTC()
-	if groupBy == "hour" {
-		return t.Truncate(time.Hour)
-	}
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
-}
-
 func usageStepDuration(groupBy string) time.Duration {
 	if groupBy == "hour" {
 		return time.Hour
@@ -382,22 +396,36 @@ func usageStepDuration(groupBy string) time.Duration {
 	return 24 * time.Hour
 }
 
-func usageAddEventTotals(target *usage.Totals, evt usage.Event, costs usage.CostTable) {
-	target.Requests++
-	target.InputTokens += evt.InputTokens
-	target.OutputTokens += evt.OutputTokens
-	target.CachedTokens += evt.CachedTokens
-	target.EstimatedCost += usageEstimateEventCost(evt, costs)
+// bucketStartFromHour rounds an hour-bucket timestamp down to the requested granularity.
+func bucketStartFromHour(hour time.Time, groupBy string) time.Time {
+	hour = hour.UTC()
+	if groupBy == "hour" {
+		return hour
+	}
+	return time.Date(hour.Year(), hour.Month(), hour.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-func usageEstimateEventCost(evt usage.Event, costs usage.CostTable) float64 {
-	rate, ok := costs.LookupCost(evt.EndpointType, evt.Model)
+// addCellToTotals adds one agg cell into a Totals accumulator.
+func addCellToTotals(target *usage.Totals, cell AggCell, cost float64) {
+	target.Requests += cell.Requests
+	target.InputTokens += cell.InputTokens
+	target.OutputTokens += cell.OutputTokens
+	target.CachedTokens += cell.CachedTokens
+	target.EstimatedCost += cost
+}
+
+// aggCellCost computes estimated cost for one agg cell given its (endpoint_type, model).
+func aggCellCost(cell AggCell, endpointType, model string, costs usage.CostTable) float64 {
+	if costs == nil {
+		return 0
+	}
+	rate, ok := costs.LookupCost(endpointType, model)
 	if !ok {
 		return 0
 	}
-	return float64(evt.InputTokens)/1_000_000*rate.InputPer1MTokens +
-		float64(evt.OutputTokens)/1_000_000*rate.OutputPer1MTokens +
-		float64(evt.CachedTokens)/1_000_000*rate.CachedInputPer1MToken
+	return float64(cell.InputTokens)/1_000_000*rate.InputPer1MTokens +
+		float64(cell.OutputTokens)/1_000_000*rate.OutputPer1MTokens +
+		float64(cell.CachedTokens)/1_000_000*rate.CachedInputPer1MToken
 }
 
 func usageSortedDimensions(input map[string]*usage.DimensionTotals) []usage.DimensionTotals {

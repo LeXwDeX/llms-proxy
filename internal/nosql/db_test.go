@@ -39,8 +39,8 @@ func TestOpenDBInvalidPath(t *testing.T) {
 	}
 }
 
-// testDB is a helper that creates a temporary bbolt database for tests.
-func testDB(t *testing.T) *bolt.DB {
+// testDB is a helper that creates a temporary bbolt database for tests/benchmarks.
+func testDB(t testing.TB) *bolt.DB {
 	t.Helper()
 	db, err := OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

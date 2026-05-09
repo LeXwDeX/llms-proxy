@@ -23,6 +23,7 @@ var allBuckets = []string{
 	BucketClients, BucketModelCosts, BucketUsageEvents,
 	BucketAdminUsers, BucketAdminAudit, BucketMeta,
 	BucketCopilotPools, BucketCopilotAccounts,
+	BucketUsageAggHourly,
 }
 
 // OpenDB opens a bbolt database and creates all required buckets.

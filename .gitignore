@@ -71,3 +71,5 @@ migrate-to-bbolt.sh
 # AI
 .graphify_*.memory/
 .memory/
+.gitnexus
+.task_state/
