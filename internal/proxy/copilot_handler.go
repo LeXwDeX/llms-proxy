@@ -149,6 +149,10 @@ func (s *Service) handleCopilotRequest(
 	copilot.ApplyEditorHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 
+	// 注入 X-Initiator：客户端传了合法值则尊重，否则按 body 推断（兜底 agent）。
+	// 用原始 body 推断（model 名替换不影响 messages 形态）。
+	req.Header.Set("X-Initiator", inferInitiator(body, r.Header.Get("X-Initiator")))
+
 	if len(forwardBody) > 0 {
 		req.ContentLength = int64(len(forwardBody))
 		req.GetBody = func() (io.ReadCloser, error) {

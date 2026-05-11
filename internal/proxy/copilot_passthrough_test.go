@@ -205,7 +205,10 @@ func TestCopilotPassthrough_PathMapping(t *testing.T) {
 
 func TestCopilotPassthrough_PreservesDownstreamHeaders(t *testing.T) {
 	headersToCheck := map[string]string{
-		"X-Initiator":   "user-action",
+		// X-Initiator must be a valid Copilot billing value ("user" or "agent");
+		// the proxy normalizes/overrides anything else, so this test pins the
+		// "respect a valid downstream value" path.
+		"X-Initiator":   "user",
 		"User-Agent":    "my-custom-agent/1.0",
 		"Openai-Intent": "conversation",
 	}
@@ -388,5 +391,63 @@ func TestHandleCopilotModels_Success(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "gpt-4o") {
 		t.Errorf("expected body to contain gpt-4o, got %q", string(body))
+	}
+}
+
+// ---------- X-Initiator Injection ----------
+
+// TestCopilotPassthroughInjectsInitiatorAgentForToolResult: Anthropic-format
+// body where the last message is role=user carrying a tool_result block should
+// be classified as an agent turn (not billed as premium).
+func TestCopilotPassthroughInjectsInitiatorAgentForToolResult(t *testing.T) {
+	var capturedInitiator string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedInitiator = r.Header.Get("X-Initiator")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	svc := setupPassthroughTestEnv(t, upstream.URL)
+
+	reqBody := `{"model":"claude-sonnet-4","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"text","text":"calling tool"}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"abc","content":"42"}]}]}`
+	r := reqWithPrincipal(t, http.MethodPost, "/copilot/v1/messages", strings.NewReader(reqBody), "test-client")
+	w := httptest.NewRecorder()
+	svc.HandleCopilotPassthrough(w, r)
+
+	if resp := w.Result(); resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	if capturedInitiator != "agent" {
+		t.Fatalf("expected upstream X-Initiator=agent for tool_result turn, got %q", capturedInitiator)
+	}
+}
+
+// TestCopilotPassthroughRespectsDownstreamInitiator: even though the body
+// looks like an agent turn (tool_result), an explicit downstream
+// X-Initiator: user must be respected verbatim — the client is in charge.
+func TestCopilotPassthroughRespectsDownstreamInitiator(t *testing.T) {
+	var capturedInitiator string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedInitiator = r.Header.Get("X-Initiator")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	svc := setupPassthroughTestEnv(t, upstream.URL)
+
+	reqBody := `{"messages":[{"role":"user","content":[{"type":"tool_result","content":"x"}]}]}`
+	r := reqWithPrincipal(t, http.MethodPost, "/copilot/v1/messages", strings.NewReader(reqBody), "test-client")
+	r.Header.Set("X-Initiator", "user")
+	w := httptest.NewRecorder()
+	svc.HandleCopilotPassthrough(w, r)
+
+	if resp := w.Result(); resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if capturedInitiator != "user" {
+		t.Fatalf("expected upstream X-Initiator=user (downstream-respected), got %q", capturedInitiator)
 	}
 }

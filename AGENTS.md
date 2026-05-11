@@ -165,6 +165,13 @@ docker compose start
   - Pool 查找 → 顺序选号 → 动态 Token 注入 → 模型名映射 → 转发 → 额度扣减；
   - 路径规则：`/v1/*` 去除 `/v1` 前缀后透传，其他路径直通；
   - Copilot 上游统一使用 OpenAI 兼容的 `/chat/completions` 端点，无论底层模型是 GPT、Claude 还是 Gemini，客户端需以 OpenAI 格式调用。
+- **Premium Request 计费正确性**（`copilot_initiator.go::inferInitiator`）：
+  - Copilot 上游用 `X-Initiator: user|agent` HTTP 头决定是否扣 premium request：`user` 扣 1× multiplier，`agent` 不扣，缺失默认按 `user` 扣全额；
+  - 代理在所有 Copilot 出站路径（`HandleCopilotPassthrough` / `handleCopilotRequest` / `HandleCopilotModels`）的 `httpClient.Do` 之前注入该头；
+  - 客户端已传 `X-Initiator: user|agent`（大小写不敏感）→ 完全尊重原值不覆盖；
+  - 客户端未传或非法 → 解析请求体 `messages` 数组最后一条 message：role=tool / role=assistant / Anthropic content blocks 含 tool_result → `agent`；纯 user 文本 → `user`；
+  - body 为空或解析失败 → 兜底 `agent`（保守省钱；Copilot ToS 不会因少扣封号，伪造 user 才会封）；
+  - 修复了 Claude Code 等 agentic 客户端因不发送此头被全额扣费的问题。
 
 ### 9. DeepSeek 集成层
 - DeepSeek 官方同时提供 OpenAI 兼容（`https://api.deepseek.com`）与 Anthropic 兼容（`https://api.deepseek.com/anthropic`）两套 API，**同一把 API Key 对两套都有效**。

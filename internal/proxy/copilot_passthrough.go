@@ -249,6 +249,9 @@ func (s *Service) HandleCopilotModels(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Del("api-key")
 	ensureCopilotHeaders(req.Header)
+	// 列模型属工具行为；body 为 nil 时 inferInitiator 兜底返回 "agent"，
+	// 客户端如显式声明合法值（user/agent）则尊重。
+	req.Header.Set("X-Initiator", inferInitiator(nil, r.Header.Get("X-Initiator")))
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -316,14 +319,17 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 		logThinkingBlockDiagnostics(s, requestID, body, "passthrough-received")
 	}
 
-	// 诊断日志：记录 x-initiator 和模型名称，用于排查 Copilot 扣次异常
-	xInitiator := r.Header.Get("x-initiator")
+	// 诊断日志：记录下游送的 x-initiator 与代理决定的 x-initiator 对照，
+	// 以及模型名称，用于排查 Copilot premium-request 扣次异常。
+	downstreamInitiator := r.Header.Get("X-Initiator")
+	proxyInitiator := inferInitiator(body, downstreamInitiator)
 	reqModel := extractModelFromBody(body)
 	if r.Method == http.MethodPost {
 		s.logger.Info("copilot passthrough billing-diag",
 			"request_id", requestID,
 			"client", principal.Name,
-			"x-initiator", xInitiator,
+			"downstream_initiator", downstreamInitiator,
+			"proxy_initiator", proxyInitiator,
 			"model", reqModel,
 			"path", r.URL.Path,
 		)
@@ -367,6 +373,9 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 
 	// 确保 GitHub 必需的 Editor headers 存在
 	ensureCopilotHeaders(req.Header)
+
+	// 注入 X-Initiator：客户端传了合法值则尊重，否则按 body 推断（兜底 agent）。
+	req.Header.Set("X-Initiator", proxyInitiator)
 
 	// 设置 body
 	if len(body) > 0 {

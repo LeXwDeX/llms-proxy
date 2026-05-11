@@ -2,9 +2,14 @@ package proxy
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/copilot"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 )
@@ -337,5 +342,38 @@ func TestReplaceModelInBody_EmptyBody(t *testing.T) {
 	result = replaceModelInBody([]byte{}, "gpt-4o")
 	if len(result) != 0 {
 		t.Fatalf("expected empty for empty body, got %q", string(result))
+	}
+}
+
+// ---------- handleCopilotRequest X-Initiator injection ----------
+
+// TestHandleCopilotRequestInjectsInitiator: the OpenAI-compatible Copilot
+// path (handleCopilotRequest, triggered when downstream model has the
+// "Copilot " prefix) must also inject X-Initiator into the upstream request.
+// Here the last role is "tool" → agent turn.
+func TestHandleCopilotRequestInjectsInitiator(t *testing.T) {
+	var capturedInitiator string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedInitiator = r.Header.Get("X-Initiator")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	svc := setupPassthroughTestEnv(t, upstream.URL)
+
+	body := []byte(`{"model":"Copilot gpt-4o","messages":[{"role":"user","content":"q"},{"role":"assistant","content":"calling tool"},{"role":"tool","tool_call_id":"abc","content":"result"}]}`)
+	r := reqWithPrincipal(t, http.MethodPost, "/chat/completions", strings.NewReader(string(body)), "test-client")
+	w := httptest.NewRecorder()
+
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	svc.handleCopilotRequest(w, r, principal, body, "Copilot gpt-4o")
+
+	if resp := w.Result(); resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
+	}
+	if capturedInitiator != "agent" {
+		t.Fatalf("expected upstream X-Initiator=agent for tool turn, got %q", capturedInitiator)
 	}
 }
