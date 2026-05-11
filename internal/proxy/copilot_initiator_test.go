@@ -100,6 +100,67 @@ func TestInferInitiator(t *testing.T) {
 			body:       []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"see result:"},{"type":"tool_result","content":"42"}]}]}`),
 			want:       "agent",
 		},
+		// --- OpenAI Responses API (`input` field) ---
+		{
+			name:       "responses_string_input",
+			downstream: "",
+			body:       []byte(`{"input":"hello"}`),
+			want:       "user",
+		},
+		{
+			name:       "responses_array_user_string",
+			downstream: "",
+			body:       []byte(`{"input":[{"role":"user","content":"hi"}]}`),
+			want:       "user",
+		},
+		{
+			name:       "responses_array_user_input_text",
+			downstream: "",
+			body:       []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`),
+			want:       "user",
+		},
+		{
+			name:       "responses_array_function_call_output_last",
+			downstream: "",
+			body:       []byte(`{"input":[{"role":"user","content":"q"},{"type":"function_call_output","call_id":"c1","output":"r"}]}`),
+			want:       "agent",
+		},
+		{
+			name:       "responses_array_reasoning_last",
+			downstream: "",
+			body:       []byte(`{"input":[{"role":"user","content":"q"},{"type":"reasoning","id":"r1"}]}`),
+			want:       "agent",
+		},
+		{
+			name:       "responses_array_assistant_message_last",
+			downstream: "",
+			body:       []byte(`{"input":[{"role":"user","content":"q"},{"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"a"}]}]}`),
+			want:       "agent",
+		},
+		{
+			name:       "responses_array_function_call_last",
+			downstream: "",
+			body:       []byte(`{"input":[{"role":"user","content":"q"},{"type":"function_call","call_id":"c1","name":"x","arguments":"{}"}]}`),
+			want:       "agent",
+		},
+		{
+			name:       "responses_array_empty",
+			downstream: "",
+			body:       []byte(`{"input":[]}`),
+			want:       "agent",
+		},
+		{
+			name:       "responses_downstream_user_overrides_function_call_output",
+			downstream: "user",
+			body:       []byte(`{"input":[{"role":"user","content":"q"},{"type":"function_call_output","call_id":"c1","output":"r"}]}`),
+			want:       "user",
+		},
+		{
+			name:       "responses_array_user_with_input_image",
+			downstream: "",
+			body:       []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"q"},{"type":"input_image","image_url":"http://x"}]}]}`),
+			want:       "user",
+		},
 	}
 
 	for _, tt := range tests {
