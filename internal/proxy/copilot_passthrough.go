@@ -299,23 +299,6 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 
 	requestID := appmiddleware.RequestIDFromContext(r.Context())
 
-	// === 路由诊断：入口快照（method/path/query/headers 摘要） ===
-	s.logger.Info("copilot-passthrough-entry",
-		"request_id", requestID,
-		"client", principal.Name,
-		"method", r.Method,
-		"path", r.URL.Path,
-		"raw_query", r.URL.RawQuery,
-		"content_type", r.Header.Get("Content-Type"),
-		"user_agent", r.Header.Get("User-Agent"),
-		"editor_version", r.Header.Get("Editor-Version"),
-		"editor_plugin_version", r.Header.Get("Editor-Plugin-Version"),
-		"copilot_integration_id", r.Header.Get("Copilot-Integration-Id"),
-		"x_initiator_in", r.Header.Get("X-Initiator"),
-		"x_stainless_lang", r.Header.Get("X-Stainless-Lang"),
-		"openai_beta", r.Header.Get("OpenAI-Beta"),
-	)
-
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.logger.Error("copilot passthrough: read body failed",
@@ -362,25 +345,6 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 	if r.URL.RawQuery != "" {
 		upstreamURL += "?" + r.URL.RawQuery
 	}
-
-	// === 路由诊断：上游 URL 决策快照 ===
-	tokenPreview := token
-	if len(tokenPreview) > 12 {
-		tokenPreview = tokenPreview[:12] + "..."
-	}
-	s.logger.Info("copilot-passthrough-upstream",
-		"request_id", requestID,
-		"client", principal.Name,
-		"account", account.GitHubUsername,
-		"method", r.Method,
-		"downstream_path", r.URL.Path,
-		"upstream_path", upstreamPath,
-		"upstream_url", upstreamURL,
-		"base_url", baseURL,
-		"model", reqModel,
-		"body_len", len(body),
-		"token_preview", tokenPreview,
-	)
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 	defer cancel()
