@@ -40,6 +40,22 @@ func (s *Service) handleCopilotRequest(
 ) {
 	requestID := appmiddleware.RequestIDFromContext(r.Context())
 
+	// === 路由诊断：入口快照 ===
+	s.logger.Info("copilot-handler-entry",
+		"request_id", requestID,
+		"client", principal.Name,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"raw_query", r.URL.RawQuery,
+		"body_len", len(body),
+		"model", model,
+		"content_type", r.Header.Get("Content-Type"),
+		"user_agent", r.Header.Get("User-Agent"),
+		"x_initiator_in", r.Header.Get("X-Initiator"),
+		"x_stainless_lang", r.Header.Get("X-Stainless-Lang"),
+		"openai_beta", r.Header.Get("OpenAI-Beta"),
+	)
+
 	// 1. 根据 client name 查找 Pool
 	pool, err := s.copilotService.FindPoolByClient(principal.Name)
 	if err != nil {
@@ -123,6 +139,29 @@ func (s *Service) handleCopilotRequest(
 	if r.URL.RawQuery != "" {
 		upstreamURL += "?" + r.URL.RawQuery
 	}
+
+	// === 路由诊断：上游 URL 决策快照（含 fallback 路径触发提示） ===
+	tokenPreview := token
+	if len(tokenPreview) > 12 {
+		tokenPreview = tokenPreview[:12] + "..."
+	}
+	pathFellBack := requestPath == "/chat/completions" && r.URL.Path != "/chat/completions" && !strings.HasSuffix(r.URL.Path, "/chat/completions")
+	s.logger.Info("copilot-handler-upstream",
+		"request_id", requestID,
+		"client", principal.Name,
+		"account", account.GitHubUsername,
+		"method", r.Method,
+		"downstream_path", r.URL.Path,
+		"upstream_path", requestPath,
+		"upstream_url", upstreamURL,
+		"base_url", baseURL,
+		"downstream_model", model,
+		"upstream_model", upstreamModel,
+		"body_len", len(forwardBody),
+		"token_preview", tokenPreview,
+		"path_fell_back_to_chat_completions", pathFellBack,
+	)
+
 	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 	defer cancel()
 
@@ -197,6 +236,18 @@ func (s *Service) handleCopilotRequest(
 	w.WriteHeader(resp.StatusCode)
 	writer := newStreamingWriter(w)
 	_, _ = io.Copy(writer, resp.Body)
+
+	s.logger.Info("copilot handler completed",
+		"request_id", requestID,
+		"client", principal.Name,
+		"account", account.GitHubUsername,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"upstream_path", requestPath,
+		"downstream_model", model,
+		"upstream_model", upstreamModel,
+		"status", resp.StatusCode,
+	)
 }
 
 // replaceModelInBody 替换请求体 JSON 中的 "model" 字段值。
