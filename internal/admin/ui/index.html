@@ -1761,7 +1761,6 @@
         document.getElementById("tgtEndpoint").value = t ? t.endpoint : "";
         var epType = t ? (t.endpoint_type || "azure_openai") : "azure_openai";
         document.getElementById("tgtRpp").value = (epType === "azure_openai") ? (t ? (t.resource_path_prefix || "/openai") : "/openai") : "";
-        document.getElementById("tgtApiKey").value = "";
         document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
