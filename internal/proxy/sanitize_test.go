@@ -426,3 +426,131 @@ func TestModelAllowed_FallbackToLinearScan(t *testing.T) {
 		t.Error("expected no match via linear scan")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// injectBailianCacheControl
+// ---------------------------------------------------------------------------
+
+func TestInjectBailianCacheControl_SystemMessage(t *testing.T) {
+	body := []byte(`{"model":"qwen3.7-max","messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":"Hello"}]}`)
+	result := injectBailianCacheControl(body)
+
+	var payload map[string]any
+	if err := json.Unmarshal(result, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	msgs := payload["messages"].([]any)
+	sysMsg := msgs[0].(map[string]any)
+
+	// system message content should be converted to array with cache_control
+	contentArr, ok := sysMsg["content"].([]any)
+	if !ok {
+		t.Fatal("expected content to be array after injection")
+	}
+	lastBlock := contentArr[len(contentArr)-1].(map[string]any)
+	cc, ok := lastBlock["cache_control"].(map[string]any)
+	if !ok {
+		t.Fatal("expected cache_control on system message last block")
+	}
+	if cc["type"] != "ephemeral" {
+		t.Errorf("expected ephemeral, got %v", cc["type"])
+	}
+}
+
+func TestInjectBailianCacheControl_NoSystemMessage(t *testing.T) {
+	body := []byte(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hi"},{"role":"user","content":"How are you?"}]}`)
+	result := injectBailianCacheControl(body)
+
+	var payload map[string]any
+	if err := json.Unmarshal(result, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	msgs := payload["messages"].([]any)
+
+	// Should inject into second-to-last message (assistant)
+	assistantMsg := msgs[len(msgs)-2].(map[string]any)
+	contentArr, ok := assistantMsg["content"].([]any)
+	if !ok {
+		t.Fatal("expected content to be array after injection")
+	}
+	lastBlock := contentArr[len(contentArr)-1].(map[string]any)
+	if _, ok := lastBlock["cache_control"]; !ok {
+		t.Fatal("expected cache_control on second-to-last message")
+	}
+
+	// Last message should NOT have cache_control
+	lastMsg := msgs[len(msgs)-1].(map[string]any)
+	if _, ok := lastMsg["content"].(string); !ok {
+		t.Error("last message content should remain string")
+	}
+}
+
+func TestInjectBailianCacheControl_AlreadyHasCacheControl(t *testing.T) {
+	body := []byte(`{"model":"qwen3.7-max","messages":[{"role":"system","content":[{"type":"text","text":"You are helpful.","cache_control":{"type":"ephemeral"}}]},{"role":"user","content":"Hello"}]}`)
+	result := injectBailianCacheControl(body)
+
+	// Should return unchanged (no double injection)
+	if string(result) != string(body) {
+		t.Error("should not modify body that already has cache_control")
+	}
+}
+
+func TestInjectBailianCacheControl_ArrayContent(t *testing.T) {
+	body := []byte(`{"model":"qwen3.7-max","messages":[{"role":"system","content":[{"type":"text","text":"Part 1"},{"type":"text","text":"Part 2"}]},{"role":"user","content":"Hello"}]}`)
+	result := injectBailianCacheControl(body)
+
+	var payload map[string]any
+	if err := json.Unmarshal(result, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	msgs := payload["messages"].([]any)
+	sysMsg := msgs[0].(map[string]any)
+	contentArr := sysMsg["content"].([]any)
+
+	// cache_control should be on the LAST block only
+	lastBlock := contentArr[len(contentArr)-1].(map[string]any)
+	if _, ok := lastBlock["cache_control"]; !ok {
+		t.Fatal("expected cache_control on last content block")
+	}
+	firstBlock := contentArr[0].(map[string]any)
+	if _, ok := firstBlock["cache_control"]; ok {
+		t.Error("first block should NOT have cache_control")
+	}
+}
+
+func TestInjectBailianCacheControl_EmptyMessages(t *testing.T) {
+	body := []byte(`{"model":"qwen3.7-max","messages":[]}`)
+	result := injectBailianCacheControl(body)
+	// Should return unchanged
+	if string(result) != string(body) {
+		t.Error("should not modify body with empty messages")
+	}
+}
+
+func TestInjectBailianCacheControl_InvalidJSON(t *testing.T) {
+	body := []byte(`not json`)
+	result := injectBailianCacheControl(body)
+	// Should return unchanged
+	if string(result) != string(body) {
+		t.Error("should return original body on invalid JSON")
+	}
+}
+
+func TestInjectBailianCacheControl_PreservesOtherFields(t *testing.T) {
+	body := []byte(`{"model":"qwen3.7-max","temperature":0.7,"max_tokens":100,"messages":[{"role":"system","content":"Hi"},{"role":"user","content":"Hello"}]}`)
+	result := injectBailianCacheControl(body)
+
+	var payload map[string]any
+	if err := json.Unmarshal(result, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if payload["model"] != "qwen3.7-max" {
+		t.Error("model should be preserved")
+	}
+	if payload["temperature"] != 0.7 {
+		t.Error("temperature should be preserved")
+	}
+	if payload["max_tokens"] != float64(100) {
+		t.Error("max_tokens should be preserved")
+	}
+}

@@ -256,6 +256,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var strippedFields []string
 	sanitizedComputed := false
 
+	// Bailian cache-control body is computed lazily — only when the selected target is Bailian.
+	// Injects cache_control markers into messages for explicit prompt caching (qwen3.7-max etc).
+	var bailianBody []byte
+	bailianComputed := false
+
 	var attempted map[string]struct{}
 	attempt := 0
 	model := strings.ToLower(extractModel(r, bodyBytes))
@@ -323,6 +328,16 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			forwardBody = sanitizedBody
+		}
+
+		// 百炼 Token Plan: 自动注入 cache_control 标记以启用显式缓存。
+		// qwen3.7-max 等模型仅支持显式缓存，不支持隐式缓存。
+		if target.EndpointType == config.EndpointTypeBailian {
+			if !bailianComputed {
+				bailianBody = injectBailianCacheControl(bodyBytes)
+				bailianComputed = true
+			}
+			forwardBody = bailianBody
 		}
 
 		// 对非 Azure target 的 multipart 请求，自动转换为 JSON。

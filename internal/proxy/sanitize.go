@@ -302,6 +302,99 @@ func (s *Service) ensureModelAllowed(target *Target, model string) error {
 	return fmt.Errorf("model %q not allowed for target %q", model, target.Name)
 }
 
+// injectBailianCacheControl 为百炼 Token Plan 请求自动注入 cache_control 标记。
+// 百炼 qwen3.7-max 等模型仅支持显式缓存（需在 messages 中加 cache_control 标记），
+// 不支持隐式缓存。此函数在代理层自动注入，无需客户端修改。
+// 策略：在 system message 的最后一个 content block 加 cache_control，
+// 缓存从 messages 开头到该位置的完整前缀（system prompt + tools 定义）。
+func injectBailianCacheControl(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+
+	messagesRaw, ok := payload["messages"]
+	if !ok {
+		return body
+	}
+
+	var messages []map[string]any
+	if err := json.Unmarshal(messagesRaw, &messages); err != nil {
+		return body
+	}
+
+	// 找 system message 并注入；若无 system 则找倒数第二条 message（缓存对话历史前缀）
+	injected := false
+	for i := range messages {
+		role, _ := messages[i]["role"].(string)
+		if strings.EqualFold(role, "system") {
+			injected = injectCacheControlIntoMessage(messages[i])
+			break
+		}
+	}
+	if !injected && len(messages) >= 2 {
+		injected = injectCacheControlIntoMessage(messages[len(messages)-2])
+	}
+	if !injected {
+		return body
+	}
+
+	newMessages, err := json.Marshal(messages)
+	if err != nil {
+		return body
+	}
+	payload["messages"] = newMessages
+
+	result, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return result
+}
+
+// injectCacheControlIntoMessage 在 message 的最后一个 content block 注入 cache_control。
+// 若已有 cache_control 则跳过（不覆盖客户端的显式设置）。
+func injectCacheControlIntoMessage(msg map[string]any) bool {
+	content, ok := msg["content"]
+	if !ok {
+		return false
+	}
+
+	switch c := content.(type) {
+	case string:
+		// content 是字符串 → 转为数组格式并加 cache_control
+		msg["content"] = []map[string]any{
+			{
+				"type":          "text",
+				"text":          c,
+				"cache_control": map[string]any{"type": "ephemeral"},
+			},
+		}
+		return true
+
+	case []any:
+		if len(c) == 0 {
+			return false
+		}
+		lastItem, ok := c[len(c)-1].(map[string]any)
+		if !ok {
+			return false
+		}
+		// 已有 cache_control 则不覆盖
+		if _, has := lastItem["cache_control"]; has {
+			return false
+		}
+		lastItem["cache_control"] = map[string]any{"type": "ephemeral"}
+		return true
+	}
+
+	return false
+}
+
 func normalizeAllowed(list []string) map[string]struct{} {
 	m := make(map[string]struct{}, len(list))
 	for _, item := range list {
