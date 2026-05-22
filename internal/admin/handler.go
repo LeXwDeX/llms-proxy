@@ -180,10 +180,12 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		UptimeSeconds  float64   `json:"uptime_seconds"`
 		ActiveRequests int64     `json:"active_requests"`
 		Requests       struct {
-			Total    int64 `json:"total"`
-			Success  int64 `json:"success"`
-			Failures int64 `json:"failures"`
-			Retries  int64 `json:"retries"`
+			Total          int64 `json:"total"`
+			Success        int64 `json:"success"`
+			Failures       int64 `json:"failures"`
+			Retries        int64 `json:"retries"`
+			KeyRetries     int64 `json:"key_retries"`
+			TargetRetries  int64 `json:"target_retries"`
 		} `json:"requests"`
 		Targets int `json:"targets"`
 	}{
@@ -196,6 +198,8 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	response.Requests.Success = metrics.TotalSuccess
 	response.Requests.Failures = metrics.TotalFailures
 	response.Requests.Retries = metrics.TotalRetries
+	response.Requests.KeyRetries = metrics.TotalKeyRetries
+	response.Requests.TargetRetries = metrics.TotalTargetRetries
 
 	writeJSON(w, http.StatusOK, response)
 }
@@ -316,10 +320,12 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"client_count":     len(clients),
 		"model_cost_count": len(costs),
 		"requests": map[string]int64{
-			"total":    metrics.TotalRequests,
-			"success":  metrics.TotalSuccess,
-			"failures": metrics.TotalFailures,
-			"retries":  metrics.TotalRetries,
+			"total":          metrics.TotalRequests,
+			"success":        metrics.TotalSuccess,
+			"failures":       metrics.TotalFailures,
+			"retries":        metrics.TotalRetries,
+			"key_retries":    metrics.TotalKeyRetries,
+			"target_retries": metrics.TotalTargetRetries,
 		},
 		"usage_summary": summary,
 	}
@@ -694,6 +700,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"endpoint":                 t.Endpoint,
 			"resource_path_prefix":     t.ResourcePathPrefix,
 			"has_api_key":              t.APIKey != "",
+			"api_key":                  t.APIKey,
 			"api_keys":                 t.APIKeys,
 			"key_cooldown_seconds":     t.KeyCooldownSeconds,
 			"allow_bearer_passthrough": t.AllowBearer,

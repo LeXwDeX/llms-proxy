@@ -64,21 +64,24 @@ type Target struct {
 }
 
 type requestMetrics struct {
-	totalRequests  atomic.Int64
-	totalSuccess   atomic.Int64
-	totalFailures  atomic.Int64
-	totalRetries   atomic.Int64
-	activeRequests atomic.Int64
+	totalRequests       atomic.Int64
+	totalSuccess        atomic.Int64
+	totalFailures       atomic.Int64
+	totalKeyRetries     atomic.Int64 // key pool 内换 key 重试
+	totalTargetRetries  atomic.Int64 // target 级 failover 重试
+	activeRequests      atomic.Int64
 }
 
 // ServiceMetrics captures aggregate request statistics.
 type ServiceMetrics struct {
-	TotalRequests  int64
-	TotalSuccess   int64
-	TotalFailures  int64
-	TotalRetries   int64
-	ActiveRequests int64
-	StartTime      time.Time
+	TotalRequests      int64
+	TotalSuccess       int64
+	TotalFailures      int64
+	TotalRetries       int64 // 总重试 = KeyRetries + TargetRetries（向后兼容）
+	TotalKeyRetries    int64 // key pool 内换 key 重试次数
+	TotalTargetRetries int64 // target 级 failover 重试次数
+	ActiveRequests     int64
+	StartTime          time.Time
 }
 
 // TargetStatus summarizes the health of a configured target.
@@ -377,7 +380,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"prev_key_index", keyIndex,
 				"next_key_index", nextIdx,
 			)
-			s.metrics.totalRetries.Add(1)
+			s.metrics.totalKeyRetries.Add(1)
 		}
 
 		// 恢复原始 Content-Type（支持重试时路由到其他 target，如 Azure 需原始 multipart）
@@ -407,7 +410,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				s.metrics.totalRetries.Add(1)
+				s.metrics.totalTargetRetries.Add(1)
 				s.logger.Info("retrying request with alternate target",
 					"request_id", appmiddleware.RequestIDFromContext(r.Context()),
 					"failed_target", target.Name,
@@ -472,13 +475,17 @@ func deferCancel(cancel context.CancelFunc) {
 
 // MetricsSnapshot returns a copy of the service-level metrics counters.
 func (s *Service) MetricsSnapshot() ServiceMetrics {
+	keyRetries := s.metrics.totalKeyRetries.Load()
+	targetRetries := s.metrics.totalTargetRetries.Load()
 	return ServiceMetrics{
-		TotalRequests:  s.metrics.totalRequests.Load(),
-		TotalSuccess:   s.metrics.totalSuccess.Load(),
-		TotalFailures:  s.metrics.totalFailures.Load(),
-		TotalRetries:   s.metrics.totalRetries.Load(),
-		ActiveRequests: s.metrics.activeRequests.Load(),
-		StartTime:      s.startTime,
+		TotalRequests:      s.metrics.totalRequests.Load(),
+		TotalSuccess:       s.metrics.totalSuccess.Load(),
+		TotalFailures:      s.metrics.totalFailures.Load(),
+		TotalRetries:       keyRetries + targetRetries,
+		TotalKeyRetries:    keyRetries,
+		TotalTargetRetries: targetRetries,
+		ActiveRequests:     s.metrics.activeRequests.Load(),
+		StartTime:          s.startTime,
 	}
 }
 

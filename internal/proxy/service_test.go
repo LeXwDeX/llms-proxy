@@ -122,6 +122,12 @@ func TestServiceFailoverOnTransportError(t *testing.T) {
 	if metrics.TotalRetries != 1 {
 		t.Fatalf("expected 1 retry, got %d", metrics.TotalRetries)
 	}
+	if metrics.TotalTargetRetries != 1 {
+		t.Fatalf("expected 1 target retry, got %d", metrics.TotalTargetRetries)
+	}
+	if metrics.TotalKeyRetries != 0 {
+		t.Fatalf("expected 0 key retries, got %d", metrics.TotalKeyRetries)
+	}
 
 	statuses := service.TargetStatuses(time.Now())
 	var primaryMuted bool
@@ -1920,6 +1926,9 @@ func TestServiceFailoverOnNetworkErrorPreserved(t *testing.T) {
 	metrics := service.MetricsSnapshot()
 	if metrics.TotalRetries < 1 {
 		t.Fatalf("expected at least 1 failover retry, got %d", metrics.TotalRetries)
+	}
+	if metrics.TotalTargetRetries < 1 {
+		t.Fatalf("expected at least 1 target retry, got %d", metrics.TotalTargetRetries)
 	}
 }
 
