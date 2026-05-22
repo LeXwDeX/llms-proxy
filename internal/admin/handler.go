@@ -694,6 +694,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"resource_path_prefix":     t.ResourcePathPrefix,
 			"has_api_key":              t.APIKey != "",
 			"allow_bearer_passthrough": t.AllowBearer,
+			"auth_mode":                t.AuthMode,
 			"allowed_models":           t.AllowedModels,
 			"sse_auto_aggregate":       sseAutoAgg,
 		}
@@ -713,6 +714,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		ResourcePathPrefix string   `json:"resource_path_prefix"`
 		APIKey             string   `json:"api_key"`
 		AllowBearer        bool     `json:"allow_bearer_passthrough"`
+		AuthMode           string   `json:"auth_mode"`
 		AllowedModels      []string `json:"allowed_models"`
 		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
 	}
@@ -768,6 +770,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		ResourcePathPrefix: rpp,
 		APIKey:             apiKey,
 		AllowBearer:        body.AllowBearer,
+		AuthMode:           body.AuthMode,
 		AllowedModels:      body.AllowedModels,
 		SSEAutoAggregate:   body.SSEAutoAggregate,
 	}
@@ -805,6 +808,7 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		ResourcePathPrefix string   `json:"resource_path_prefix"`
 		APIKey             *string  `json:"api_key"`
 		AllowBearer        bool     `json:"allow_bearer_passthrough"`
+		AuthMode           *string  `json:"auth_mode"`
 		AllowedModels      []string `json:"allowed_models"`
 		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
 	}
@@ -847,6 +851,9 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			t.AllowBearer = body.AllowBearer
 			t.AllowedModels = body.AllowedModels
+			if body.AuthMode != nil {
+				t.AuthMode = strings.TrimSpace(*body.AuthMode)
+			}
 			if body.SSEAutoAggregate != nil {
 				t.SSEAutoAggregate = body.SSEAutoAggregate
 			}

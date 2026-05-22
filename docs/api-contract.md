@@ -313,3 +313,292 @@ The proxy increments internal metrics for total requests, retries, successes, an
 - `X-Azure-Target` (response header showing chosen backend — retained for backward compatibility; identical value to `X-Proxy-Target`)
 - `X-Request-ID` (included in every response and log entry)
 - `WWW-Authenticate: Bearer` (sent on `401 Unauthorized`)
+
+---
+
+## 路由架构：原厂API vs 非原厂API
+
+代理将所有上游目标分为两类：
+
+| 分类 | 路径入口 | 说明 | 包含的 endpoint_type |
+|------|---------|------|---------------------|
+| **原厂API** | 根路径 `/`（catch-all） | 上游提供标准厂商原生 API，代理仅做认证适配和转发 | `azure_openai`, `openai`, `claude`, `gemini`, `wangsu_openai`, `wangsu_claude`, `wangsu_gemini`, `wangsu_openai_image`, `wangsu_openai_image_edit` |
+| **非原厂API** | 专用路径前缀 | 上游协议与标准厂商 API 有显著差异，需要专用处理链 | `copilot`（`/copilot/*`）, `deepseek`（`/deepseek/*`） |
+
+### 原厂API 路由
+客户端请求进入根路径 catch-all（`ServeHTTP`），代理按以下流程处理：
+1. 鉴权 → 提取模型名 → 按 `endpoint_type` 过滤目标池
+2. 路径兼容性检查（`PathSupportedByEndpointType`）
+3. 连接粘连（affinity）或轮询选择目标
+4. 按 `endpoint_type` 注入认证头
+5. 转发请求、回写响应
+
+### 非原厂API 路由
+- **Copilot**：`/copilot/*` 路径 → `HandleCopilotPassthrough`（OAuth Token 池、模型名映射、premium request 计费）
+- **DeepSeek**：`/deepseek/*` 路径 → 剥前缀 + 注入 `endpoint_type=deepseek` hint → 进入标准代理流程（`buildURL` 自动识别 OpenAI/Anthropic 格式）
+
+---
+
+## 原厂API 详细格式
+
+### OpenAI 兼容（`openai`）
+
+**上游认证**：`Authorization: Bearer <api-key>`
+
+**客户端调用格式**：标准 OpenAI API，base_url 指向代理。
+
+```bash
+# Chat Completions
+curl <proxy-host>/v1/chat/completions \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "Content-Type: application/json" \
+  -H "X-Proxy-Target: <target-name>" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**适用目标**：OpenAI 官方、任何 OpenAI 兼容第三方（如 Token Plan OpenAI 兼容端点）。
+
+### Claude / Anthropic（`claude`）
+
+**上游认证**：
+- 默认：`x-api-key: <api-key>` + `anthropic-version: 2023-06-01`
+- `auth_mode: "bearer"` 时：`Authorization: Bearer <api-key>` + `anthropic-version: 2023-06-01`
+
+**客户端调用格式**：标准 Anthropic API。
+
+```bash
+# Messages API
+curl <proxy-host>/v1/messages \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "Content-Type: application/json" \
+  -H "X-Proxy-Target: <target-name>" \
+  -d '{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**`auth_mode` 配置**：
+- 留空或 `"x-api-key"`（默认）：使用 `x-api-key` 头 — 适用于 Anthropic 官方、网宿 Claude 通道
+- `"bearer"`：使用 `Authorization: Bearer` 头 — 适用于 Token Plan Anthropic 兼容端点等非标准上游
+
+### Gemini（`gemini`）
+
+**上游认证**：`x-goog-api-key: <api-key>`
+
+**客户端调用格式**：标准 Gemini API。
+
+```bash
+curl "<proxy-host>/v1beta/models/gemini-2.5-pro:generateContent" \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: <target-name>" \
+  -H "Content-Type: application/json" \
+  -d '{"contents":[{"parts":[{"text":"Hello"}]}]}'
+```
+
+### Azure OpenAI（`azure_openai`）
+
+**上游认证**：`api-key: <api-key>` 或 Bearer 透传（当 `allow_bearer_passthrough: true` 且客户端发送 `X-Azure-Authorization` 头时）。
+
+**客户端调用格式**：Azure OpenAI 路径格式，需配置 `resource_path_prefix`。
+
+```bash
+curl <proxy-host>/openai/deployments/gpt-4o/chat/completions?api-version=2025-04-01-preview \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: <target-name>" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**注意**：代理会自动追加 `api-version` 查询参数（对含 `/deployments/` 的路径）。客户端无需传递。
+
+### 网宿 OpenAI 兼容（`wangsu_openai`）
+
+**上游认证**：`Authorization: Bearer <api-key>`（同 `openai`）
+
+**路径限制**：仅支持 `/chat/completions`、`/images/generations`、`/images/edits`、`/images/variations`、`/embeddings`。不兼容路径的目标在目标选择时自动跳过。
+
+### 网宿图像通道（`wangsu_openai_image` / `wangsu_openai_image_edit`）
+
+**上游认证**：`Authorization: Bearer <api-key>`
+
+**特殊行为**：`endpoint` 配置为终态 URL，客户端请求路径被完全覆盖（不拼接）。客户端按 OpenAI 官方路径调用：
+
+```bash
+# 文生图（wangsu_openai_image）
+curl <proxy-host>/v1/images/generations \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: <target-name>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-image-1","prompt":"a cat","size":"1024x1024"}'
+
+# 图编辑（wangsu_openai_image_edit）
+curl <proxy-host>/v1/images/edits \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: <target-name>" \
+  -F "model=gpt-image-1" \
+  -F "image=@photo.png" \
+  -F "prompt=add sunglasses"
+```
+
+---
+
+## 非原厂API 详细格式
+
+### Copilot（`/copilot/*`）
+
+**入口**：必须通过 `/copilot/*` 路径访问，不支持根路径模型名前缀拦截。
+
+**上游认证**：动态 OAuth Token（由 Copilot 账户池管理），无需配置 `api_key`。
+
+**子路由**：
+
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/copilot/auth` | GET | 检查 Copilot 池可用性 |
+| `/copilot/quota` | GET | 查看 premium request 配额 |
+| `/copilot/models` | GET | 透传上游模型列表 |
+| `/copilot/*` | * | 透明代理（剥 `/copilot` 前缀后转发） |
+
+**客户端调用格式**：OpenAI 兼容（Copilot 上游统一使用 `/chat/completions`）。
+
+```bash
+curl <proxy-host>/copilot/v1/chat/completions \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-sonnet-4.6","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**X-Initiator 头**：代理自动推断（`user` 扣 premium request，`agent` 不扣）。客户端可显式设置 `X-Initiator: user|agent` 覆盖推断。
+
+### DeepSeek（`/deepseek/*`）
+
+**入口**：必须通过 `/deepseek/*` 路径访问。代理剥除 `/deepseek` 前缀后注入 `endpoint_type=deepseek` hint，进入标准代理流程。
+
+**上游认证**：`Authorization: Bearer <api-key>`（OpenAI 和 Anthropic 两种格式统一使用 Bearer）。
+
+**双协议支持**：
+- 路径含 `/v1/messages*` → 上游自动加 `/anthropic` 前缀（Anthropic 格式）
+- 其他路径 → 直通（OpenAI 格式）
+
+```bash
+# OpenAI 兼容格式
+curl <proxy-host>/deepseek/v1/chat/completions \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Hello"}]}'
+
+# Anthropic 兼容格式
+curl <proxy-host>/deepseek/v1/messages \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-chat","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**多 target 支持**：可在 `endpoint_type=deepseek` 下注册多个 target（多 key 池/容灾），标准 affinity + failover 行为生效。
+
+---
+
+## Token Plan 接入方案
+
+阿里云百炼 Token Plan 团队版提供三个 API 端点，可通过本代理统一接入。
+
+### 端点信息
+
+| 协议 | Base URL | 认证方式 |
+|------|----------|---------|
+| OpenAI 兼容 | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | `Authorization: Bearer sk-sp-xxx` |
+| Anthropic 兼容 | `https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic` | `Authorization: Bearer sk-sp-xxx`（注意：非 x-api-key） |
+| 图像生成（DashScope 原生） | `https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation` | `Authorization: Bearer sk-sp-xxx` |
+
+### 代理配置示例
+
+#### OpenAI 兼容端点（复用 `openai` 类型）
+
+```json
+{
+  "name": "token-plan-openai",
+  "endpoint_type": "openai",
+  "endpoint": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+  "api_key": "sk-sp-xxx",
+  "allowed_models": ["qwen3.7-max", "qwen3.6-plus", "qwen3.6-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3.2", "kimi-k2.6", "kimi-k2.5", "glm-5.1", "glm-5", "MiniMax-M2.5"]
+}
+```
+
+客户端调用：
+```bash
+curl <proxy-host>/v1/chat/completions \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: token-plan-openai" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3.7-max","messages":[{"role":"user","content":"你好"}]}'
+```
+
+#### Anthropic 兼容端点（`claude` 类型 + `auth_mode: "bearer"`）
+
+```json
+{
+  "name": "token-plan-anthropic",
+  "endpoint_type": "claude",
+  "endpoint": "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+  "api_key": "sk-sp-xxx",
+  "auth_mode": "bearer",
+  "allowed_models": ["qwen3.7-max", "qwen3.6-plus", "qwen3.6-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3.2"]
+}
+```
+
+客户端调用（标准 Anthropic 格式）：
+```bash
+curl <proxy-host>/v1/messages \
+  -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: token-plan-anthropic" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3.7-max","max_tokens":1024,"messages":[{"role":"user","content":"你好"}]}'
+```
+
+#### 图像生成端点（暂不接入）
+
+Token Plan 图像生成使用 DashScope 原生 API 格式（非 OpenAI/Claude/Gemini 标准），需要专用处理链。当前代理不支持此格式，需后续开发专用 endpoint_type 或通过网宿图像通道中转。
+
+### Token Plan 支持模型列表
+
+| 厂商 | 模型 | OpenAI 兼容 | Anthropic 兼容 |
+|------|------|:-----------:|:--------------:|
+| 通义千问 | qwen3.7-max | ✅ | ✅ |
+| 通义千问 | qwen3.6-plus | ✅ | ✅ |
+| 通义千问 | qwen3.6-flash | ✅ | ✅ |
+| 通义千问 | qwen-image-2.0 | ✅ | ❌ |
+| 通义千问 | qwen-image-2.0-pro | ✅ | ❌ |
+| 万象 | wan2.7-image | ✅ | ❌ |
+| 万象 | wan2.7-image-pro | ✅ | ❌ |
+| DeepSeek | deepseek-v4-pro | ✅ | ✅ |
+| DeepSeek | deepseek-v4-flash | ✅ | ✅ |
+| DeepSeek | deepseek-v3.2 | ✅ | ✅ |
+| 月之暗面 | kimi-k2.6 | ✅ | ❌ |
+| 月之暗面 | kimi-k2.5 | ✅ | ❌ |
+| 智谱 | glm-5.1 | ✅ | ✅ |
+| 智谱 | glm-5 | ✅ | ✅ |
+| MiniMax | MiniMax-M2.5 | ✅ | ❌ |
+
+### API Key 说明
+- Token Plan API Key 格式：`sk-sp-xxx`（区别于普通百炼 `sk-xxx` 和 Coding Plan key）
+- 由管理员在百炼控制台生成
+- 三套 key 体系互不兼容：Token Plan / Coding Plan / 百炼按量付费
+
+---
+
+## 请求测试清单
+
+| # | 场景 | 方法 | 预期 |
+|---|------|------|------|
+| 1 | OpenAI 目标 chat completions | `POST /v1/chat/completions` + `X-Proxy-Target: openai-target` | 200 + 流式/JSON 响应 |
+| 2 | Claude 目标 messages | `POST /v1/messages` + `X-Proxy-Target: claude-target` | 200 + Anthropic 格式响应 |
+| 3 | Claude 目标 auth_mode=bearer | `POST /v1/messages` + `X-Proxy-Target: token-plan-anthropic` | 200 + 上游使用 Bearer 认证 |
+| 4 | Gemini 目标 generateContent | `POST /v1beta/models/gemini-2.5-pro:generateContent` | 200 + Gemini 格式响应 |
+| 5 | Azure 目标 deployments 路径 | `POST /openai/deployments/gpt-4o/chat/completions` | 200 + api-version 自动追加 |
+| 6 | 网宿图像文生图 | `POST /v1/images/generations` + `X-Proxy-Target: wangsu-image` | 200 + 图片 URL/b64 |
+| 7 | Copilot 透传 | `POST /copilot/v1/chat/completions` | 200 + OAuth token 动态注入 |
+| 8 | DeepSeek OpenAI 格式 | `POST /deepseek/v1/chat/completions` | 200 + 直通上游 |
+| 9 | DeepSeek Anthropic 格式 | `POST /deepseek/v1/messages` | 200 + 上游加 `/anthropic` 前缀 |
+| 10 | Token Plan OpenAI 兼容 | `POST /v1/chat/completions` + `X-Proxy-Target: token-plan-openai` | 200 + qwen/deepseek 等模型 |
+| 11 | 模型白名单拒绝 | 请求不在 `allowed_models` 中的模型 | 403 Forbidden |
+| 12 | 路径不兼容跳过 | `POST /v1/images/generations` 但目标为 `wangsu_openai`（支持）vs 其他类型 | 自动选择兼容目标 |
+| 13 | 目标 failover | 主目标网络不可达 | 自动切换到备用目标 |
+| 14 | 连接粘连 | 同客户端 + 同模型连续请求 | 倾向路由到同一目标 |

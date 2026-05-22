@@ -1225,6 +1225,14 @@
             <input type="checkbox" id="tgtAllowBearer"> 允许 Bearer 透传
           </label>
         </div>
+        <div class="form-group" id="tgtAuthModeGroup" style="display:none;">
+          <label>认证方式</label>
+          <select class="form-control" id="tgtAuthMode">
+            <option value="">x-api-key (默认)</option>
+            <option value="bearer">Bearer Token</option>
+          </select>
+          <small style="color:var(--text-muted)">Token Plan Anthropic 兼容端点请选择 Bearer Token</small>
+        </div>
         <div class="form-group">
           <label style="display:flex;align-items:center;gap:8px;">
             <input type="checkbox" id="tgtSSEAutoAgg" checked> SSE 自动聚合
@@ -1638,7 +1646,9 @@
           var models = Array.isArray(t.allowed_models) && t.allowed_models.length > 0
             ? esc(t.allowed_models.join(", ")) : "<span style='color:var(--text-muted)'>不限</span>";
           var keyStatus = t.has_api_key
-            ? "<span style='color:var(--success)'>✅ 已配置</span>"
+            ? (t.auth_mode === "bearer"
+              ? "<span style='color:var(--success)'>✅ Bearer</span>"
+              : "<span style='color:var(--success)'>✅ 已配置</span>")
             : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
           var sseAgg = (t.sse_auto_aggregate !== false)
             ? "<span style='color:var(--success)'>✅</span>"
@@ -1677,8 +1687,10 @@
       function updateTargetFormVisibility() {
         var epType = document.getElementById("tgtType").value;
         var isAzure = (epType === "azure_openai");
+        var isClaude = (epType === "claude" || epType === "wangsu_claude");
         document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
+        document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
         applyEndpointPlaceholder(epType);
         renderTgtModelSuggestions(epType);
       }
@@ -1741,6 +1753,7 @@
         document.getElementById("tgtRpp").value = (epType === "azure_openai") ? (t ? (t.resource_path_prefix || "/openai") : "/openai") : "";
         document.getElementById("tgtApiKey").value = "";
         document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
+        document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
         updateTargetFormVisibility();
@@ -1769,6 +1782,7 @@
         var rpp = (epType === "azure_openai") ? document.getElementById("tgtRpp").value.trim() : "";
         var apiKey = document.getElementById("tgtApiKey").value.trim();
         var allowBearer = document.getElementById("tgtAllowBearer").checked;
+        var authMode = document.getElementById("tgtAuthMode").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
 
@@ -1782,6 +1796,7 @@
               endpoint: endpoint,
               resource_path_prefix: rpp,
               allow_bearer_passthrough: allowBearer,
+              auth_mode: authMode,
               allowed_models: models,
               sse_auto_aggregate: sseAutoAgg
             };
@@ -1792,7 +1807,7 @@
             await api("/admin/data/targets", { method: "POST", body: {
               name: name, endpoint_type: epType, endpoint: endpoint,
               resource_path_prefix: rpp, api_key: apiKey,
-              allow_bearer_passthrough: allowBearer, allowed_models: models,
+              allow_bearer_passthrough: allowBearer, auth_mode: authMode, allowed_models: models,
               sse_auto_aggregate: sseAutoAgg
             }});
             toast("目标已创建", "success");

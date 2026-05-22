@@ -55,6 +55,7 @@ type Target struct {
 	ResourcePathPrefix string
 	APIKey             string
 	AllowBearer        bool
+	AuthMode           string
 	AllowedModels      []string
 	SSEAutoAggregate   bool
 	allowedModelsSet   map[string]struct{}
@@ -263,14 +264,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if model == "" && s.anyTargetRequiresModel() {
 		http.Error(w, "model required when allowed_models are configured", http.StatusBadRequest)
 		s.metrics.totalFailures.Add(1)
-		requestOutcomeRecorded = true
-		return
-	}
-
-	// Copilot 请求拦截：模型名以 Copilot 前缀开头且 copilotService 已配置时，
-	// 走独立的 Copilot 处理链（动态 token、模型名映射、额度扣减）。
-	if s.copilotService != nil && strings.HasPrefix(model, strings.ToLower(copilot.ModelPrefix)) {
-		s.handleCopilotRequest(w, r, principal, bodyBytes, model)
 		requestOutcomeRecorded = true
 		return
 	}

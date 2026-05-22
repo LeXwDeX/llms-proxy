@@ -293,8 +293,9 @@ func buildTargetStates(targets []config.Target) (map[string]*targetState, []*tar
 			Endpoint:           endpoint,
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
 			APIKey:             strings.TrimSpace(t.APIKey),
-			AllowBearer:        t.AllowBearer,
-			AllowedModels:      models,
+		AllowBearer:        t.AllowBearer,
+		AuthMode:           t.AuthMode,
+		AllowedModels:      models,
 			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
 			allowedModelsSet:   modelSet,
 		}

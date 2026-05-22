@@ -109,6 +109,7 @@ type Target struct {
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	APIKey             string   `json:"api_key"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
+	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
 	AllowedModels      []string `json:"allowed_models"`
 	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
 }

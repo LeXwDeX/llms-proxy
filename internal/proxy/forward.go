@@ -123,7 +123,11 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	case config.EndpointTypeOpenAI:
 		req.Header.Set("Authorization", "Bearer "+target.APIKey)
 	case config.EndpointTypeClaude:
-		req.Header.Set("x-api-key", target.APIKey)
+		if target.AuthMode == "bearer" {
+			req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		} else {
+			req.Header.Set("x-api-key", target.APIKey)
+		}
 		if req.Header.Get("anthropic-version") == "" {
 			req.Header.Set("anthropic-version", "2023-06-01")
 		}
@@ -132,7 +136,11 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	case config.EndpointTypeWangsuOpenAI:
 		req.Header.Set("Authorization", "Bearer "+target.APIKey)
 	case config.EndpointTypeWangsuClaude:
-		req.Header.Set("x-api-key", target.APIKey)
+		if target.AuthMode == "bearer" {
+			req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		} else {
+			req.Header.Set("x-api-key", target.APIKey)
+		}
 		if req.Header.Get("anthropic-version") == "" {
 			req.Header.Set("anthropic-version", "2023-06-01")
 		}
@@ -146,7 +154,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		// 上游路径分流由 buildURL 完成（/v1/messages* 自动加 /anthropic 前缀）。
 		req.Header.Set("Authorization", "Bearer "+target.APIKey)
 	case config.EndpointTypeCopilot:
-		// Copilot 动态 token 由 handleCopilotRequest 在 ServeHTTP 中处理。
+		// Copilot 动态 token 由 HandleCopilotPassthrough（/copilot/* 路径）处理。
 		// 此处仅作为降级路径（copilotService 未配置时使用静态 APIKey）。
 		req.Header.Set("Authorization", "Bearer "+target.APIKey)
 	case config.EndpointTypeAzureOpenAI:
