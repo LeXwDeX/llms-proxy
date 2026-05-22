@@ -252,15 +252,13 @@ func (w *limitedCaptureWriter) Write(p []byte) (int, error) {
 	if w.limit <= 0 {
 		return len(p), nil
 	}
-	if len(p) >= w.limit {
-		w.buf = append(w.buf[:0], p[len(p)-w.limit:]...)
-		return len(p), nil
+	w.buf = append(w.buf, p...)
+	// 超过 limit 时只保留尾部 limit 字节，避免无限增长
+	if len(w.buf) > w.limit {
+		excess := len(w.buf) - w.limit
+		copy(w.buf, w.buf[excess:])
+		w.buf = w.buf[:w.limit]
 	}
-	combined := append(append(make([]byte, 0, len(w.buf)+len(p)), w.buf...), p...)
-	if len(combined) > w.limit {
-		combined = combined[len(combined)-w.limit:]
-	}
-	w.buf = combined
 	return len(p), nil
 }
 
@@ -268,7 +266,5 @@ func (w *limitedCaptureWriter) Bytes() []byte {
 	if len(w.buf) == 0 {
 		return nil
 	}
-	out := make([]byte, len(w.buf))
-	copy(out, w.buf)
-	return out
+	return w.buf
 }

@@ -23,16 +23,18 @@ import (
 
 const headerAzureAuthorization = "X-Azure-Authorization"
 
+// hopHeaders 使用 Canonical MIME Header 格式，与 http.Header 存储格式一致，
+// 避免 copyHeaders 中每个 header 都做 strings.ToLower 分配。
 var hopHeaders = map[string]struct{}{
-	"connection":          {},
-	"proxy-connection":    {},
-	"keep-alive":          {},
-	"proxy-authenticate":  {},
-	"proxy-authorization": {},
-	"te":                  {},
-	"trailers":            {},
-	"transfer-encoding":   {},
-	"upgrade":             {},
+	"Connection":          {},
+	"Proxy-Connection":    {},
+	"Keep-Alive":          {},
+	"Proxy-Authenticate":  {},
+	"Proxy-Authorization": {},
+	"Te":                  {},
+	"Trailers":            {},
+	"Transfer-Encoding":   {},
+	"Upgrade":             {},
 }
 
 type forwardAttemptError struct {
@@ -108,8 +110,9 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 			startedAt: startedAt,
 		}
 	}
-	upstreamURL := stripURLQuery(forwardURL.String())
-	upstreamFullURL := forwardURL.String()
+	fullURL := forwardURL.String()
+	upstreamURL := stripURLQuery(fullURL)
+	upstreamFullURL := fullURL
 
 	var bodyReader io.Reader
 	if len(body) > 0 {
@@ -379,7 +382,7 @@ func (s *Service) writeResponse(
 					)
 					// 替换响应头和body
 					for key, values := range resp.Header {
-						if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+						if _, skip := hopHeaders[key]; skip {
 							continue
 						}
 						for _, v := range values {
@@ -413,7 +416,7 @@ func (s *Service) writeResponse(
 	}
 
 	for key, values := range resp.Header {
-		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+		if _, skip := hopHeaders[key]; skip {
 			continue
 		}
 		for _, v := range values {
@@ -649,7 +652,7 @@ func stripURLQuery(raw string) string {
 
 func copyHeaders(dst, src http.Header) {
 	for key, values := range src {
-		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+		if _, skip := hopHeaders[key]; skip {
 			continue
 		}
 		for _, value := range values {

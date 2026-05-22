@@ -2,7 +2,6 @@
 package proxy
 
 import (
-	"hash/fnv"
 	"log/slog"
 	"sync"
 	"time"
@@ -153,12 +152,23 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 }
 
 // hashClientKey 对 clientName + targetName 做 FNV-1a hash，保证同一客户端在同一 target 下映射到固定 key。
+// 内联实现以避免 fnv.New32a() 的堆分配（hash.Hash 接口逃逸）。
 func hashClientKey(clientName, targetName string) uint32 {
-	h := fnv.New32a()
-	h.Write([]byte(clientName))
-	h.Write([]byte{0})
-	h.Write([]byte(targetName))
-	return h.Sum32()
+	const (
+		offset32 = uint32(2166136261)
+		prime32  = uint32(16777619)
+	)
+	h := offset32
+	for i := 0; i < len(clientName); i++ {
+		h ^= uint32(clientName[i])
+		h *= prime32
+	}
+	h *= prime32 // separator byte 0x00
+	for i := 0; i < len(targetName); i++ {
+		h ^= uint32(targetName[i])
+		h *= prime32
+	}
+	return h
 }
 
 // markExhausted 标记指定 index 的 key 为耗尽。
