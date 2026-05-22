@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-// extractStreamField extracts the "stream" boolean field from a JSON request body.
+// extractStreamField extracts the "stream" boolean field from a JSON request body
+// using a lightweight byte-level scan, avoiding a full JSON unmarshal.
 // Returns (streamValue, found). If the field is absent or not a bool, found is false.
 func extractStreamField(body []byte) (streamValue bool, found bool) {
 	body = bytes.TrimSpace(body)
@@ -17,22 +18,38 @@ func extractStreamField(body []byte) (streamValue bool, found bool) {
 		return false, false
 	}
 
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
+	// Locate "stream" key via byte scan.
+	idx := bytes.Index(body, []byte(`"stream"`))
+	if idx < 0 {
 		return false, false
 	}
 
-	streamRaw, exists := raw["stream"]
-	if !exists {
+	// Skip past the key and find the colon.
+	rest := body[idx+len(`"stream"`):]
+	// Skip whitespace before colon.
+	for len(rest) > 0 && (rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\n' || rest[0] == '\r') {
+		rest = rest[1:]
+	}
+	if len(rest) == 0 || rest[0] != ':' {
+		return false, false
+	}
+	rest = rest[1:]
+	// Skip whitespace after colon.
+	for len(rest) > 0 && (rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\n' || rest[0] == '\r') {
+		rest = rest[1:]
+	}
+	if len(rest) == 0 {
 		return false, false
 	}
 
-	var b bool
-	if err := json.Unmarshal(streamRaw, &b); err != nil {
-		// "stream" exists but is not a bool (e.g. string or object).
-		return false, false
+	if bytes.HasPrefix(rest, []byte("true")) {
+		return true, true
 	}
-	return b, true
+	if bytes.HasPrefix(rest, []byte("false")) {
+		return false, true
+	}
+	// "stream" exists but value is not a bool literal.
+	return false, false
 }
 
 // shouldAggregateSSE decides whether to aggregate an SSE response into a

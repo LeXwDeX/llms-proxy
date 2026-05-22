@@ -121,7 +121,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 
-	req, err := http.NewRequestWithContext(ctx, r.Method, forwardURL.String(), bodyReader)
+	req, err := http.NewRequestWithContext(ctx, r.Method, fullURL, bodyReader)
 	if err != nil {
 		cancel()
 		return nil, nil, keyIndex, &forwardAttemptError{

@@ -288,12 +288,11 @@ func (s *Service) anyTargetRequiresModel() bool {
 	return false
 }
 
-func (s *Service) ensureModelAllowed(target *Target, r *http.Request, body []byte) error {
+func (s *Service) ensureModelAllowed(target *Target, model string) error {
 	if target == nil || len(target.AllowedModels) == 0 {
 		return nil
 	}
 
-	model := strings.ToLower(extractModel(r, body))
 	if model == "" {
 		return errors.New("model required when allowed_models is configured")
 	}

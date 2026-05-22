@@ -20,7 +20,6 @@ package errorlog
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -156,7 +155,8 @@ func Write(entry Entry) {
 		return
 	}
 
-	if _, err := fmt.Fprintln(w, string(line)); err != nil {
+	line = append(line, '\n')
+	if _, err := w.Write(line); err != nil {
 		logger.Warn("upstream-error log write failed", "error", err, "trace_id", entry.TraceID)
 	}
 }

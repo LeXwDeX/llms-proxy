@@ -263,7 +263,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	attempted := make(map[string]struct{})
+	var attempted map[string]struct{}
 	attempt := 0
 	model := strings.ToLower(extractModel(r, bodyBytes))
 	if model == "" && s.anyTargetRequiresModel() {
@@ -302,7 +302,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := s.ensureModelAllowed(target, r, bodyBytes); err != nil {
+		if err := s.ensureModelAllowed(target, model); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			s.metrics.totalFailures.Add(1)
 			requestOutcomeRecorded = true
@@ -310,6 +310,9 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		targetKey := strings.ToLower(target.Name)
+		if attempted == nil {
+			attempted = make(map[string]struct{})
+		}
 		attempted[targetKey] = struct{}{}
 
 		// Use sanitized body only for Azure OpenAI targets; others get the original.
