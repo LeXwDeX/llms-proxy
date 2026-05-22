@@ -1,7 +1,8 @@
-// keypool.go — 多 API Key 池状态机：顺序消费、耗尽检测、冷却恢复。
+// keypool.go — 多 API Key 池状态机：客户端亲和、耗尽检测、冷却恢复。
 package proxy
 
 import (
+	"hash/fnv"
 	"log/slog"
 	"sync"
 	"time"
@@ -83,6 +84,79 @@ func (p *keyPool) selectKey() (string, int) {
 
 	// 全部在冷却中
 	return "", -1
+}
+
+// selectKeyForClient 按客户端名称做 hash 亲和，保证同一客户端倾向走同一个 key。
+// 如果绑定的 key 已 exhausted，溢出到下一个 active key。
+// 全部 exhausted 时走冷却恢复逻辑（与 selectKey 一致）。
+// clientName 为空时退化为 selectKey（顺序消费）。
+func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
+	if p == nil || len(p.entries) == 0 {
+		return "", -1
+	}
+	if clientName == "" {
+		return p.selectKey()
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	n := len(p.entries)
+
+	// 1. 计算亲和 key index
+	preferred := int(hashClientKey(clientName, p.targetName) % uint32(n))
+
+	// 2. 优先用亲和 key（如果 active）
+	if !p.entries[preferred].exhausted {
+		return p.entries[preferred].key, preferred
+	}
+
+	// 3. 亲和 key exhausted，溢出：从 preferred+1 开始找第一个 active
+	for offset := 1; offset < n; offset++ {
+		idx := (preferred + offset) % n
+		if !p.entries[idx].exhausted {
+			maskKey := maskAPIKey(p.entries[idx].key)
+			p.logger.Info("[keypool] affinity overflow",
+				"target", p.targetName,
+				"client", clientName,
+				"preferred_key_index", preferred,
+				"actual_key_index", idx,
+				"actual_key", maskKey,
+			)
+			return p.entries[idx].key, idx
+		}
+	}
+
+	// 4. 全部 exhausted，找冷却期已过的最旧的（从 preferred 开始优先恢复自己的亲和 key）
+	for offset := 0; offset < n; offset++ {
+		idx := (preferred + offset) % n
+		if now.Sub(p.entries[idx].exhaustedAt) >= p.cooldown {
+			p.entries[idx].exhausted = false
+			p.entries[idx].exhaustedAt = time.Time{}
+			maskKey := maskAPIKey(p.entries[idx].key)
+			p.logger.Info("[keypool] key recovered",
+				"target", p.targetName,
+				"key_index", idx,
+				"key", maskKey,
+				"reason", "cooldown_expired",
+				"client", clientName,
+			)
+			return p.entries[idx].key, idx
+		}
+	}
+
+	// 5. 全部在冷却中
+	return "", -1
+}
+
+// hashClientKey 对 clientName + targetName 做 FNV-1a hash，保证同一客户端在同一 target 下映射到固定 key。
+func hashClientKey(clientName, targetName string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(clientName))
+	h.Write([]byte{0})
+	h.Write([]byte(targetName))
+	return h.Sum32()
 }
 
 // markExhausted 标记指定 index 的 key 为耗尽。

@@ -70,11 +70,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	}
 
-	// 选择 key：如果有 key 池则从池中选，否则用 target.APIKey
+	// 选择 key：如果有 key 池则按客户端亲和选（hash 绑定），否则用 target.APIKey
 	apiKey := target.APIKey
 	keyIndex := -1
 	if state.keyPool != nil {
-		selected, idx := state.keyPool.selectKey()
+		clientName := ""
+		if principal, ok := auth.PrincipalFromContext(r.Context()); ok && principal != nil {
+			clientName = principal.Name
+		}
+		selected, idx := state.keyPool.selectKeyForClient(clientName)
 		if selected == "" {
 			return nil, nil, -1, &forwardAttemptError{
 				status:    http.StatusServiceUnavailable,
@@ -85,6 +89,13 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 		apiKey = selected
 		keyIndex = idx
+		s.logger.Debug("[keypool] key selected",
+			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+			"target", target.Name,
+			"client", clientName,
+			"key_index", idx,
+			"key", maskAPIKey(selected),
+		)
 	}
 
 	azureAuth := strings.TrimSpace(r.Header.Get(headerAzureAuthorization))

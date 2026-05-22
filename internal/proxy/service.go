@@ -357,7 +357,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			// 检查是否有下一个可用 key（当前 key 已在 forwardRequest 中被标记耗尽）
-			nextKey, nextIdx := state.keyPool.selectKey()
+			retryClientName := ""
+			if principal != nil {
+				retryClientName = principal.Name
+			}
+			nextKey, nextIdx := state.keyPool.selectKeyForClient(retryClientName)
 			if nextKey == "" || nextIdx == keyIndex {
 				break
 			}
@@ -369,6 +373,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.logger.Info("[keypool] retrying with next key",
 				"request_id", appmiddleware.RequestIDFromContext(r.Context()),
 				"target", target.Name,
+				"client", retryClientName,
 				"prev_key_index", keyIndex,
 				"next_key_index", nextIdx,
 			)
