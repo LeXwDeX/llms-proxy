@@ -102,19 +102,30 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
+// CacheControlConfig controls automatic cache_control injection for prompt caching.
+// When enabled, the proxy injects cache_control markers into messages for providers
+// that require explicit caching (e.g., Bailian/DashScope qwen3.7-max).
+// If the client already provides cache_control markers, they are preserved.
+type CacheControlConfig struct {
+	Enabled  bool   `json:"enabled"`            // 是否启用自动注入
+	Role     string `json:"role,omitempty"`     // 注入目标 role，默认 "system"
+	Fallback string `json:"fallback,omitempty"` // 无匹配 role 时的回退策略: "second_to_last" (默认) | "none"
+}
+
 // Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
 type Target struct {
-	Name               string   `json:"name"`
-	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot; default azure_openai
-	Endpoint           string   `json:"endpoint"`
-	ResourcePathPrefix string   `json:"resource_path_prefix"`
-	APIKey             string   `json:"api_key"`
-	APIKeys            []string `json:"api_keys,omitempty"`             // 额外 key 池（与 api_key 合并为有序池）
-	KeyCooldownSeconds int      `json:"key_cooldown_seconds,omitempty"` // 耗尽冷却期（秒），默认 1800
-	AllowBearer        bool     `json:"allow_bearer_passthrough"`
-	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
-	AllowedModels      []string `json:"allowed_models"`
-	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
+	Name               string             `json:"name"`
+	EndpointType       string             `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot; default azure_openai
+	Endpoint           string             `json:"endpoint"`
+	ResourcePathPrefix string             `json:"resource_path_prefix"`
+	APIKey             string             `json:"api_key"`
+	APIKeys            []string           `json:"api_keys,omitempty"`             // 额外 key 池（与 api_key 合并为有序池）
+	KeyCooldownSeconds int                `json:"key_cooldown_seconds,omitempty"` // 耗尽冷却期（秒），默认 1800
+	AllowBearer        bool               `json:"allow_bearer_passthrough"`
+	AuthMode           string             `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
+	AllowedModels      []string           `json:"allowed_models"`
+	SSEAutoAggregate   *bool              `json:"sse_auto_aggregate,omitempty"`   // nil defaults to true
+	CacheControl       CacheControlConfig `json:"cache_control,omitempty"`        // 自动注入 cache_control 配置
 }
 
 // Client describes a consumer and its access rights.

@@ -309,6 +309,19 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			cooldownSecs = 1800
 		}
 
+		// CacheControl defaults: role="system", fallback="second_to_last"
+		cc := CacheControl{
+			Enabled:  t.CacheControl.Enabled,
+			Role:     strings.TrimSpace(t.CacheControl.Role),
+			Fallback: strings.TrimSpace(t.CacheControl.Fallback),
+		}
+		if cc.Role == "" {
+			cc.Role = "system"
+		}
+		if cc.Fallback == "" {
+			cc.Fallback = "second_to_last"
+		}
+
 		info := &Target{
 			Name:               strings.TrimSpace(t.Name),
 			EndpointType:       config.NormalizeEndpointType(t.EndpointType),
@@ -321,6 +334,7 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			AuthMode:           t.AuthMode,
 			AllowedModels:      models,
 			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
+			CacheControl:       cc,
 			allowedModelsSet:   modelSet,
 		}
 		if info.Name == "" {

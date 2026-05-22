@@ -302,12 +302,15 @@ func (s *Service) ensureModelAllowed(target *Target, model string) error {
 	return fmt.Errorf("model %q not allowed for target %q", model, target.Name)
 }
 
-// injectBailianCacheControl 为百炼 Token Plan 请求自动注入 cache_control 标记。
-// 百炼 qwen3.7-max 等模型仅支持显式缓存（需在 messages 中加 cache_control 标记），
-// 不支持隐式缓存。此函数在代理层自动注入，无需客户端修改。
-// 策略：在 system message 的最后一个 content block 加 cache_control，
-// 缓存从 messages 开头到该位置的完整前缀（system prompt + tools 定义）。
-func injectBailianCacheControl(body []byte) []byte {
+// injectCacheControl 为请求自动注入 cache_control 标记以启用显式 prompt caching。
+// 部分 provider（如百炼 qwen3.7-max）仅支持显式缓存，需在 messages 中加 cache_control 标记。
+// 此函数在代理层自动注入，无需客户端修改。若客户端已设置 cache_control 则保留不覆盖。
+//
+// 参数：
+//   - body: 请求体 JSON
+//   - role: 注入目标 role（如 "system"），匹配 messages 中该 role 的最后一条
+//   - fallback: 无匹配 role 时的回退策略: "second_to_last" 注入倒数第二条消息, "none" 不注入
+func injectCacheControl(body []byte, role string, fallback string) []byte {
 	if len(body) == 0 {
 		return body
 	}
@@ -327,16 +330,18 @@ func injectBailianCacheControl(body []byte) []byte {
 		return body
 	}
 
-	// 找 system message 并注入；若无 system 则找倒数第二条 message（缓存对话历史前缀）
+	// 找目标 role 并注入；若无匹配则按 fallback 策略处理
 	injected := false
-	for i := range messages {
-		role, _ := messages[i]["role"].(string)
-		if strings.EqualFold(role, "system") {
-			injected = injectCacheControlIntoMessage(messages[i])
-			break
+	if role != "" {
+		for i := range messages {
+			msgRole, _ := messages[i]["role"].(string)
+			if strings.EqualFold(msgRole, role) {
+				injected = injectCacheControlIntoMessage(messages[i])
+				break
+			}
 		}
 	}
-	if !injected && len(messages) >= 2 {
+	if !injected && fallback == "second_to_last" && len(messages) >= 2 {
 		injected = injectCacheControlIntoMessage(messages[len(messages)-2])
 	}
 	if !injected {

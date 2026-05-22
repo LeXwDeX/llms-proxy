@@ -47,6 +47,13 @@ type Service struct {
 	rrCounter atomic.Uint64
 }
 
+// CacheControl holds runtime cache injection settings for a target.
+type CacheControl struct {
+	Enabled  bool
+	Role     string // target role for injection (default "system")
+	Fallback string // fallback when role not found: "second_to_last" | "none"
+}
+
 // Target represents an upstream endpoint with runtime metadata.
 type Target struct {
 	Name               string
@@ -60,6 +67,7 @@ type Target struct {
 	AuthMode           string
 	AllowedModels      []string
 	SSEAutoAggregate   bool
+	CacheControl       CacheControl
 	allowedModelsSet   map[string]struct{}
 }
 
@@ -256,10 +264,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var strippedFields []string
 	sanitizedComputed := false
 
-	// Bailian cache-control body is computed lazily — only when the selected target is Bailian.
-	// Injects cache_control markers into messages for explicit prompt caching (qwen3.7-max etc).
-	var bailianBody []byte
-	bailianComputed := false
+	// Cache-control body is computed lazily — only when the selected target has cache_control enabled.
+	// Injects cache_control markers into messages for explicit prompt caching.
+	var cacheControlBody []byte
+	cacheControlComputed := false
 
 	var attempted map[string]struct{}
 	attempt := 0
@@ -330,14 +338,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			forwardBody = sanitizedBody
 		}
 
-		// 百炼 Token Plan: 自动注入 cache_control 标记以启用显式缓存。
-		// qwen3.7-max 等模型仅支持显式缓存，不支持隐式缓存。
-		if target.EndpointType == config.EndpointTypeBailian {
-			if !bailianComputed {
-				bailianBody = injectBailianCacheControl(bodyBytes)
-				bailianComputed = true
+		// Cache control injection: auto-inject cache_control markers for explicit prompt caching.
+		// Only applies when target has cache_control enabled. Respects client-provided markers.
+		if target.CacheControl.Enabled {
+			if !cacheControlComputed {
+				cacheControlBody = injectCacheControl(bodyBytes, target.CacheControl.Role, target.CacheControl.Fallback)
+				cacheControlComputed = true
 			}
-			forwardBody = bailianBody
+			forwardBody = cacheControlBody
 		}
 
 		// 对非 Azure target 的 multipart 请求，自动转换为 JSON。
