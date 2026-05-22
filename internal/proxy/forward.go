@@ -719,35 +719,105 @@ func isUpstreamFailureStatus(statusCode int) bool {
 }
 
 // isKeyExhausted 检查上游响应是否表示 key 额度耗尽（适用于所有 provider）。
-// 仅检查非 2xx 响应。429 Throttling（限流）不算耗尽，会由 failover 逻辑处理。
+// 仅检查非 2xx 响应。纯 429 限流（RPS/RPM）不算耗尽，由 failover 逻辑处理。
+// 错误码来源：各 provider 官方文档。
 // 返回 (是否耗尽, 错误码)。
 func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	if statusCode >= 200 && statusCode < 300 {
 		return false, ""
 	}
 	bodyStr := string(body)
+	lower := strings.ToLower(bodyStr)
 
-	// 通用：账户欠费（百炼等）
-	if strings.Contains(bodyStr, `"Arrearage"`) || strings.Contains(bodyStr, `"code":"Arrearage"`) || strings.Contains(bodyStr, `"code": "Arrearage"`) {
+	// ── 401: key/token 无效或过期 ──
+	// OpenAI: "Incorrect API key provided"
+	// Azure:  "Access denied due to invalid subscription key"
+	// Claude: "invalid x-api-key" (authentication_error)
+	// 百炼:   "Invalid API-key provided" / "Incorrect API key provided" (InvalidApiKey)
+	if statusCode == 401 {
+		if strings.Contains(lower, "invalid api key") ||
+			strings.Contains(lower, "invalid api-key") ||
+			strings.Contains(lower, "invalid_api_key") || // DeepSeek: code="invalid_api_key"
+			strings.Contains(lower, "invalid access token") ||
+			strings.Contains(lower, "invalid x-api-key") ||
+			strings.Contains(lower, "token expired") ||
+			strings.Contains(lower, "access denied due to invalid subscription key") ||
+			strings.Contains(lower, "incorrect api key") {
+			return true, "invalid_token"
+		}
+	}
+
+	// ── 400: API key 格式错误 ──
+	// Gemini: "API key not valid" (INVALID_ARGUMENT)
+	if statusCode == 400 {
+		if strings.Contains(bodyStr, "API_KEY_INVALID") ||
+			strings.Contains(bodyStr, "API key not valid") {
+			return true, "invalid_token"
+		}
+	}
+
+	// ── 402: 账单/余额问题 ──
+	// DeepSeek: "Insufficient Balance"
+	// Claude:   billing_error
+	if statusCode == 402 {
+		return true, "billing_error"
+	}
+
+	// ── 百炼: 账户欠费（HTTP 400）──
+	// 官方文档: code=Arrearage, "Access denied, please make sure your account is in good standing."
+	if strings.Contains(bodyStr, `"Arrearage"`) ||
+		strings.Contains(bodyStr, `"code":"Arrearage"`) ||
+		strings.Contains(bodyStr, `"code": "Arrearage"`) {
 		return true, "Arrearage"
 	}
 
-	// 通用：免费额度用完（百炼 AccessDenied.Unpurchased）
+	// ── 百炼: 免费额度用完 / 未开通（HTTP 403）──
+	// 官方文档: code=AccessDenied.Unpurchased / AllocationQuota.FreeTierOnly
 	if strings.Contains(bodyStr, "AccessDenied.Unpurchased") {
 		return true, "AccessDenied.Unpurchased"
 	}
-
-	// 通用：token 无效或过期（401）
-	if statusCode == 401 && (strings.Contains(bodyStr, "invalid access token") || strings.Contains(bodyStr, "token expired") || strings.Contains(bodyStr, "Invalid API key")) {
-		return true, "invalid_token"
+	if strings.Contains(bodyStr, "AllocationQuota.FreeTierOnly") {
+		return true, "free_tier_exhausted"
 	}
 
-	// 通用：配额耗尽（OpenAI / Claude / 百炼等）
-	if strings.Contains(bodyStr, "quota exceeded") || strings.Contains(bodyStr, "Quota exceeded") || strings.Contains(bodyStr, "exceeded your quota") {
-		if statusCode == 429 && strings.Contains(bodyStr, "Throttling") {
-			return false, "" // 这是限流，不是耗尽
-		}
+	// ── 配额耗尽（必须在 429 限流排除之前检测）──
+	// OpenAI:  "You exceeded your current quota" (429)
+	// Gemini:  "RESOURCE_EXHAUSTED" (429)
+	// 百炼:    code=QuotaExceeded / Throttling.AllocationQuota (429, TPS/TPM 配额耗尽)
+	// 百炼:    PrepaidBillOverdue / PostpaidBillOverdue / CommodityNotPurchased (429, 账单过期)
+	if strings.Contains(lower, "quota exceeded") ||
+		strings.Contains(lower, "exceeded your quota") ||
+		strings.Contains(lower, "you exceeded your current quota") ||
+		strings.Contains(lower, "resource_exhausted") ||
+		strings.Contains(bodyStr, `"code":"QuotaExceeded"`) ||
+		strings.Contains(bodyStr, "Throttling.AllocationQuota") ||
+		strings.Contains(bodyStr, "PrepaidBillOverdue") ||
+		strings.Contains(bodyStr, "PostpaidBillOverdue") ||
+		strings.Contains(bodyStr, "CommodityNotPurchased") {
 		return true, "quota_exceeded"
+	}
+
+	// ── 账户被禁用/封禁 ──
+	if strings.Contains(lower, "account disabled") ||
+		strings.Contains(lower, "account suspended") ||
+		strings.Contains(lower, "account has been deactivated") {
+		return true, "account_disabled"
+	}
+
+	// ── 纯 429 限流排除（RPS/RPM 级别，不算 key 耗尽）──
+	// 百炼:    Throttling / Throttling.RateQuota / Throttling.BurstRate
+	// OpenAI:  "Rate limit reached for requests"
+	// Claude:  rate_limit_error
+	// Gemini:  "RESOURCE_EXHAUSTED"（已在上面配额耗尽中匹配）
+	// DeepSeek: "Rate Limit Reached"
+	if statusCode == 429 {
+		if strings.Contains(lower, "throttling") ||
+			strings.Contains(lower, "rate limit") ||
+			strings.Contains(lower, "too many requests") ||
+			strings.Contains(lower, "rate_limit_exceeded") ||
+			strings.Contains(lower, "rate_limit_error") {
+			return false, ""
+		}
 	}
 
 	return false, ""
