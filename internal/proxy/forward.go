@@ -58,11 +58,11 @@ func (e *forwardAttemptError) Unwrap() error {
 	return e.err
 }
 
-func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byte) (*http.Response, context.CancelFunc, error) {
+func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byte) (*http.Response, context.CancelFunc, int, error) {
 	startedAt := time.Now()
 	target := state.Target()
 	if target == nil {
-		return nil, nil, &forwardAttemptError{
+		return nil, nil, -1, &forwardAttemptError{
 			status:    http.StatusBadGateway,
 			retryable: false,
 			err:       errors.New("target not configured"),
@@ -70,10 +70,27 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	}
 
+	// 选择 key：如果有 key 池则从池中选，否则用 target.APIKey
+	apiKey := target.APIKey
+	keyIndex := -1
+	if state.keyPool != nil {
+		selected, idx := state.keyPool.selectKey()
+		if selected == "" {
+			return nil, nil, -1, &forwardAttemptError{
+				status:    http.StatusServiceUnavailable,
+				retryable: false,
+				err:       fmt.Errorf("proxy: all API keys exhausted for target %q", target.Name),
+				startedAt: startedAt,
+			}
+		}
+		apiKey = selected
+		keyIndex = idx
+	}
+
 	azureAuth := strings.TrimSpace(r.Header.Get(headerAzureAuthorization))
 	forwardURL, err := s.buildURL(target, r.URL)
 	if err != nil {
-		return nil, nil, &forwardAttemptError{
+		return nil, nil, keyIndex, &forwardAttemptError{
 			status:    http.StatusBadGateway,
 			retryable: false,
 			err:       err,
@@ -93,7 +110,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	req, err := http.NewRequestWithContext(ctx, r.Method, forwardURL.String(), bodyReader)
 	if err != nil {
 		cancel()
-		return nil, nil, &forwardAttemptError{
+		return nil, nil, keyIndex, &forwardAttemptError{
 			status:          http.StatusBadRequest,
 			retryable:       false,
 			err:             err,
@@ -121,42 +138,42 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	// Inject upstream credentials based on endpoint type.
 	switch target.EndpointType {
 	case config.EndpointTypeOpenAI:
-		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	case config.EndpointTypeClaude:
 		if target.AuthMode == "bearer" {
-			req.Header.Set("Authorization", "Bearer "+target.APIKey)
+			req.Header.Set("Authorization", "Bearer "+apiKey)
 		} else {
-			req.Header.Set("x-api-key", target.APIKey)
+			req.Header.Set("x-api-key", apiKey)
 		}
 		if req.Header.Get("anthropic-version") == "" {
 			req.Header.Set("anthropic-version", "2023-06-01")
 		}
 	case config.EndpointTypeGemini:
-		req.Header.Set("x-goog-api-key", target.APIKey)
+		req.Header.Set("x-goog-api-key", apiKey)
 	case config.EndpointTypeWangsuOpenAI:
-		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	case config.EndpointTypeWangsuClaude:
 		if target.AuthMode == "bearer" {
-			req.Header.Set("Authorization", "Bearer "+target.APIKey)
+			req.Header.Set("Authorization", "Bearer "+apiKey)
 		} else {
-			req.Header.Set("x-api-key", target.APIKey)
+			req.Header.Set("x-api-key", apiKey)
 		}
 		if req.Header.Get("anthropic-version") == "" {
 			req.Header.Set("anthropic-version", "2023-06-01")
 		}
 	case config.EndpointTypeWangsuGemini:
-		req.Header.Set("x-goog-api-key", target.APIKey)
+		req.Header.Set("x-goog-api-key", apiKey)
 	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
 		// 网宿图像通道（文生图 / 图编辑）：Bearer 认证，URL 由 buildURL 整体替换。
-		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	case config.EndpointTypeDeepSeek:
 		// DeepSeek 官方：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
 		// 上游路径分流由 buildURL 完成（/v1/messages* 自动加 /anthropic 前缀）。
-		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	case config.EndpointTypeBailian:
 		// 百炼 Token Plan：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
 		// 上游路径分流由 buildURL 完成（/v1/messages* 走 /apps/anthropic，其余走 /compatible-mode）。
-		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 		if isAnthropicStylePath(r.URL.Path) {
 			if req.Header.Get("anthropic-version") == "" {
 				req.Header.Set("anthropic-version", "2023-06-01")
@@ -165,15 +182,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	case config.EndpointTypeCopilot:
 		// Copilot 动态 token 由 HandleCopilotPassthrough（/copilot/* 路径）处理。
 		// 此处仅作为降级路径（copilotService 未配置时使用静态 APIKey）。
-		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	case config.EndpointTypeAzureOpenAI:
 		useBearer := target.AllowBearer && azureAuth != ""
 		if useBearer {
 			req.Header.Set("Authorization", azureAuth)
 		} else {
-			if target.APIKey == "" {
+			if apiKey == "" {
 				cancel()
-				return nil, nil, &forwardAttemptError{
+				return nil, nil, keyIndex, &forwardAttemptError{
 					status:          http.StatusBadRequest,
 					retryable:       false,
 					err:             errors.New("proxy: missing azure credential; provide api key or X-Azure-Authorization"),
@@ -182,11 +199,11 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 					upstreamFullURL: upstreamFullURL,
 				}
 			}
-			req.Header.Set("api-key", target.APIKey)
+			req.Header.Set("api-key", apiKey)
 		}
 	default:
 		cancel()
-		return nil, nil, &forwardAttemptError{
+		return nil, nil, keyIndex, &forwardAttemptError{
 			status:          http.StatusInternalServerError,
 			retryable:       false,
 			err:             fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
@@ -295,7 +312,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	if err != nil {
 		cancel()
 		retryable := !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)
-		return nil, nil, &forwardAttemptError{
+		return nil, nil, keyIndex, &forwardAttemptError{
 			status:          classifyTransportError(err),
 			retryable:       retryable,
 			err:             err,
@@ -305,7 +322,18 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	}
 
-	return resp, cancel, nil
+	// 百炼 key 池耗尽检测
+	if state.keyPool != nil && keyIndex >= 0 && resp != nil && resp.StatusCode >= 400 {
+		checkBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewReader(checkBody))
+
+		if exhausted, code := isBailianQuotaExhausted(resp.StatusCode, checkBody); exhausted {
+			state.keyPool.markExhausted(keyIndex, code)
+		}
+	}
+
+	return resp, cancel, keyIndex, nil
 }
 
 func (s *Service) writeResponse(
@@ -663,7 +691,7 @@ func targetName(t *Target) string {
 // isUpstreamFailureStatus 判定上游响应状态码是否应触发 MarkFailure（进而 mute + 下次请求 fallback）。
 //
 // 触发条件：
-//   - 5xx：上游服务端错误（502/503/504 等），通用故障切换信号；
+//   - 5xx：上游服务端错误（502/503/504 等），通用故障切换的信号；
 //   - 429：上游过载/限流（OpenAI/Azure 在模型容量瓶颈时常返回此码，含 "Engine is overloaded"）；
 //   - 408：上游请求超时（典型见于网宿/Azure 长耗时图像生成接口）。
 //
@@ -677,4 +705,38 @@ func isUpstreamFailureStatus(statusCode int) bool {
 		return true
 	}
 	return false
+}
+
+// isBailianQuotaExhausted 检查百炼上游响应是否表示额度耗尽。
+// 仅检查非 2xx 响应。429 Throttling 不算耗尽。
+func isBailianQuotaExhausted(statusCode int, body []byte) (bool, string) {
+	if statusCode >= 200 && statusCode < 300 {
+		return false, ""
+	}
+	bodyStr := string(body)
+
+	// Arrearage — 账户欠费
+	if strings.Contains(bodyStr, `"Arrearage"`) || strings.Contains(bodyStr, `"code":"Arrearage"`) || strings.Contains(bodyStr, `"code": "Arrearage"`) {
+		return true, "Arrearage"
+	}
+
+	// AccessDenied.Unpurchased — 免费额度用完即停
+	if strings.Contains(bodyStr, "AccessDenied.Unpurchased") {
+		return true, "AccessDenied.Unpurchased"
+	}
+
+	// invalid access token or token expired (401)
+	if statusCode == 401 && (strings.Contains(bodyStr, "invalid access token") || strings.Contains(bodyStr, "token expired")) {
+		return true, "invalid_token"
+	}
+
+	// allocated quota exceeded（非 429-Throttling 的 quota exceeded）
+	if strings.Contains(bodyStr, "quota exceeded") || strings.Contains(bodyStr, "Quota exceeded") {
+		if statusCode == 429 && strings.Contains(bodyStr, "Throttling") {
+			return false, "" // 这是限流，不是耗尽
+		}
+		return true, "quota_exceeded"
+	}
+
+	return false, ""
 }

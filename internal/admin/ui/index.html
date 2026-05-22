@@ -1233,6 +1233,16 @@
           </select>
           <small style="color:var(--text-muted)">Token Plan Anthropic 兼容端点请选择 Bearer Token</small>
         </div>
+        <div class="form-group" id="tgtApiKeysGroup" style="display:none;">
+          <label>额外 API Keys（一行一个）</label>
+          <textarea class="form-control" id="tgtApiKeys" rows="4" placeholder="sk-key2&#10;sk-key3&#10;..." style="font-family:monospace;font-size:12px;"></textarea>
+          <small style="color:var(--text-muted)">与上方 API Key 合并为有序池，按顺序消费；仅百炼类型生效</small>
+        </div>
+        <div class="form-group" id="tgtKeyCooldownGroup" style="display:none;">
+          <label>Key 冷却期（秒）</label>
+          <input class="form-control" id="tgtKeyCooldown" type="number" min="0" placeholder="1800" value="1800">
+          <small style="color:var(--text-muted)">Key 耗尽后进入冷却期，过期后自动恢复（默认 1800 秒）</small>
+        </div>
         <div class="form-group">
           <label style="display:flex;align-items:center;gap:8px;">
             <input type="checkbox" id="tgtSSEAutoAgg" checked> SSE 自动聚合
@@ -1645,10 +1655,11 @@
         tb.innerHTML = state.targets.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(t) {
           var models = Array.isArray(t.allowed_models) && t.allowed_models.length > 0
             ? esc(t.allowed_models.join(", ")) : "<span style='color:var(--text-muted)'>不限</span>";
+          var keyCount = Array.isArray(t.api_keys) ? t.api_keys.length : 0;
           var keyStatus = t.has_api_key
             ? (t.auth_mode === "bearer"
               ? "<span style='color:var(--success)'>✅ Bearer</span>"
-              : "<span style='color:var(--success)'>✅ 已配置</span>")
+              : "<span style='color:var(--success)'>✅ 已配置</span>" + (keyCount > 1 ? " <span style='background:#dbeafe;color:#2563eb;padding:1px 6px;border-radius:4px;font-size:11px;'>"+keyCount+" keys</span>" : ""))
             : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
           var sseAgg = (t.sse_auto_aggregate !== false)
             ? "<span style='color:var(--success)'>✅</span>"
@@ -1688,9 +1699,12 @@
         var epType = document.getElementById("tgtType").value;
         var isAzure = (epType === "azure_openai");
         var isClaude = (epType === "claude" || epType === "wangsu_claude");
+        var isBailian = (epType === "bailian");
         document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
+        document.getElementById("tgtApiKeysGroup").style.display = isBailian ? "" : "none";
+        document.getElementById("tgtKeyCooldownGroup").style.display = isBailian ? "" : "none";
         applyEndpointPlaceholder(epType);
         renderTgtModelSuggestions(epType);
       }
@@ -1757,6 +1771,10 @@
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
+        // 额外 API Keys
+        var extraKeys = t && Array.isArray(t.api_keys) ? t.api_keys.filter(function(k) { return k !== (t.api_key || ""); }) : [];
+        document.getElementById("tgtApiKeys").value = extraKeys.join("\n");
+        document.getElementById("tgtKeyCooldown").value = t && t.key_cooldown_seconds ? t.key_cooldown_seconds : 1800;
         updateTargetFormVisibility();
         openModal("targetModal");
       }
@@ -1786,6 +1804,8 @@
         var authMode = document.getElementById("tgtAuthMode").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
+        var apiKeys = (epType === "bailian") ? document.getElementById("tgtApiKeys").value.split("\n").map(function(s){return s.trim();}).filter(Boolean) : [];
+        var keyCooldown = (epType === "bailian") ? parseInt(document.getElementById("tgtKeyCooldown").value, 10) || 0 : 0;
 
         if (!name) { toast("请填写名称", "error"); return; }
         if (!endpoint) { toast("请填写 Endpoint URL", "error"); return; }
@@ -1799,7 +1819,9 @@
               allow_bearer_passthrough: allowBearer,
               auth_mode: authMode,
               allowed_models: models,
-              sse_auto_aggregate: sseAutoAgg
+              sse_auto_aggregate: sseAutoAgg,
+              api_keys: apiKeys,
+              key_cooldown_seconds: keyCooldown
             };
             if (apiKey) { updateBody.api_key = apiKey; }
             await api("/admin/data/targets/"+encodeURIComponent(name), { method: "PUT", body: updateBody });
@@ -1809,7 +1831,9 @@
               name: name, endpoint_type: epType, endpoint: endpoint,
               resource_path_prefix: rpp, api_key: apiKey,
               allow_bearer_passthrough: allowBearer, auth_mode: authMode, allowed_models: models,
-              sse_auto_aggregate: sseAutoAgg
+              sse_auto_aggregate: sseAutoAgg,
+              api_keys: apiKeys,
+              key_cooldown_seconds: keyCooldown
             }});
             toast("目标已创建", "success");
           }

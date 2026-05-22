@@ -105,6 +105,7 @@ func NewHandler(
 		r.Post("/targets", h.handleCreateTarget)
 		r.Put("/targets/{name}", h.handleUpdateTarget)
 		r.Delete("/targets/{name}", h.handleDeleteTarget)
+		r.Put("/targets/{name}/reset-keys", h.handleResetTargetKeys)
 
 		// Copilot pool management
 		r.Get("/copilot-pools", h.handleListCopilotPools)
@@ -687,17 +688,24 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 	for i, t := range cfg.Targets {
 		epType := config.NormalizeEndpointType(t.EndpointType)
 		sseAutoAgg := t.SSEAutoAggregate == nil || *t.SSEAutoAggregate
-		targets[i] = map[string]any{
+		m := map[string]any{
 			"name":                     t.Name,
 			"endpoint_type":            epType,
 			"endpoint":                 t.Endpoint,
 			"resource_path_prefix":     t.ResourcePathPrefix,
 			"has_api_key":              t.APIKey != "",
+			"api_keys":                 t.APIKeys,
+			"key_cooldown_seconds":     t.KeyCooldownSeconds,
 			"allow_bearer_passthrough": t.AllowBearer,
 			"auth_mode":                t.AuthMode,
 			"allowed_models":           t.AllowedModels,
 			"sse_auto_aggregate":       sseAutoAgg,
 		}
+		// 附加 key 池运行时状态
+		if statuses := h.proxyService.KeyPoolStatus(t.Name); statuses != nil {
+			m["key_statuses"] = statuses
+		}
+		targets[i] = m
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -713,6 +721,8 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		Endpoint           string   `json:"endpoint"`
 		ResourcePathPrefix string   `json:"resource_path_prefix"`
 		APIKey             string   `json:"api_key"`
+		APIKeys            []string `json:"api_keys"`
+		KeyCooldownSeconds int      `json:"key_cooldown_seconds"`
 		AllowBearer        bool     `json:"allow_bearer_passthrough"`
 		AuthMode           string   `json:"auth_mode"`
 		AllowedModels      []string `json:"allowed_models"`
@@ -769,6 +779,8 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		Endpoint:           endpoint,
 		ResourcePathPrefix: rpp,
 		APIKey:             apiKey,
+		APIKeys:            body.APIKeys,
+		KeyCooldownSeconds: body.KeyCooldownSeconds,
 		AllowBearer:        body.AllowBearer,
 		AuthMode:           body.AuthMode,
 		AllowedModels:      body.AllowedModels,
@@ -803,14 +815,16 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		EndpointType       string   `json:"endpoint_type"`
-		Endpoint           string   `json:"endpoint"`
-		ResourcePathPrefix string   `json:"resource_path_prefix"`
-		APIKey             *string  `json:"api_key"`
-		AllowBearer        bool     `json:"allow_bearer_passthrough"`
-		AuthMode           *string  `json:"auth_mode"`
-		AllowedModels      []string `json:"allowed_models"`
-		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
+		EndpointType       string    `json:"endpoint_type"`
+		Endpoint           string    `json:"endpoint"`
+		ResourcePathPrefix string    `json:"resource_path_prefix"`
+		APIKey             *string   `json:"api_key"`
+		APIKeys            *[]string `json:"api_keys"`
+		KeyCooldownSeconds *int      `json:"key_cooldown_seconds"`
+		AllowBearer        bool      `json:"allow_bearer_passthrough"`
+		AuthMode           *string   `json:"auth_mode"`
+		AllowedModels      []string  `json:"allowed_models"`
+		SSEAutoAggregate   *bool     `json:"sse_auto_aggregate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -856,6 +870,12 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.SSEAutoAggregate != nil {
 				t.SSEAutoAggregate = body.SSEAutoAggregate
+			}
+			if body.APIKeys != nil {
+				t.APIKeys = *body.APIKeys
+			}
+			if body.KeyCooldownSeconds != nil {
+				t.KeyCooldownSeconds = *body.KeyCooldownSeconds
 			}
 
 			// Validate: api_key must be non-empty when allow_bearer is false.
@@ -939,6 +959,23 @@ func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 
 	h.recordAudit(r, "delete_target", name, "success", "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handleResetTargetKeys(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+
+	count := h.proxyService.ResetKeyPool(name)
+	if count < 0 {
+		writeJSON(w, http.StatusNotFound, errorResponse(fmt.Sprintf("target %q not found or has no key pool", name)))
+		return
+	}
+
+	h.recordAudit(r, "reset_target_keys", name, "success", fmt.Sprintf("reset_count=%d", count))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reset_count": count})
 }
 
 func (h *Handler) saveConfig(cfg *config.Config) error {

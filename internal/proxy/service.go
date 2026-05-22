@@ -54,6 +54,8 @@ type Target struct {
 	Endpoint           *url.URL
 	ResourcePathPrefix string
 	APIKey             string
+	APIKeys            []string // 合并后的有序 key 池 [api_key, api_keys...]
+	KeyCooldownSeconds int      // 冷却期秒数
 	AllowBearer        bool
 	AuthMode           string
 	AllowedModels      []string
@@ -128,7 +130,7 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 
 // UpdateTargets refreshes the known targets from configuration.
 func (s *Service) UpdateTargets(targets []config.Target) error {
-	parsed, order, err := buildTargetStates(targets)
+	parsed, order, err := buildTargetStates(targets, s.logger)
 	if err != nil {
 		return err
 	}
@@ -147,7 +149,7 @@ func (s *Service) ApplyConfig(cfg *config.Config) error {
 		return errors.New("proxy: config must not be nil")
 	}
 
-	parsed, order, err := buildTargetStates(cfg.Targets)
+	parsed, order, err := buildTargetStates(cfg.Targets, s.logger)
 	if err != nil {
 		return err
 	}
@@ -337,7 +339,41 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		startedAt := time.Now()
-		resp, cancel, fErr := s.forwardRequest(r, state, forwardBody)
+		var resp *http.Response
+		var cancel context.CancelFunc
+		var keyIndex int
+		var fErr error
+
+		// 百炼 key 池内重试：当 key 耗尽时，同 target 换 key 重试
+		for {
+			resp, cancel, keyIndex, fErr = s.forwardRequest(r, state, forwardBody)
+			if fErr != nil {
+				break
+			}
+			if resp == nil || resp.StatusCode < 400 {
+				break
+			}
+			if state.keyPool == nil || keyIndex < 0 {
+				break
+			}
+			// 检查是否有下一个可用 key（当前 key 已在 forwardRequest 中被标记耗尽）
+			nextKey, nextIdx := state.keyPool.selectKey()
+			if nextKey == "" || nextIdx == keyIndex {
+				break
+			}
+			// 有新 key 可用，关闭当前响应，重试
+			resp.Body.Close()
+			if cancel != nil {
+				cancel()
+			}
+			s.logger.Info("[keypool] retrying with next key",
+				"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+				"target", target.Name,
+				"prev_key_index", keyIndex,
+				"next_key_index", nextIdx,
+			)
+			s.metrics.totalRetries.Add(1)
+		}
 
 		// 恢复原始 Content-Type（支持重试时路由到其他 target，如 Azure 需原始 multipart）
 		if origContentType != "" {
@@ -478,6 +514,29 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 // StartTime returns the instant the service was constructed.
 func (s *Service) StartTime() time.Time {
 	return s.startTime
+}
+
+// KeyPoolStatus returns the key pool status for a target, or nil if no pool.
+func (s *Service) KeyPoolStatus(targetName string) []KeyStatus {
+	s.mu.RLock()
+	state, ok := s.targetsByName[strings.ToLower(targetName)]
+	s.mu.RUnlock()
+	if !ok || state == nil || state.keyPool == nil {
+		return nil
+	}
+	return state.keyPool.status()
+}
+
+// ResetKeyPool resets all keys in the target's key pool. Returns the number of keys reset, or -1 if not found.
+func (s *Service) ResetKeyPool(targetName string) int {
+	s.mu.RLock()
+	state, ok := s.targetsByName[strings.ToLower(targetName)]
+	s.mu.RUnlock()
+	if !ok || state == nil || state.keyPool == nil {
+		return -1
+	}
+	state.keyPool.resetAll()
+	return len(state.keyPool.entries)
 }
 
 func (s *Service) setRequestTimeout(timeout time.Duration) {

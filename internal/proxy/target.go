@@ -3,6 +3,7 @@ package proxy
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,6 +24,8 @@ type targetState struct {
 	consecutiveFailure int
 	totalSuccess       int64
 	totalFailure       int64
+
+	keyPool *keyPool
 }
 
 // TargetStats is a snapshot of target runtime metrics.
@@ -35,10 +38,12 @@ type TargetStats struct {
 	TotalFailure       int64
 }
 
-func newTargetState(t *Target) *targetState {
-	return &targetState{
-		target: t,
+func newTargetState(t *Target, logger *slog.Logger) *targetState {
+	s := &targetState{target: t}
+	if len(t.APIKeys) > 1 {
+		s.keyPool = newKeyPool(t.Name, t.APIKeys, t.KeyCooldownSeconds, logger)
 	}
+	return s
 }
 
 func (s *targetState) Target() *Target {
@@ -238,7 +243,11 @@ func newSelectionError(status int, message string) error {
 	}
 }
 
-func buildTargetStates(targets []config.Target) (map[string]*targetState, []*targetState, error) {
+func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[string]*targetState, []*targetState, error) {
+	var l *slog.Logger
+	if len(logger) > 0 {
+		l = logger[0]
+	}
 	if len(targets) == 0 {
 		return make(map[string]*targetState), nil, nil
 	}
@@ -275,22 +284,49 @@ func buildTargetStates(targets []config.Target) (map[string]*targetState, []*tar
 			}
 		}
 
+		// 合并 api_key + api_keys 为有序池（去重，api_key 排第一）
+		primaryKey := strings.TrimSpace(t.APIKey)
+		var mergedKeys []string
+		seen := make(map[string]struct{})
+		if primaryKey != "" {
+			mergedKeys = append(mergedKeys, primaryKey)
+			seen[primaryKey] = struct{}{}
+		}
+		for _, k := range t.APIKeys {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			if _, dup := seen[k]; dup {
+				continue
+			}
+			mergedKeys = append(mergedKeys, k)
+			seen[k] = struct{}{}
+		}
+
+		cooldownSecs := t.KeyCooldownSeconds
+		if cooldownSecs <= 0 {
+			cooldownSecs = 1800
+		}
+
 		info := &Target{
 			Name:               strings.TrimSpace(t.Name),
 			EndpointType:       config.NormalizeEndpointType(t.EndpointType),
 			Endpoint:           endpoint,
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
-			APIKey:             strings.TrimSpace(t.APIKey),
-		AllowBearer:        t.AllowBearer,
-		AuthMode:           t.AuthMode,
-		AllowedModels:      models,
+			APIKey:             primaryKey,
+			APIKeys:            mergedKeys,
+			KeyCooldownSeconds: cooldownSecs,
+			AllowBearer:        t.AllowBearer,
+			AuthMode:           t.AuthMode,
+			AllowedModels:      models,
 			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
 			allowedModelsSet:   modelSet,
 		}
 		if info.Name == "" {
 			return nil, nil, fmt.Errorf("proxy: target name at index %d must not be empty", idx)
 		}
-		if info.APIKey == "" && !info.AllowBearer {
+		if len(info.APIKeys) == 0 && !info.AllowBearer {
 			return nil, nil, fmt.Errorf("proxy: target %q missing api_key and bearer passthrough not enabled", info.Name)
 		}
 
@@ -299,7 +335,7 @@ func buildTargetStates(targets []config.Target) (map[string]*targetState, []*tar
 			return nil, nil, fmt.Errorf("proxy: duplicate target name %q", info.Name)
 		}
 
-		state := newTargetState(info)
+		state := newTargetState(info, l)
 		parsed[nameKey] = state
 		order = append(order, state)
 	}

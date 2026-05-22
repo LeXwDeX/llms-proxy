@@ -109,6 +109,8 @@ type Target struct {
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	APIKey             string   `json:"api_key"`
+	APIKeys            []string `json:"api_keys,omitempty"`             // 额外 key 池（与 api_key 合并为有序池）
+	KeyCooldownSeconds int      `json:"key_cooldown_seconds,omitempty"` // 耗尽冷却期（秒），默认 1800
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
 	AllowedModels      []string `json:"allowed_models"`
@@ -336,7 +338,16 @@ func (c *Config) Validate() error {
 		if epType == EndpointTypeAzureOpenAI && strings.TrimSpace(target.ResourcePathPrefix) == "" {
 			problems = append(problems, prefix+" resource_path_prefix must not be empty for azure_openai targets")
 		}
-		if strings.TrimSpace(target.APIKey) == "" && !target.AllowBearer {
+		hasAnyKey := strings.TrimSpace(target.APIKey) != ""
+		if !hasAnyKey {
+			for _, k := range target.APIKeys {
+				if strings.TrimSpace(k) != "" {
+					hasAnyKey = true
+					break
+				}
+			}
+		}
+		if !hasAnyKey && !target.AllowBearer {
 			problems = append(problems, prefix+" api_key must not be empty when allow_bearer_passthrough is false")
 		}
 		for j, m := range target.AllowedModels {
@@ -389,6 +400,9 @@ func (c *Config) Clone() *Config {
 			clone.Targets[i] = c.Targets[i]
 			if len(c.Targets[i].AllowedModels) > 0 {
 				clone.Targets[i].AllowedModels = append([]string(nil), c.Targets[i].AllowedModels...)
+			}
+			if len(c.Targets[i].APIKeys) > 0 {
+				clone.Targets[i].APIKeys = append([]string(nil), c.Targets[i].APIKeys...)
 			}
 		}
 	}
