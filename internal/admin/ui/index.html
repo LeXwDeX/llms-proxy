@@ -1216,9 +1216,10 @@
           <label>资源路径前缀 <span style="color:#ef4444">*</span></label>
           <input class="form-control" id="tgtRpp" placeholder="/openai" value="/openai">
         </div>
-        <div class="form-group">
-          <label>API Key <span style="color:#ef4444">*</span></label>
-          <input class="form-control" id="tgtApiKey" type="password" placeholder="sk-...">
+        <div class="form-group" id="tgtApiKeysGroup">
+          <label>API Keys（一行一个）<span style="color:#ef4444">*</span></label>
+          <textarea class="form-control" id="tgtApiKeys" rows="4" placeholder="sk-key1&#10;sk-key2&#10;sk-key3" style="font-family:monospace;font-size:12px;"></textarea>
+          <small style="color:var(--text-muted)">第一个为主 Key；多个 Key 时按客户端亲和分配（同一客户端始终走同一 Key），耗尽自动溢出到下一个</small>
         </div>
         <div class="form-group" id="tgtBearerGroup">
           <label style="display:flex;align-items:center;gap:8px;">
@@ -1233,12 +1234,7 @@
           </select>
           <small style="color:var(--text-muted)">Token Plan Anthropic 兼容端点请选择 Bearer Token</small>
         </div>
-        <div class="form-group" id="tgtApiKeysGroup" style="display:none;">
-          <label>额外 API Keys（一行一个）</label>
-          <textarea class="form-control" id="tgtApiKeys" rows="4" placeholder="sk-key2&#10;sk-key3&#10;..." style="font-family:monospace;font-size:12px;"></textarea>
-          <small style="color:var(--text-muted)">与上方 API Key 合并为有序池，按顺序消费；仅百炼类型生效</small>
-        </div>
-        <div class="form-group" id="tgtKeyCooldownGroup" style="display:none;">
+        <div class="form-group" id="tgtKeyCooldownGroup">
           <label>Key 冷却期（秒）</label>
           <input class="form-control" id="tgtKeyCooldown" type="number" min="0" placeholder="1800" value="1800">
           <small style="color:var(--text-muted)">Key 耗尽后进入冷却期，过期后自动恢复（默认 1800 秒）</small>
@@ -1703,8 +1699,7 @@
         document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
-        document.getElementById("tgtApiKeysGroup").style.display = isBailian ? "" : "none";
-        document.getElementById("tgtKeyCooldownGroup").style.display = isBailian ? "" : "none";
+        // API Keys 和冷却期对所有 provider 类型都显示（统一 keypool 亲和机制）
         applyEndpointPlaceholder(epType);
         renderTgtModelSuggestions(epType);
       }
@@ -1771,9 +1766,15 @@
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
-        // 额外 API Keys
-        var extraKeys = t && Array.isArray(t.api_keys) ? t.api_keys.filter(function(k) { return k !== (t.api_key || ""); }) : [];
-        document.getElementById("tgtApiKeys").value = extraKeys.join("\n");
+        // API Keys：合并 api_key + api_keys 到 textarea（去重，api_key 排第一）
+        var allKeys = [];
+        if (t && t.api_key) { allKeys.push(t.api_key); }
+        if (t && Array.isArray(t.api_keys)) {
+          t.api_keys.forEach(function(k) {
+            if (k && allKeys.indexOf(k) === -1) { allKeys.push(k); }
+          });
+        }
+        document.getElementById("tgtApiKeys").value = allKeys.join("\n");
         document.getElementById("tgtKeyCooldown").value = t && t.key_cooldown_seconds ? t.key_cooldown_seconds : 1800;
         updateTargetFormVisibility();
         openModal("targetModal");
@@ -1799,13 +1800,15 @@
         var epType = document.getElementById("tgtType").value;
         var endpoint = document.getElementById("tgtEndpoint").value.trim();
         var rpp = (epType === "azure_openai") ? document.getElementById("tgtRpp").value.trim() : "";
-        var apiKey = document.getElementById("tgtApiKey").value.trim();
         var allowBearer = document.getElementById("tgtAllowBearer").checked;
         var authMode = document.getElementById("tgtAuthMode").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
-        var apiKeys = (epType === "bailian") ? document.getElementById("tgtApiKeys").value.split("\n").map(function(s){return s.trim();}).filter(Boolean) : [];
-        var keyCooldown = (epType === "bailian") ? parseInt(document.getElementById("tgtKeyCooldown").value, 10) || 0 : 0;
+        // 统一 keypool：textarea 第一行为 api_key，其余为 api_keys
+        var allKeys = document.getElementById("tgtApiKeys").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
+        var apiKey = allKeys.length > 0 ? allKeys[0] : "";
+        var apiKeys = allKeys.length > 1 ? allKeys.slice(1) : [];
+        var keyCooldown = parseInt(document.getElementById("tgtKeyCooldown").value, 10) || 0;
 
         if (!name) { toast("请填写名称", "error"); return; }
         if (!endpoint) { toast("请填写 Endpoint URL", "error"); return; }

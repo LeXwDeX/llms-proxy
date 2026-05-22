@@ -333,13 +333,13 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	}
 
-	// 百炼 key 池耗尽检测
+	// key 池耗尽检测：检查上游响应是否表示 key 额度耗尽
 	if state.keyPool != nil && keyIndex >= 0 && resp != nil && resp.StatusCode >= 400 {
 		checkBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(checkBody))
 
-		if exhausted, code := isBailianQuotaExhausted(resp.StatusCode, checkBody); exhausted {
+		if exhausted, code := isKeyExhausted(resp.StatusCode, checkBody); exhausted {
 			state.keyPool.markExhausted(keyIndex, code)
 		}
 	}
@@ -718,31 +718,32 @@ func isUpstreamFailureStatus(statusCode int) bool {
 	return false
 }
 
-// isBailianQuotaExhausted 检查百炼上游响应是否表示额度耗尽。
-// 仅检查非 2xx 响应。429 Throttling 不算耗尽。
-func isBailianQuotaExhausted(statusCode int, body []byte) (bool, string) {
+// isKeyExhausted 检查上游响应是否表示 key 额度耗尽（适用于所有 provider）。
+// 仅检查非 2xx 响应。429 Throttling（限流）不算耗尽，会由 failover 逻辑处理。
+// 返回 (是否耗尽, 错误码)。
+func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	if statusCode >= 200 && statusCode < 300 {
 		return false, ""
 	}
 	bodyStr := string(body)
 
-	// Arrearage — 账户欠费
+	// 通用：账户欠费（百炼等）
 	if strings.Contains(bodyStr, `"Arrearage"`) || strings.Contains(bodyStr, `"code":"Arrearage"`) || strings.Contains(bodyStr, `"code": "Arrearage"`) {
 		return true, "Arrearage"
 	}
 
-	// AccessDenied.Unpurchased — 免费额度用完即停
+	// 通用：免费额度用完（百炼 AccessDenied.Unpurchased）
 	if strings.Contains(bodyStr, "AccessDenied.Unpurchased") {
 		return true, "AccessDenied.Unpurchased"
 	}
 
-	// invalid access token or token expired (401)
-	if statusCode == 401 && (strings.Contains(bodyStr, "invalid access token") || strings.Contains(bodyStr, "token expired")) {
+	// 通用：token 无效或过期（401）
+	if statusCode == 401 && (strings.Contains(bodyStr, "invalid access token") || strings.Contains(bodyStr, "token expired") || strings.Contains(bodyStr, "Invalid API key")) {
 		return true, "invalid_token"
 	}
 
-	// allocated quota exceeded（非 429-Throttling 的 quota exceeded）
-	if strings.Contains(bodyStr, "quota exceeded") || strings.Contains(bodyStr, "Quota exceeded") {
+	// 通用：配额耗尽（OpenAI / Claude / 百炼等）
+	if strings.Contains(bodyStr, "quota exceeded") || strings.Contains(bodyStr, "Quota exceeded") || strings.Contains(bodyStr, "exceeded your quota") {
 		if statusCode == 429 && strings.Contains(bodyStr, "Throttling") {
 			return false, "" // 这是限流，不是耗尽
 		}

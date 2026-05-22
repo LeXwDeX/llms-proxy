@@ -344,7 +344,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var keyIndex int
 		var fErr error
 
-		// 百炼 key 池内重试：当 key 耗尽时，同 target 换 key 重试
+		// key 池内重试：当 key 耗尽时，同 target 换 key 重试
 		for {
 			resp, cancel, keyIndex, fErr = s.forwardRequest(r, state, forwardBody)
 			if fErr != nil {

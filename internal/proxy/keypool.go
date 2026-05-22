@@ -15,7 +15,9 @@ type keyEntry struct {
 	exhaustedAt time.Time
 }
 
-// keyPool 管理一个 target 的多个 API key，按顺序消费。
+// keyPool 管理一个 target 的多个 API key。
+// 支持客户端亲和（hash 绑定）、耗尽检测、冷却恢复。
+// 适用于所有 provider 类型。
 type keyPool struct {
 	mu         sync.Mutex
 	entries    []keyEntry
