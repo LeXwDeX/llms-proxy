@@ -60,7 +60,7 @@ func (s *Service) maybeHandleLocalList(w http.ResponseWriter, r *http.Request) b
 
 	var targetFilter map[string]struct{}
 	if !principal.AllowAll() {
-		targetFilter = normalizeAllowed(principal.AllowedTargets())
+		targetFilter = principal.AllowedTargetsSet()
 	}
 
 	requested := strings.TrimSpace(r.Header.Get(headerProxyTarget))

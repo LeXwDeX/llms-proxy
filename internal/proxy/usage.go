@@ -2,7 +2,6 @@
 package proxy
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"strings"
@@ -33,26 +32,36 @@ func extractUsageTokens(contentType string, body []byte) (usageTokens, string, b
 }
 
 func extractUsageFromSSE(body []byte) (usageTokens, string, bool) {
+	if len(body) == 0 {
+		return usageTokens{}, "", false
+	}
+
+	// Scan from the end of the SSE body — usage data is typically in the last few data: chunks.
+	// Claude splits usage across message_start (input_tokens) and message_delta (output_tokens),
+	// so we scan up to 10 data: lines from the end to capture both.
+	lines := bytes.Split(body, []byte("\n"))
 	var merged usageTokens
 	var model string
 	found := false
+	dataLinesFound := 0
 
-	scanner := bufio.NewScanner(bytes.NewReader(body))
-	buf := make([]byte, 0, 4096)
-	scanner.Buffer(buf, 1024*1024)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(strings.ToLower(line), "data:") {
+	for i := len(lines) - 1; i >= 0 && dataLinesFound < 10; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 {
 			continue
 		}
-		chunk := strings.TrimSpace(line[len("data:"):])
-		if chunk == "" || chunk == "[DONE]" {
+		// Case-insensitive check for "data:" prefix
+		if len(line) < 5 || !bytes.Equal(bytes.ToLower(line[:5]), []byte("data:")) {
+			continue
+		}
+		dataLinesFound++
+		chunk := bytes.TrimSpace(line[5:])
+		if len(chunk) == 0 || bytes.Equal(chunk, []byte("[DONE]")) {
 			continue
 		}
 
 		var payload map[string]any
-		if err := json.Unmarshal([]byte(chunk), &payload); err != nil {
+		if err := json.Unmarshal(chunk, &payload); err != nil {
 			continue
 		}
 		tokens, m, ok := parseUsageFromPayload(payload)
@@ -60,8 +69,6 @@ func extractUsageFromSSE(body []byte) (usageTokens, string, bool) {
 			continue
 		}
 		// Accumulate: keep the maximum of each field across all SSE events.
-		// Claude splits usage across message_start (input_tokens) and
-		// message_delta (output_tokens), so we must merge them.
 		if tokens.InputTokens > merged.InputTokens {
 			merged.InputTokens = tokens.InputTokens
 		}

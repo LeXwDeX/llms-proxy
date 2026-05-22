@@ -229,10 +229,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var allowed map[string]struct{}
 	if !principal.AllowAll() {
-		list := principal.AllowedTargets()
-		if len(list) > 0 {
-			allowed = normalizeAllowed(list)
-		}
+		allowed = principal.AllowedTargetsSet()
 	}
 
 	bodyBytes, err := readAndBufferBody(r)
@@ -253,15 +250,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pre-compute Azure-sanitized body; the original body is preserved for non-Azure targets.
-	sanitizedBody, strippedFields := sanitizeRequestBodyForAzure(r, bodyBytes)
-	if len(strippedFields) > 0 {
-		s.logger.Debug("stripped unsupported request fields",
-			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
-			"path", r.URL.Path,
-			"fields", strings.Join(strippedFields, ","),
-		)
-	}
+	// Azure-sanitized body is computed lazily — only when the selected target is Azure.
+	// This avoids a full JSON unmarshal on every request for non-Azure targets.
+	var sanitizedBody []byte
+	var strippedFields []string
+	sanitizedComputed := false
 
 	var attempted map[string]struct{}
 	attempt := 0
@@ -318,6 +311,17 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Use sanitized body only for Azure OpenAI targets; others get the original.
 		forwardBody := bodyBytes
 		if target.EndpointType == config.EndpointTypeAzureOpenAI {
+			if !sanitizedComputed {
+				sanitizedBody, strippedFields = sanitizeRequestBodyForAzure(r, bodyBytes)
+				sanitizedComputed = true
+				if len(strippedFields) > 0 {
+					s.logger.Debug("stripped unsupported request fields",
+						"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+						"path", r.URL.Path,
+						"fields", strings.Join(strippedFields, ","),
+					)
+				}
+			}
 			forwardBody = sanitizedBody
 		}
 

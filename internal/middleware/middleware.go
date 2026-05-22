@@ -14,6 +14,12 @@ import (
 	"github.com/ycgame/llms-proxy/internal/errorlog"
 )
 
+func init() {
+	// EnableRandPool buffers random bytes to avoid per-request crypto/rand syscalls.
+	// Safe for concurrent use; trades a small amount of memory for reduced syscall overhead.
+	uuid.EnableRandPool()
+}
+
 type contextKey string
 
 const (

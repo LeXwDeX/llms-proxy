@@ -228,10 +228,11 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	}
 	req.Host = target.Endpoint.Host
 
-	// ─── httptrace 埋点：记录连接各阶段耗时，定位大 body 上传卡顿位置 ───
+	// ─── httptrace 埋点：仅对大请求（>100KB）启用，避免每个请求分配 10 个闭包 ───
 	reqID := appmiddleware.RequestIDFromContext(r.Context())
 	reqBodySize := len(body)
 	traceStart := time.Now()
+	traceEnabled := reqBodySize > 100*1024
 	var (
 		dnsStart, dnsDone       time.Time
 		connStart, connDone     time.Time
@@ -245,42 +246,44 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		tlsVersion              string
 		httpProto               string
 	)
-	trace := &httptrace.ClientTrace{
-		DNSStart:  func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
-		DNSDone:   func(_ httptrace.DNSDoneInfo) { dnsDone = time.Now() },
-		ConnectStart: func(_, _ string) { connStart = time.Now() },
-		ConnectDone:  func(_, _ string, _ error) { connDone = time.Now() },
-		TLSHandshakeStart: func() { tlsStart = time.Now() },
-		TLSHandshakeDone: func(state tls.ConnectionState, _ error) {
-			tlsDone = time.Now()
-			switch state.Version {
-			case tls.VersionTLS13:
-				tlsVersion = "TLS1.3"
-			case tls.VersionTLS12:
-				tlsVersion = "TLS1.2"
-			default:
-				tlsVersion = fmt.Sprintf("0x%04x", state.Version)
-			}
-			httpProto = state.NegotiatedProtocol // "h2" or "http/1.1"
-		},
-		GotConn: func(info httptrace.GotConnInfo) {
-			gotConn = time.Now()
-			connReused = info.Reused
-			if info.Conn != nil {
-				connRemoteAddr = info.Conn.RemoteAddr().String()
-			}
-		},
-		WroteHeaders: func() { wroteHeaders = time.Now() },
-		WroteRequest: func(_ httptrace.WroteRequestInfo) { wroteRequest = time.Now() },
-		GotFirstResponseByte: func() { gotFirstResponseByte = time.Now() },
+	if traceEnabled {
+		trace := &httptrace.ClientTrace{
+			DNSStart:  func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
+			DNSDone:   func(_ httptrace.DNSDoneInfo) { dnsDone = time.Now() },
+			ConnectStart: func(_, _ string) { connStart = time.Now() },
+			ConnectDone:  func(_, _ string, _ error) { connDone = time.Now() },
+			TLSHandshakeStart: func() { tlsStart = time.Now() },
+			TLSHandshakeDone: func(state tls.ConnectionState, _ error) {
+				tlsDone = time.Now()
+				switch state.Version {
+				case tls.VersionTLS13:
+					tlsVersion = "TLS1.3"
+				case tls.VersionTLS12:
+					tlsVersion = "TLS1.2"
+				default:
+					tlsVersion = fmt.Sprintf("0x%04x", state.Version)
+				}
+				httpProto = state.NegotiatedProtocol // "h2" or "http/1.1"
+			},
+			GotConn: func(info httptrace.GotConnInfo) {
+				gotConn = time.Now()
+				connReused = info.Reused
+				if info.Conn != nil {
+					connRemoteAddr = info.Conn.RemoteAddr().String()
+				}
+			},
+			WroteHeaders: func() { wroteHeaders = time.Now() },
+			WroteRequest: func(_ httptrace.WroteRequestInfo) { wroteRequest = time.Now() },
+			GotFirstResponseByte: func() { gotFirstResponseByte = time.Now() },
+		}
+		req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 	}
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
 	resp, err := s.httpClient.Do(req)
 
-	// 对大请求（>100KB）或慢请求（>5s）输出详细 trace 日志
+	// 对大请求（>100KB）输出详细 trace 日志；对慢请求（>5s）输出简要日志
 	totalDuration := time.Since(traceStart)
-	if reqBodySize > 100*1024 || totalDuration > 5*time.Second {
+	if traceEnabled {
 		logFields := []any{
 			"request_id", reqID,
 			"target", targetName(target),
@@ -321,6 +324,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 			logFields = append(logFields, "error", err.Error())
 		}
 		s.logger.Warn("upstream request trace", logFields...)
+	} else if totalDuration > 5*time.Second {
+		s.logger.Warn("upstream slow request",
+			"request_id", reqID,
+			"target", targetName(target),
+			"method", r.Method,
+			"path", r.URL.Path,
+			"req_bytes", reqBodySize,
+			"total_ms", totalDuration.Milliseconds(),
+		)
 	}
 
 	if err != nil {
@@ -729,8 +741,9 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	if statusCode >= 200 && statusCode < 300 {
 		return false, ""
 	}
-	bodyStr := string(body)
-	lower := strings.ToLower(bodyStr)
+	// Use bytes operations to avoid double allocation from string(body) + strings.ToLower.
+	// lower is used for case-insensitive matching; body is used for exact-case matching.
+	lower := bytes.ToLower(body)
 
 	// ── 401: key/token 无效或过期 ──
 	// OpenAI: "Incorrect API key provided"
@@ -738,14 +751,14 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	// Claude: "invalid x-api-key" (authentication_error)
 	// 百炼:   "Invalid API-key provided" / "Incorrect API key provided" (InvalidApiKey)
 	if statusCode == 401 {
-		if strings.Contains(lower, "invalid api key") ||
-			strings.Contains(lower, "invalid api-key") ||
-			strings.Contains(lower, "invalid_api_key") || // DeepSeek: code="invalid_api_key"
-			strings.Contains(lower, "invalid access token") ||
-			strings.Contains(lower, "invalid x-api-key") ||
-			strings.Contains(lower, "token expired") ||
-			strings.Contains(lower, "access denied due to invalid subscription key") ||
-			strings.Contains(lower, "incorrect api key") {
+		if bytes.Contains(lower, []byte("invalid api key")) ||
+			bytes.Contains(lower, []byte("invalid api-key")) ||
+			bytes.Contains(lower, []byte("invalid_api_key")) || // DeepSeek: code="invalid_api_key"
+			bytes.Contains(lower, []byte("invalid access token")) ||
+			bytes.Contains(lower, []byte("invalid x-api-key")) ||
+			bytes.Contains(lower, []byte("token expired")) ||
+			bytes.Contains(lower, []byte("access denied due to invalid subscription key")) ||
+			bytes.Contains(lower, []byte("incorrect api key")) {
 			return true, "invalid_token"
 		}
 	}
@@ -753,8 +766,8 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	// ── 400: API key 格式错误 ──
 	// Gemini: "API key not valid" (INVALID_ARGUMENT)
 	if statusCode == 400 {
-		if strings.Contains(bodyStr, "API_KEY_INVALID") ||
-			strings.Contains(bodyStr, "API key not valid") {
+		if bytes.Contains(body, []byte("API_KEY_INVALID")) ||
+			bytes.Contains(body, []byte("API key not valid")) {
 			return true, "invalid_token"
 		}
 	}
@@ -768,18 +781,18 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 
 	// ── 百炼: 账户欠费（HTTP 400）──
 	// 官方文档: code=Arrearage, "Access denied, please make sure your account is in good standing."
-	if strings.Contains(bodyStr, `"Arrearage"`) ||
-		strings.Contains(bodyStr, `"code":"Arrearage"`) ||
-		strings.Contains(bodyStr, `"code": "Arrearage"`) {
+	if bytes.Contains(body, []byte(`"Arrearage"`)) ||
+		bytes.Contains(body, []byte(`"code":"Arrearage"`)) ||
+		bytes.Contains(body, []byte(`"code": "Arrearage"`)) {
 		return true, "Arrearage"
 	}
 
 	// ── 百炼: 免费额度用完 / 未开通（HTTP 403）──
 	// 官方文档: code=AccessDenied.Unpurchased / AllocationQuota.FreeTierOnly
-	if strings.Contains(bodyStr, "AccessDenied.Unpurchased") {
+	if bytes.Contains(body, []byte("AccessDenied.Unpurchased")) {
 		return true, "AccessDenied.Unpurchased"
 	}
-	if strings.Contains(bodyStr, "AllocationQuota.FreeTierOnly") {
+	if bytes.Contains(body, []byte("AllocationQuota.FreeTierOnly")) {
 		return true, "free_tier_exhausted"
 	}
 
@@ -788,22 +801,22 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	// Gemini:  "RESOURCE_EXHAUSTED" (429)
 	// 百炼:    code=QuotaExceeded / Throttling.AllocationQuota (429, TPS/TPM 配额耗尽)
 	// 百炼:    PrepaidBillOverdue / PostpaidBillOverdue / CommodityNotPurchased (429, 账单过期)
-	if strings.Contains(lower, "quota exceeded") ||
-		strings.Contains(lower, "exceeded your quota") ||
-		strings.Contains(lower, "you exceeded your current quota") ||
-		strings.Contains(lower, "resource_exhausted") ||
-		strings.Contains(bodyStr, `"code":"QuotaExceeded"`) ||
-		strings.Contains(bodyStr, "Throttling.AllocationQuota") ||
-		strings.Contains(bodyStr, "PrepaidBillOverdue") ||
-		strings.Contains(bodyStr, "PostpaidBillOverdue") ||
-		strings.Contains(bodyStr, "CommodityNotPurchased") {
+	if bytes.Contains(lower, []byte("quota exceeded")) ||
+		bytes.Contains(lower, []byte("exceeded your quota")) ||
+		bytes.Contains(lower, []byte("you exceeded your current quota")) ||
+		bytes.Contains(lower, []byte("resource_exhausted")) ||
+		bytes.Contains(body, []byte(`"code":"QuotaExceeded"`)) ||
+		bytes.Contains(body, []byte("Throttling.AllocationQuota")) ||
+		bytes.Contains(body, []byte("PrepaidBillOverdue")) ||
+		bytes.Contains(body, []byte("PostpaidBillOverdue")) ||
+		bytes.Contains(body, []byte("CommodityNotPurchased")) {
 		return true, "quota_exceeded"
 	}
 
 	// ── 账户被禁用/封禁 ──
-	if strings.Contains(lower, "account disabled") ||
-		strings.Contains(lower, "account suspended") ||
-		strings.Contains(lower, "account has been deactivated") {
+	if bytes.Contains(lower, []byte("account disabled")) ||
+		bytes.Contains(lower, []byte("account suspended")) ||
+		bytes.Contains(lower, []byte("account has been deactivated")) {
 		return true, "account_disabled"
 	}
 
@@ -814,11 +827,11 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	// Gemini:  "RESOURCE_EXHAUSTED"（已在上面配额耗尽中匹配）
 	// DeepSeek: "Rate Limit Reached"
 	if statusCode == 429 {
-		if strings.Contains(lower, "throttling") ||
-			strings.Contains(lower, "rate limit") ||
-			strings.Contains(lower, "too many requests") ||
-			strings.Contains(lower, "rate_limit_exceeded") ||
-			strings.Contains(lower, "rate_limit_error") {
+		if bytes.Contains(lower, []byte("throttling")) ||
+			bytes.Contains(lower, []byte("rate limit")) ||
+			bytes.Contains(lower, []byte("too many requests")) ||
+			bytes.Contains(lower, []byte("rate_limit_exceeded")) ||
+			bytes.Contains(lower, []byte("rate_limit_error")) {
 			return false, ""
 		}
 	}

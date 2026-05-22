@@ -24,6 +24,13 @@ func (p *Principal) AllowedTargets() []string {
 	return cloned
 }
 
+// AllowedTargetsSet returns the normalized allowed targets set directly.
+// The returned map must NOT be modified by the caller.
+// This avoids the allocation overhead of AllowedTargets() + normalizeAllowed().
+func (p *Principal) AllowedTargetsSet() map[string]struct{} {
+	return p.allowedTargets
+}
+
 // AllowAll indicates whether the principal can access all targets.
 func (p *Principal) AllowAll() bool {
 	return p.allowAll
