@@ -258,21 +258,6 @@ func main() {
 		r.HandleFunc("/*", proxyService.HandleCopilotPassthrough) // /copilot/* catch-all
 	})
 
-	// DeepSeek 子路由：/deepseek/* 同时承载 OpenAI 兼容（/chat/completions、/v1/chat/completions ...）
-	// 与 Anthropic 兼容（/v1/messages*）两种 API 格式。
-	// 路由层只负责剥前缀 + 注入 endpoint_type 约束；具体 OpenAI / Anthropic 上游路径分流由
-	// internal/proxy/url.go::buildURL 按客户端 path 自动识别。
-	protected.HandleFunc("/deepseek/*", func(w http.ResponseWriter, req *http.Request) {
-		stripped := strings.TrimPrefix(req.URL.Path, "/deepseek")
-		if stripped == "" {
-			stripped = "/"
-		}
-		req.URL.Path = stripped
-		req.URL.RawPath = ""
-		req = req.WithContext(proxy.WithEndpointTypeHint(req.Context(), config.EndpointTypeDeepSeek))
-		proxyService.ServeHTTP(w, req)
-	})
-
 	protected.NotFound(proxyService.ServeHTTP)
 
 	router.Mount("/", protected)

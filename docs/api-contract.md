@@ -54,19 +54,18 @@ This document describes the externally visible HTTP contract that the proxy expo
 - Successful responses set **both** `X-Proxy-Target: <target-name>` and `X-Azure-Target: <target-name>` so callers can identify the chosen backend. (`X-Azure-Target` is retained for backward compatibility with older clients.)
 - Streaming responses are relayed chunk-by-chunk (`io.Copy`), preserving status codes and headers except for hop-by-hop headers.
 
-### DeepSeek dual-format sub-route (`/deepseek/**`)
+### DeepSeek dual-format (`deepseek`)
 
-DeepSeek officially exposes the same models behind two parallel API surfaces: an OpenAI-compatible base (`https://api.deepseek.com`) and an Anthropic-compatible base (`https://api.deepseek.com/anthropic`). Both surfaces accept the same Bearer API key. To avoid forcing operators to register two near-identical targets, the proxy mounts a single sub-route that auto-detects the format from the request path.
+DeepSeek officially exposes the same models behind two parallel API surfaces: an OpenAI-compatible base (`https://api.deepseek.com`) and an Anthropic-compatible base (`https://api.deepseek.com/anthropic`). Both surfaces accept the same Bearer API key. The proxy auto-detects the format from the request path.
 
-- **Mount point**: `/deepseek/*` (authenticated, behind the same bearer-token middleware as other client routes).
-- **Routing constraint**: requests under `/deepseek/*` are pinned to targets whose `endpoint_type` is `deepseek` — the standard `X-Proxy-Target` / `?target=` hint and `allowed_targets` rules still apply, but only `deepseek` targets are eligible regardless of the request path.
-- **Path stripping**: the `/deepseek` prefix is removed before forwarding. The remaining path is then routed to the appropriate upstream surface:
-  - Paths matching `/v1/messages` (with or without trailing segments) are treated as Anthropic-format calls; the proxy prepends `/anthropic` to the upstream path. Example: client `POST /deepseek/v1/messages` → upstream `POST https://api.deepseek.com/anthropic/v1/messages`.
-  - All other paths (e.g. `/chat/completions`, `/v1/chat/completions`, `/embeddings`) are forwarded as-is to the OpenAI-compatible surface. Example: client `POST /deepseek/v1/chat/completions` → upstream `POST https://api.deepseek.com/v1/chat/completions`.
+- **Access**: DeepSeek targets are accessed through the root path `/` like other native endpoint types. Use `X-Proxy-Target: <target-name>` or configure `allowed_targets` to route to DeepSeek targets.
+- **Path handling**: the request path is forwarded directly; no prefix stripping is needed:
+  - Paths matching `/v1/messages` (with or without trailing segments) are treated as Anthropic-format calls; the proxy prepends `/anthropic` to the upstream path. Example: client `POST /v1/messages` → upstream `POST https://api.deepseek.com/anthropic/v1/messages`.
+  - All other paths (e.g. `/chat/completions`, `/v1/chat/completions`, `/embeddings`) are forwarded as-is to the OpenAI-compatible surface. Example: client `POST /v1/chat/completions` → upstream `POST https://api.deepseek.com/v1/chat/completions`.
 - **Authentication**: both formats receive `Authorization: Bearer <key>` injected from the target's `api_key`. Unlike upstream Anthropic, DeepSeek's Anthropic-compatible surface does **not** use `x-api-key`.
 - **Client SDK configuration**:
-  - OpenAI SDK: set `base_url` to `https://<your-domain>/deepseek` (or `/deepseek/v1`, depending on the SDK's path conventions) and `api_key` to a proxy bearer token.
-  - Anthropic SDK: set `base_url` to `https://<your-domain>/deepseek` and `api_key` to a proxy bearer token; the SDK will issue `POST /v1/messages` under that base.
+  - OpenAI SDK: set `base_url` to `https://<your-domain>/` (or `/v1`, depending on the SDK's path conventions) and `api_key` to a proxy bearer token; use `X-Proxy-Target: <deepseek-target>` to select the target.
+  - Anthropic SDK: set `base_url` to `https://<your-domain>/` and `api_key` to a proxy bearer token; the SDK will issue `POST /v1/messages` under that base. Use `X-Proxy-Target: <deepseek-target>` to select the target.
 - **Affinity & failover**: standard connection-affinity and multi-target failover behavior applies within the `deepseek` endpoint type — operators may register multiple `deepseek` targets (e.g. for multi-key pooling) and the proxy will round-robin / failover between them.
 
 ## Admin Authentication (Session-based)
@@ -323,7 +322,7 @@ The proxy increments internal metrics for total requests, retries, successes, an
 | 分类 | 路径入口 | 说明 | 包含的 endpoint_type |
 |------|---------|------|---------------------|
 | **原厂API** | 根路径 `/`（catch-all） | 上游提供标准厂商原生 API，代理仅做认证适配和转发 | `azure_openai`, `openai`, `claude`, `gemini`, `wangsu_openai`, `wangsu_claude`, `wangsu_gemini`, `wangsu_openai_image`, `wangsu_openai_image_edit` |
-| **非原厂API** | 专用路径前缀 | 上游协议与标准厂商 API 有显著差异，需要专用处理链 | `copilot`（`/copilot/*`）, `deepseek`（`/deepseek/*`） |
+| **非原厂API** | 专用路径前缀 | 上游协议与标准厂商 API 有显著差异，需要专用处理链 | `copilot`（`/copilot/*`） |
 
 ### 原厂API 路由
 客户端请求进入根路径 catch-all（`ServeHTTP`），代理按以下流程处理：
@@ -335,7 +334,6 @@ The proxy increments internal metrics for total requests, retries, successes, an
 
 ### 非原厂API 路由
 - **Copilot**：`/copilot/*` 路径 → `HandleCopilotPassthrough`（OAuth Token 池、模型名映射、premium request 计费）
-- **DeepSeek**：`/deepseek/*` 路径 → 剥前缀 + 注入 `endpoint_type=deepseek` hint → 进入标准代理流程（`buildURL` 自动识别 OpenAI/Anthropic 格式）
 
 ---
 
@@ -468,9 +466,9 @@ curl <proxy-host>/copilot/v1/chat/completions \
 
 **X-Initiator 头**：代理自动推断（`user` 扣 premium request，`agent` 不扣）。客户端可显式设置 `X-Initiator: user|agent` 覆盖推断。
 
-### DeepSeek（`/deepseek/*`）
+### DeepSeek (`deepseek`)
 
-**入口**：必须通过 `/deepseek/*` 路径访问。代理剥除 `/deepseek` 前缀后注入 `endpoint_type=deepseek` hint，进入标准代理流程。
+**入口**：通过根路径 `/` 访问，与其他原厂模型一致。使用 `X-Proxy-Target: <target-name>` 或 `allowed_targets` 选择 DeepSeek 目标。
 
 **上游认证**：`Authorization: Bearer <api-key>`（OpenAI 和 Anthropic 两种格式统一使用 Bearer）。
 
@@ -480,14 +478,16 @@ curl <proxy-host>/copilot/v1/chat/completions \
 
 ```bash
 # OpenAI 兼容格式
-curl <proxy-host>/deepseek/v1/chat/completions \
+curl <proxy-host>/v1/chat/completions \
   -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: <deepseek-target>" \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Hello"}]}'
 
 # Anthropic 兼容格式
-curl <proxy-host>/deepseek/v1/messages \
+curl <proxy-host>/v1/messages \
   -H "Authorization: Bearer <proxy-token>" \
+  -H "X-Proxy-Target: <deepseek-target>" \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-chat","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
 ```
@@ -595,8 +595,8 @@ Token Plan 图像生成使用 DashScope 原生 API 格式（非 OpenAI/Claude/Ge
 | 5 | Azure 目标 deployments 路径 | `POST /openai/deployments/gpt-4o/chat/completions` | 200 + api-version 自动追加 |
 | 6 | 网宿图像文生图 | `POST /v1/images/generations` + `X-Proxy-Target: wangsu-image` | 200 + 图片 URL/b64 |
 | 7 | Copilot 透传 | `POST /copilot/v1/chat/completions` | 200 + OAuth token 动态注入 |
-| 8 | DeepSeek OpenAI 格式 | `POST /deepseek/v1/chat/completions` | 200 + 直通上游 |
-| 9 | DeepSeek Anthropic 格式 | `POST /deepseek/v1/messages` | 200 + 上游加 `/anthropic` 前缀 |
+| 8 | DeepSeek OpenAI 格式 | `POST /v1/chat/completions` + `X-Proxy-Target: deepseek-target` | 200 + 直通上游 |
+| 9 | DeepSeek Anthropic 格式 | `POST /v1/messages` + `X-Proxy-Target: deepseek-target` | 200 + 上游加 `/anthropic` 前缀 |
 | 10 | Token Plan OpenAI 兼容 | `POST /v1/chat/completions` + `X-Proxy-Target: token-plan-openai` | 200 + qwen/deepseek 等模型 |
 | 11 | 模型白名单拒绝 | 请求不在 `allowed_models` 中的模型 | 403 Forbidden |
 | 12 | 路径不兼容跳过 | `POST /v1/images/generations` 但目标为 `wangsu_openai`（支持）vs 其他类型 | 自动选择兼容目标 |
