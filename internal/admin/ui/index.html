@@ -838,9 +838,9 @@
         <div class="page" id="page-usage">
           <div class="time-range-bar">
             <button class="time-range-btn" data-range="1h">近1小时</button>
-            <button class="time-range-btn" data-range="today">今日</button>
+            <button class="time-range-btn active" data-range="today">今日</button>
             <button class="time-range-btn" data-range="yesterday">昨日</button>
-            <button class="time-range-btn active" data-range="7d">近7天</button>
+            <button class="time-range-btn" data-range="7d">近7天</button>
             <button class="time-range-btn" data-range="30d">近30天</button>
             <button class="time-range-btn" data-range="custom">自定义</button>
             <div id="customRangeInputs" style="display:none;" class="form-row">
@@ -2198,7 +2198,7 @@
         return { from: from.toISOString(), to: to.toISOString() };
       }
 
-      var activeRange = "7d";
+      var activeRange = "today";
       document.querySelectorAll(".time-range-btn").forEach(function(btn) {
         btn.addEventListener("click", function() {
           document.querySelectorAll(".time-range-btn").forEach(function(b){b.classList.remove("active");});
