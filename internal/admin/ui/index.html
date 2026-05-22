@@ -1711,7 +1711,8 @@
           wangsu_openai_image:         { ph: "https://<网关>/openai-image",              tip: "网宿文生图终态 URL（请求 path 会被整体覆盖）。" },
           wangsu_openai_image_edit:    { ph: "https://<网关>/openai-image-edit",         tip: "网宿图编辑终态 URL（请求 path 会被整体覆盖）。" },
           copilot:                     { ph: "https://api.githubcopilot.com",            tip: "GitHub Copilot 上游；动态 token 由 Copilot 池化模块管理。" },
-          deepseek:                    { ph: "https://api.deepseek.com",                 tip: "DeepSeek 官方根 URL。通过根路径 / 访问，与其他原厂模型一致。支持 OpenAI 兼容（/chat/completions）与 Anthropic 兼容（/v1/messages）两种 API 格式，由请求路径自动识别。" }
+          deepseek:                    { ph: "https://api.deepseek.com",                 tip: "DeepSeek 官方根 URL。通过根路径 / 访问，与其他原厂模型一致。支持 OpenAI 兼容（/chat/completions）与 Anthropic 兼容（/v1/messages）两种 API 格式，由请求路径自动识别。" },
+          bailian:                    { ph: "https://token-plan.cn-beijing.maas.aliyuncs.com",                  tip: "百炼 Token Plan 双协议端点。按客户端路径自动分流：/v1/chat/completions → OpenAI 兼容，/v1/messages → Anthropic 兼容。" }
         };
         var p = presets[epType] || { ph: "https://api.example.com", tip: "" };
         if (ep) { ep.placeholder = p.ph; }

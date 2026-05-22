@@ -35,6 +35,17 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 		path = "/anthropic" + ensureLeadingSlash(path)
 	}
 
+	// 百炼 Token Plan：同一个 base_url 下兼容 OpenAI 与 Anthropic 两种格式。
+	// 客户端发到 /v1/messages（Anthropic 风格）时，上游加 /apps/anthropic 前缀。
+	// 其余路径（/v1/chat/completions 等）加 /compatible-mode 前缀。
+	if target.EndpointType == config.EndpointTypeBailian {
+		if isAnthropicStylePath(original.Path) {
+			path = "/apps/anthropic" + ensureLeadingSlash(path)
+		} else {
+			path = "/compatible-mode" + ensureLeadingSlash(path)
+		}
+	}
+
 	// Concatenate paths explicitly instead of using url.URL.Parse, because
 	// url.Parse treats paths starting with "/" as absolute and would discard
 	// any sub-path already present in the endpoint (e.g. a gateway base path

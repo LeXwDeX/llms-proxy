@@ -153,6 +153,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		// DeepSeek 官方：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
 		// 上游路径分流由 buildURL 完成（/v1/messages* 自动加 /anthropic 前缀）。
 		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+	case config.EndpointTypeBailian:
+		// 百炼 Token Plan：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
+		// 上游路径分流由 buildURL 完成（/v1/messages* 走 /apps/anthropic，其余走 /compatible-mode）。
+		req.Header.Set("Authorization", "Bearer "+target.APIKey)
+		if isAnthropicStylePath(r.URL.Path) {
+			if req.Header.Get("anthropic-version") == "" {
+				req.Header.Set("anthropic-version", "2023-06-01")
+			}
+		}
 	case config.EndpointTypeCopilot:
 		// Copilot 动态 token 由 HandleCopilotPassthrough（/copilot/* 路径）处理。
 		// 此处仅作为降级路径（copilotService 未配置时使用静态 APIKey）。

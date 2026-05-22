@@ -70,6 +70,10 @@ var endpointTypes = []EndpointTypeMeta{
 		Code: EndpointTypeDeepSeek, DisplayName: "DeepSeek", ShortLabel: "DeepSeek",
 		BadgeBackground: "#eef2ff", BadgeForeground: "#4f46e5",
 	},
+	{
+		Code: EndpointTypeBailian, DisplayName: "百炼 Token Plan", ShortLabel: "百炼",
+		BadgeBackground: "#fff7ed", BadgeForeground: "#ea580c",
+	},
 }
 
 // AllEndpointTypeMetas returns a copy of all registered endpoint type metadata

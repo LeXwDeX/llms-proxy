@@ -321,7 +321,7 @@ The proxy increments internal metrics for total requests, retries, successes, an
 
 | 分类 | 路径入口 | 说明 | 包含的 endpoint_type |
 |------|---------|------|---------------------|
-| **原厂API** | 根路径 `/`（catch-all） | 上游提供标准厂商原生 API，代理仅做认证适配和转发 | `azure_openai`, `openai`, `claude`, `gemini`, `wangsu_openai`, `wangsu_claude`, `wangsu_gemini`, `wangsu_openai_image`, `wangsu_openai_image_edit` |
+| **原厂API** | 根路径 `/`（catch-all） | 上游提供标准厂商原生 API，代理仅做认证适配和转发 | `azure_openai`, `openai`, `claude`, `gemini`, `deepseek`, `bailian`, `wangsu_openai`, `wangsu_claude`, `wangsu_gemini`, `wangsu_openai_image`, `wangsu_openai_image_edit` |
 | **非原厂API** | 专用路径前缀 | 上游协议与标准厂商 API 有显著差异，需要专用处理链 | `copilot`（`/copilot/*`） |
 
 ### 原厂API 路由
@@ -510,45 +510,32 @@ curl <proxy-host>/v1/messages \
 
 ### 代理配置示例
 
-#### OpenAI 兼容端点（复用 `openai` 类型）
+使用单一 `bailian` 类型，按客户端请求路径自动分流到上游 OpenAI 或 Anthropic 兼容端点。
 
 ```json
 {
-  "name": "token-plan-openai",
-  "endpoint_type": "openai",
-  "endpoint": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+  "name": "token-plan",
+  "endpoint_type": "bailian",
+  "endpoint": "https://token-plan.cn-beijing.maas.aliyuncs.com",
   "api_key": "sk-sp-xxx",
   "allowed_models": ["qwen3.7-max", "qwen3.6-plus", "qwen3.6-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3.2", "kimi-k2.6", "kimi-k2.5", "glm-5.1", "glm-5", "MiniMax-M2.5"]
 }
 ```
 
-客户端调用：
+客户端调用 OpenAI 格式（自动路由到 `/compatible-mode/v1`）：
 ```bash
 curl <proxy-host>/v1/chat/completions \
   -H "Authorization: Bearer <proxy-token>" \
-  -H "X-Proxy-Target: token-plan-openai" \
+  -H "X-Proxy-Target: token-plan" \
   -H "Content-Type: application/json" \
   -d '{"model":"qwen3.7-max","messages":[{"role":"user","content":"你好"}]}'
 ```
 
-#### Anthropic 兼容端点（`claude` 类型 + `auth_mode: "bearer"`）
-
-```json
-{
-  "name": "token-plan-anthropic",
-  "endpoint_type": "claude",
-  "endpoint": "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
-  "api_key": "sk-sp-xxx",
-  "auth_mode": "bearer",
-  "allowed_models": ["qwen3.7-max", "qwen3.6-plus", "qwen3.6-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3.2"]
-}
-```
-
-客户端调用（标准 Anthropic 格式）：
+客户端调用 Anthropic 格式（自动路由到 `/apps/anthropic/v1/messages`）：
 ```bash
 curl <proxy-host>/v1/messages \
   -H "Authorization: Bearer <proxy-token>" \
-  -H "X-Proxy-Target: token-plan-anthropic" \
+  -H "X-Proxy-Target: token-plan" \
   -H "Content-Type: application/json" \
   -d '{"model":"qwen3.7-max","max_tokens":1024,"messages":[{"role":"user","content":"你好"}]}'
 ```
@@ -590,14 +577,14 @@ Token Plan 图像生成使用 DashScope 原生 API 格式（非 OpenAI/Claude/Ge
 |---|------|------|------|
 | 1 | OpenAI 目标 chat completions | `POST /v1/chat/completions` + `X-Proxy-Target: openai-target` | 200 + 流式/JSON 响应 |
 | 2 | Claude 目标 messages | `POST /v1/messages` + `X-Proxy-Target: claude-target` | 200 + Anthropic 格式响应 |
-| 3 | Claude 目标 auth_mode=bearer | `POST /v1/messages` + `X-Proxy-Target: token-plan-anthropic` | 200 + 上游使用 Bearer 认证 |
+| 3 | 百炼 Anthropic 格式 | `POST /v1/messages` + `X-Proxy-Target: token-plan` | 200 + 上游路由到 `/apps/anthropic`，Bearer 认证 |
 | 4 | Gemini 目标 generateContent | `POST /v1beta/models/gemini-2.5-pro:generateContent` | 200 + Gemini 格式响应 |
 | 5 | Azure 目标 deployments 路径 | `POST /openai/deployments/gpt-4o/chat/completions` | 200 + api-version 自动追加 |
 | 6 | 网宿图像文生图 | `POST /v1/images/generations` + `X-Proxy-Target: wangsu-image` | 200 + 图片 URL/b64 |
 | 7 | Copilot 透传 | `POST /copilot/v1/chat/completions` | 200 + OAuth token 动态注入 |
 | 8 | DeepSeek OpenAI 格式 | `POST /v1/chat/completions` + `X-Proxy-Target: deepseek-target` | 200 + 直通上游 |
 | 9 | DeepSeek Anthropic 格式 | `POST /v1/messages` + `X-Proxy-Target: deepseek-target` | 200 + 上游加 `/anthropic` 前缀 |
-| 10 | Token Plan OpenAI 兼容 | `POST /v1/chat/completions` + `X-Proxy-Target: token-plan-openai` | 200 + qwen/deepseek 等模型 |
+| 10 | 百炼 OpenAI 格式 | `POST /v1/chat/completions` + `X-Proxy-Target: token-plan` | 200 + 上游路由到 `/compatible-mode`，qwen/deepseek 等模型 |
 | 11 | 模型白名单拒绝 | 请求不在 `allowed_models` 中的模型 | 403 Forbidden |
 | 12 | 路径不兼容跳过 | `POST /v1/images/generations` 但目标为 `wangsu_openai`（支持）vs 其他类型 | 自动选择兼容目标 |
 | 13 | 目标 failover | 主目标网络不可达 | 自动切换到备用目标 |
