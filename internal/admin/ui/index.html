@@ -1651,11 +1651,12 @@
         tb.innerHTML = state.targets.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(t) {
           var models = Array.isArray(t.allowed_models) && t.allowed_models.length > 0
             ? esc(t.allowed_models.join(", ")) : "<span style='color:var(--text-muted)'>不限</span>";
-          var keyCount = Array.isArray(t.api_keys) ? t.api_keys.length : 0;
+          var extraKeyCount = Array.isArray(t.api_keys) ? t.api_keys.length : 0;
+          var totalKeyCount = (t.has_api_key ? 1 : 0) + extraKeyCount;
           var keyStatus = t.has_api_key
             ? (t.auth_mode === "bearer"
               ? "<span style='color:var(--success)'>✅ Bearer</span>"
-              : "<span style='color:var(--success)'>✅ 已配置</span>" + (keyCount > 1 ? " <span style='background:#dbeafe;color:#2563eb;padding:1px 6px;border-radius:4px;font-size:11px;'>"+keyCount+" keys</span>" : ""))
+              : "<span style='color:var(--success)'>✅ 已配置</span>" + (totalKeyCount > 1 ? " <span style='background:#dbeafe;color:#2563eb;padding:1px 6px;border-radius:4px;font-size:11px;'>"+totalKeyCount+" keys</span>" : ""))
             : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
           var sseAgg = (t.sse_auto_aggregate !== false)
             ? "<span style='color:var(--success)'>✅</span>"
@@ -1695,7 +1696,6 @@
         var epType = document.getElementById("tgtType").value;
         var isAzure = (epType === "azure_openai");
         var isClaude = (epType === "claude" || epType === "wangsu_claude");
-        var isBailian = (epType === "bailian");
         document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
@@ -1822,10 +1822,10 @@
               auth_mode: authMode,
               allowed_models: models,
               sse_auto_aggregate: sseAutoAgg,
+              api_key: apiKey,
               api_keys: apiKeys,
               key_cooldown_seconds: keyCooldown
             };
-            if (apiKey) { updateBody.api_key = apiKey; }
             await api("/admin/data/targets/"+encodeURIComponent(name), { method: "PUT", body: updateBody });
             toast("目标已更新", "success");
           } else {
