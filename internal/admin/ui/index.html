@@ -1960,10 +1960,21 @@
               auth_mode: authMode,
               allowed_models: models,
               sse_auto_aggregate: sseAutoAgg,
+              api_key: apiKey,
               api_keys: apiKeys,
-        key_reset_time: keyResetTime
-      }});
-      toast("目标已创建", "success");
+              key_reset_time: keyResetTime
+            };
+            await api("/admin/data/targets/"+encodeURIComponent(name), { method: "PUT", body: updateBody });
+            toast("目标已更新", "success");
+          } else {
+            await api("/admin/data/targets", { method: "POST", body: {
+              name: name, endpoint_type: epType, endpoint: endpoint,
+              resource_path_prefix: rpp, api_key: apiKey,
+              allow_bearer_passthrough: allowBearer, auth_mode: authMode,
+              allowed_models: models, sse_auto_aggregate: sseAutoAgg,
+              api_keys: apiKeys, key_reset_time: keyResetTime
+            }});
+            toast("目标已创建", "success");
           }
           closeModal("targetModal");
           await loadTargets();
