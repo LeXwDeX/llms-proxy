@@ -14,6 +14,7 @@ type keyEntry struct {
 	exhaustedAt   time.Time
 	exhaustReason string    // 耗尽原因
 	cooldownEnd   time.Time // 冷却结束时间
+	blocked       bool      // 手动屏蔽（永久，直到手动解除）
 }
 
 // keyPool 管理一个 target 的多个 API key。
@@ -84,13 +85,16 @@ func (p *keyPool) selectKey() (string, int) {
 
 	// 第一轮：找第一个 active 的
 	for i := range p.entries {
-		if !p.entries[i].exhausted {
+		if !p.entries[i].exhausted && !p.entries[i].blocked {
 			return p.entries[i].key, i
 		}
 	}
 
-	// 第二轮：全部 exhausted，找冷却期已过的最旧的
+	// 第二轮：全部 exhausted/blocked，找冷却期已过的最旧的（跳过 blocked）
 	for i := range p.entries {
+		if p.entries[i].blocked {
+			continue
+		}
 		if now.After(p.entries[i].cooldownEnd) || now.Equal(p.entries[i].cooldownEnd) {
 			p.entries[i].exhausted = false
 			p.entries[i].exhaustedAt = time.Time{}
@@ -132,15 +136,15 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 	// 1. 计算亲和 key index
 	preferred := int(hashClientKey(clientName, p.targetName) % uint32(n))
 
-	// 2. 优先用亲和 key（如果 active）
-	if !p.entries[preferred].exhausted {
+	// 2. 优先用亲和 key（如果 active 且未 blocked）
+	if !p.entries[preferred].exhausted && !p.entries[preferred].blocked {
 		return p.entries[preferred].key, preferred
 	}
 
-	// 3. 亲和 key exhausted，溢出：从 preferred+1 开始找第一个 active
+	// 3. 亲和 key exhausted/blocked，溢出：从 preferred+1 开始找第一个 active
 	for offset := 1; offset < n; offset++ {
 		idx := (preferred + offset) % n
-		if !p.entries[idx].exhausted {
+		if !p.entries[idx].exhausted && !p.entries[idx].blocked {
 			maskKey := maskAPIKey(p.entries[idx].key)
 			p.logger.Info("[keypool] affinity overflow",
 				"target", p.targetName,
@@ -153,9 +157,12 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 		}
 	}
 
-	// 4. 全部 exhausted，找冷却期已过的最旧的（从 preferred 开始优先恢复自己的亲和 key）
+	// 4. 全部 exhausted/blocked，找冷却期已过的最旧的（跳过 blocked）
 	for offset := 0; offset < n; offset++ {
 		idx := (preferred + offset) % n
+		if p.entries[idx].blocked {
+			continue
+		}
 		if now.After(p.entries[idx].cooldownEnd) || now.Equal(p.entries[idx].cooldownEnd) {
 			p.entries[idx].exhausted = false
 			p.entries[idx].exhaustedAt = time.Time{}
@@ -251,10 +258,47 @@ func (p *keyPool) resetAll() {
 		p.entries[i].exhaustedAt = time.Time{}
 		p.entries[i].exhaustReason = ""
 		p.entries[i].cooldownEnd = time.Time{}
+		p.entries[i].blocked = false
 	}
 	p.logger.Info("[keypool] all keys reset",
 		"target", p.targetName,
 		"count", len(p.entries),
+	)
+}
+
+// blockKey 手动屏蔽指定 key（永久，直到手动解除）。
+func (p *keyPool) blockKey(index int) {
+	if p == nil || index < 0 || index >= len(p.entries) {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.entries[index].blocked = true
+	maskKey := maskAPIKey(p.entries[index].key)
+	p.logger.Info("[keypool] key blocked manually",
+		"target", p.targetName,
+		"key_index", index,
+		"key", maskKey,
+	)
+}
+
+// unblockKey 解除手动屏蔽。
+func (p *keyPool) unblockKey(index int) {
+	if p == nil || index < 0 || index >= len(p.entries) {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.entries[index].blocked = false
+	p.entries[index].exhausted = false
+	p.entries[index].exhaustedAt = time.Time{}
+	p.entries[index].exhaustReason = ""
+	p.entries[index].cooldownEnd = time.Time{}
+	maskKey := maskAPIKey(p.entries[index].key)
+	p.logger.Info("[keypool] key unblocked manually",
+		"target", p.targetName,
+		"key_index", index,
+		"key", maskKey,
 	)
 }
 
@@ -266,6 +310,8 @@ type KeyStatus struct {
 	ExhaustReason string    `json:"exhaust_reason,omitempty"`
 	ExhaustedAt   time.Time `json:"exhausted_at,omitempty"`
 	CooldownEnd   time.Time `json:"cooldown_end,omitempty"`
+	Blocked       bool      `json:"blocked"`
+	Status        string    `json:"status"` // 已屏蔽 / 额度超限 / 限流中 / 使用中 / 等待中 / 使用过
 }
 
 func (p *keyPool) status() []KeyStatus {
@@ -274,18 +320,48 @@ func (p *keyPool) status() []KeyStatus {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	now := time.Now()
 	result := make([]KeyStatus, len(p.entries))
+
+	// 找第一个 active key 作为"使用中"
+	currentIdx := -1
+	for i, e := range p.entries {
+		if !e.exhausted && !e.blocked {
+			currentIdx = i
+			break
+		}
+	}
+
 	for i, e := range p.entries {
 		ks := KeyStatus{
 			Index:     i,
 			KeyMask:   maskAPIKey(e.key),
 			Exhausted: e.exhausted,
+			Blocked:   e.blocked,
 		}
 		if e.exhausted {
 			ks.ExhaustReason = e.exhaustReason
 			ks.ExhaustedAt = e.exhaustedAt
 			ks.CooldownEnd = e.cooldownEnd
 		}
+
+		// 计算显示状态
+		switch {
+		case e.blocked:
+			ks.Status = "已屏蔽"
+		case e.exhausted && e.exhaustReason == "quota_exceeded":
+			ks.Status = "额度超限"
+		case e.exhausted && e.exhaustReason == "rate_limited" && now.Before(e.cooldownEnd):
+			ks.Status = "限流中"
+		case e.exhausted:
+			ks.Status = "使用过"
+		case i == currentIdx:
+			ks.Status = "使用中"
+		default:
+			ks.Status = "等待中"
+		}
+
 		result[i] = ks
 	}
 	return result

@@ -1218,9 +1218,13 @@
           <input class="form-control" id="tgtRpp" placeholder="/openai" value="/openai">
         </div>
         <div class="form-group" id="tgtApiKeysGroup">
-          <label>API Keys（一行一个）<span style="color:#ef4444">*</span></label>
-          <textarea class="form-control" id="tgtApiKeys" rows="4" placeholder="sk-key1&#10;sk-key2&#10;sk-key3" style="font-family:monospace;font-size:12px;"></textarea>
-          <small style="color:var(--text-muted)">第一个为主 Key；多个 Key 时按顺序消费（集中流量最大化单 Key 缓存命中），耗尽自动切换到下一个</small>
+          <label>API Keys <span style="color:#ef4444">*</span></label>
+          <div id="keyCardList" style="display:none;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:8px;">
+            <input class="form-control" id="tgtNewKeyInput" placeholder="sk-..." style="font-family:monospace;font-size:12px;flex:1;">
+            <button class="btn btn-sm" id="addKeyBtn" type="button">+ 添加</button>
+          </div>
+          <small style="color:var(--text-muted)">按顺序消费（集中流量最大化单 Key 缓存命中），耗尽自动切换到下一个</small>
         </div>
         <div class="form-group" id="tgtBearerGroup">
           <label style="display:flex;align-items:center;gap:8px;">
@@ -1669,6 +1673,120 @@
           renderTargets();
         } catch(e) { toast("加载目标失败: "+e.message, "error"); }
       }
+      /* ===== Key Card List (target modal) ===== */
+      var tgtKeyList = []; // [{value: "sk-xxx", status: {index, key_mask, status, blocked, exhausted, exhaust_reason, cooldown_end}}]
+
+      function maskKeyLocal(k) {
+        if (!k || k.length <= 10) return "***";
+        return k.substring(0,6) + "***" + k.substring(k.length-4);
+      }
+
+      function keyStatusColor(s) {
+        switch(s) {
+          case "已屏蔽": return "background:#fee2e2;color:#dc2626";
+          case "额度超限": return "background:#fef3c7;color:#d97706";
+          case "限流中": return "background:#ffedd5;color:#c2410c";
+          case "使用中": return "background:#dcfce7;color:#16a34a";
+          case "等待中": return "background:#f1f5f9;color:#64748b";
+          case "使用过": return "background:#e0e7ff;color:#4f46e5";
+          default: return "background:#f1f5f9;color:#64748b";
+        }
+      }
+
+      function renderKeyList() {
+        var container = document.getElementById("keyCardList");
+        if (!tgtKeyList.length) { container.style.display = "none"; container.innerHTML = ""; return; }
+        container.style.display = "block";
+        var isEditing = !!state.editingTarget;
+        container.innerHTML = tgtKeyList.map(function(item, i) {
+          var mask = item.status ? item.status.key_mask : maskKeyLocal(item.value);
+          var statusBadge = "";
+          if (item.status) {
+            statusBadge = "<span style='"+keyStatusColor(item.status.status)+";padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;'>" + esc(item.status.status) + "</span>";
+          }
+          var actions = "";
+          if (isEditing && item.status) {
+            var idx = item.status.index;
+            if (item.status.blocked || item.status.exhausted) {
+              actions = "<button class='btn btn-sm' data-unblock-key-idx='"+idx+"' title='解除屏蔽' style='padding:2px 8px;font-size:11px;'>🔓</button>";
+            } else {
+              actions = "<button class='btn btn-sm' data-block-key-idx='"+idx+"' title='屏蔽' style='padding:2px 8px;font-size:11px;'>🔒</button>";
+            }
+          }
+          var removeBtn = "<button class='btn btn-sm' data-remove-key-idx='"+i+"' title='移除' style='padding:2px 8px;font-size:11px;color:var(--danger);'>✕</button>";
+          var cooldownInfo = "";
+          if (item.status && item.status.exhausted && item.status.cooldown_end) {
+            var cd = new Date(item.status.cooldown_end);
+            var now = new Date();
+            if (cd > now) {
+              var mins = Math.ceil((cd - now) / 60000);
+              cooldownInfo = "<span style='font-size:11px;color:var(--text-muted);'>" + mins + "min</span>";
+            }
+          }
+          return "<div style='display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;margin-bottom:4px;background:#fafbfc;'>"
+            + "<span style='font-family:monospace;font-size:12px;color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+esc(item.value ? maskKeyLocal(item.value) : mask)+"'>" + esc(mask) + "</span>"
+            + statusBadge + cooldownInfo + actions + removeBtn
+            + "</div>";
+        }).join("");
+      }
+
+      function addKeyToList() {
+        var input = document.getElementById("tgtNewKeyInput");
+        var val = input.value.trim();
+        if (!val) return;
+        // dedup
+        for (var i = 0; i < tgtKeyList.length; i++) {
+          if (tgtKeyList[i].value === val) { toast("Key 已存在", "error"); return; }
+        }
+        tgtKeyList.push({value: val, status: null});
+        input.value = "";
+        renderKeyList();
+      }
+
+      function removeKeyFromList(idx) {
+        tgtKeyList.splice(idx, 1);
+        renderKeyList();
+      }
+
+      document.getElementById("addKeyBtn").addEventListener("click", addKeyToList);
+      document.getElementById("tgtNewKeyInput").addEventListener("keydown", function(e) {
+        if (e.key === "Enter") { e.preventDefault(); addKeyToList(); }
+      });
+
+      // Event delegation for key card actions (block/unblock/remove)
+      document.getElementById("keyCardList").addEventListener("click", function(e) {
+        var t = e.target;
+        if (t.dataset.removeKeyIdx !== undefined) {
+          removeKeyFromList(parseInt(t.dataset.removeKeyIdx, 10));
+        }
+        if (t.dataset.blockKeyIdx !== undefined && state.editingTarget) {
+          var idx = parseInt(t.dataset.blockKeyIdx, 10);
+          var name = state.editingTarget.name;
+          showConfirm("确认屏蔽此 Key？", async function() {
+            try {
+              await api("/admin/data/targets/"+encodeURIComponent(name)+"/keys/"+idx+"/block", {method:"PUT"});
+              toast("已屏蔽 Key", "success");
+              await loadTargets();
+              var tgt = state.targets.find(function(x){return x.name===name;});
+              if (tgt) openTargetModal(tgt);
+            } catch(err) { toast("操作失败: "+err.message, "error"); }
+          });
+        }
+        if (t.dataset.unblockKeyIdx !== undefined && state.editingTarget) {
+          var idx2 = parseInt(t.dataset.unblockKeyIdx, 10);
+          var name2 = state.editingTarget.name;
+          (async function() {
+            try {
+              await api("/admin/data/targets/"+encodeURIComponent(name2)+"/keys/"+idx2+"/unblock", {method:"PUT"});
+              toast("已解除屏蔽", "success");
+              await loadTargets();
+              var tgt2 = state.targets.find(function(x){return x.name===name2;});
+              if (tgt2) openTargetModal(tgt2);
+            } catch(err) { toast("操作失败: "+err.message, "error"); }
+          })();
+        }
+      });
+
       function renderTargets() {
         var tb = document.getElementById("targetsTableBody");
         if (!state.targets.length) {
@@ -1687,10 +1805,12 @@
             : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
           var keyPoolInfo = "";
           if (Array.isArray(t.key_statuses) && t.key_statuses.length > 0) {
-            var exhaustedCount = t.key_statuses.filter(function(s){ return s.exhausted; }).length;
-            if (exhaustedCount > 0) {
-              keyPoolInfo = " <span style='background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:11px;'>" + exhaustedCount + " blocked</span>";
-            }
+            var blockedCount = t.key_statuses.filter(function(s){ return s.blocked; }).length;
+            var quotaCount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "quota_exceeded"; }).length;
+            var rateCount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "rate_limited"; }).length;
+            if (blockedCount > 0) keyPoolInfo += " <span style='background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:11px;'>" + blockedCount + " 屏蔽</span>";
+            if (quotaCount > 0) keyPoolInfo += " <span style='background:#fef3c7;color:#d97706;padding:1px 6px;border-radius:4px;font-size:11px;'>" + quotaCount + " 超限</span>";
+            if (rateCount > 0) keyPoolInfo += " <span style='background:#ffedd5;color:#c2410c;padding:1px 6px;border-radius:4px;font-size:11px;'>" + rateCount + " 限流</span>";
           }
           keyStatus += keyPoolInfo;
           var sseAgg = (t.sse_auto_aggregate !== false)
@@ -1821,15 +1941,24 @@
         document.getElementById("tgtCacheControlFallback").value = cc.fallback || "second_to_last";
         document.getElementById("cacheControlOptions").style.display = cc.enabled ? "block" : "none";
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
-        // API Keys：合并 api_key + api_keys 到 textarea（去重，api_key 排第一）
-        var allKeys = [];
-        if (t && t.api_key) { allKeys.push(t.api_key); }
+        // API Keys：构建卡片列表（合并 api_key + api_keys + key_statuses）
+        tgtKeyList = [];
+        var keyStatuses = (t && Array.isArray(t.key_statuses)) ? t.key_statuses : [];
+        if (t && t.api_key) {
+          var ks0 = keyStatuses.find(function(s){return s.index===0;}) || null;
+          tgtKeyList.push({value: t.api_key, status: ks0});
+        }
         if (t && Array.isArray(t.api_keys)) {
-          t.api_keys.forEach(function(k) {
-            if (k && allKeys.indexOf(k) === -1) { allKeys.push(k); }
+          t.api_keys.forEach(function(k, i) {
+            if (!k) return;
+            // dedup against api_key
+            if (t.api_key && k === t.api_key) return;
+            var ksIdx = keyStatuses.find(function(s){return s.index===(i+1);}) || null;
+            tgtKeyList.push({value: k, status: ksIdx});
           });
         }
-        document.getElementById("tgtApiKeys").value = allKeys.join("\n");
+        renderKeyList();
+        document.getElementById("tgtNewKeyInput").value = "";
         document.getElementById("tgtKeyCooldown").value = t && t.key_cooldown_seconds ? t.key_cooldown_seconds : 1800;
         document.getElementById("tgtKeyResetTime").value = t && t.key_reset_time ? t.key_reset_time : "";
         updateTargetFormVisibility();
@@ -1867,8 +1996,8 @@
         var cacheControlFallback = document.getElementById("tgtCacheControlFallback").value || "second_to_last";
         var cacheControl = { enabled: cacheControlEnabled, role: cacheControlRole, fallback: cacheControlFallback };
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
-        // 统一 keypool：textarea 第一行为 api_key，其余为 api_keys
-        var allKeys = document.getElementById("tgtApiKeys").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
+        // 统一 keypool：从卡片列表读取，第一个为 api_key，其余为 api_keys
+        var allKeys = tgtKeyList.map(function(item){return item.value;}).filter(Boolean);
         var apiKey = allKeys.length > 0 ? allKeys[0] : "";
         var apiKeys = allKeys.length > 1 ? allKeys.slice(1) : [];
         var keyCooldown = parseInt(document.getElementById("tgtKeyCooldown").value, 10) || 0;

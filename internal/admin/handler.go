@@ -106,6 +106,8 @@ func NewHandler(
 		r.Put("/targets/{name}", h.handleUpdateTarget)
 		r.Delete("/targets/{name}", h.handleDeleteTarget)
 		r.Put("/targets/{name}/reset-keys", h.handleResetTargetKeys)
+		r.Put("/targets/{name}/keys/{index}/block", h.handleBlockTargetKey)
+		r.Put("/targets/{name}/keys/{index}/unblock", h.handleUnblockTargetKey)
 
 		// Copilot pool management
 		r.Get("/copilot-pools", h.handleListCopilotPools)
@@ -997,6 +999,50 @@ func (h *Handler) handleResetTargetKeys(w http.ResponseWriter, r *http.Request) 
 
 	h.recordAudit(r, "reset_target_keys", name, "success", fmt.Sprintf("reset_count=%d", count))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reset_count": count})
+}
+
+func (h *Handler) handleBlockTargetKey(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	indexStr := chi.URLParam(r, "index")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid key index"))
+		return
+	}
+
+	if err := h.proxyService.BlockKey(name, index); err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	h.recordAudit(r, "block_target_key", name, "success", fmt.Sprintf("key_index=%d", index))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handleUnblockTargetKey(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	indexStr := chi.URLParam(r, "index")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse("invalid key index"))
+		return
+	}
+
+	if err := h.proxyService.UnblockKey(name, index); err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	h.recordAudit(r, "unblock_target_key", name, "success", fmt.Sprintf("key_index=%d", index))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h *Handler) saveConfig(cfg *config.Config) error {

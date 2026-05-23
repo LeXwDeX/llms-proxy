@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -580,6 +581,36 @@ func (s *Service) ResetKeyPool(targetName string) int {
 	}
 	state.keyPool.resetAll()
 	return len(state.keyPool.entries)
+}
+
+// BlockKey manually blocks a specific key in the target's key pool.
+func (s *Service) BlockKey(targetName string, index int) error {
+	s.mu.RLock()
+	state, ok := s.targetsByName[strings.ToLower(targetName)]
+	s.mu.RUnlock()
+	if !ok || state == nil || state.keyPool == nil {
+		return fmt.Errorf("target %q not found or has no key pool", targetName)
+	}
+	if index < 0 || index >= len(state.keyPool.entries) {
+		return fmt.Errorf("key index %d out of range", index)
+	}
+	state.keyPool.blockKey(index)
+	return nil
+}
+
+// UnblockKey manually unblocks a specific key in the target's key pool.
+func (s *Service) UnblockKey(targetName string, index int) error {
+	s.mu.RLock()
+	state, ok := s.targetsByName[strings.ToLower(targetName)]
+	s.mu.RUnlock()
+	if !ok || state == nil || state.keyPool == nil {
+		return fmt.Errorf("target %q not found or has no key pool", targetName)
+	}
+	if index < 0 || index >= len(state.keyPool.entries) {
+		return fmt.Errorf("key index %d out of range", index)
+	}
+	state.keyPool.unblockKey(index)
+	return nil
 }
 
 func (s *Service) setRequestTimeout(timeout time.Duration) {
