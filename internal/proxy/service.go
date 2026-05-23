@@ -349,6 +349,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// 百炼自动注入 cache_control（仅 3 轮及以上对话）
+		if target.EndpointType == config.EndpointTypeBailian {
+			forwardBody = injectBailianCacheControl(forwardBody)
+		}
+
 		startedAt := time.Now()
 		var resp *http.Response
 		var cancel context.CancelFunc
