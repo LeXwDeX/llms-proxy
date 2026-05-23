@@ -246,26 +246,6 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 	)
 }
 
-// resetAll 重置所有 key 为 active（config reload / admin 手动重置时调用）。
-func (p *keyPool) resetAll() {
-	if p == nil {
-		return
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for i := range p.entries {
-		p.entries[i].exhausted = false
-		p.entries[i].exhaustedAt = time.Time{}
-		p.entries[i].exhaustReason = ""
-		p.entries[i].cooldownEnd = time.Time{}
-		p.entries[i].blocked = false
-	}
-	p.logger.Info("[keypool] all keys reset",
-		"target", p.targetName,
-		"count", len(p.entries),
-	)
-}
-
 // blockKey 手动屏蔽指定 key（永久，直到手动解除）。
 func (p *keyPool) blockKey(index int) {
 	if p == nil || index < 0 || index >= len(p.entries) {

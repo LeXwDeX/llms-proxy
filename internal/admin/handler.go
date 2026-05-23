@@ -105,7 +105,6 @@ func NewHandler(
 		r.Post("/targets", h.handleCreateTarget)
 		r.Put("/targets/{name}", h.handleUpdateTarget)
 		r.Delete("/targets/{name}", h.handleDeleteTarget)
-		r.Put("/targets/{name}/reset-keys", h.handleResetTargetKeys)
 		r.Put("/targets/{name}/keys/{index}/block", h.handleBlockTargetKey)
 		r.Put("/targets/{name}/keys/{index}/unblock", h.handleUnblockTargetKey)
 
@@ -982,23 +981,6 @@ func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 
 	h.recordAudit(r, "delete_target", name, "success", "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (h *Handler) handleResetTargetKeys(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
-		return
-	}
-
-	count := h.proxyService.ResetKeyPool(name)
-	if count < 0 {
-		writeJSON(w, http.StatusNotFound, errorResponse(fmt.Sprintf("target %q not found or has no key pool", name)))
-		return
-	}
-
-	h.recordAudit(r, "reset_target_keys", name, "success", fmt.Sprintf("reset_count=%d", count))
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reset_count": count})
 }
 
 func (h *Handler) handleBlockTargetKey(w http.ResponseWriter, r *http.Request) {

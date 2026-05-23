@@ -571,18 +571,6 @@ func (s *Service) KeyPoolStatus(targetName string) []KeyStatus {
 	return state.keyPool.status()
 }
 
-// ResetKeyPool resets all keys in the target's key pool. Returns the number of keys reset, or -1 if not found.
-func (s *Service) ResetKeyPool(targetName string) int {
-	s.mu.RLock()
-	state, ok := s.targetsByName[strings.ToLower(targetName)]
-	s.mu.RUnlock()
-	if !ok || state == nil || state.keyPool == nil {
-		return -1
-	}
-	state.keyPool.resetAll()
-	return len(state.keyPool.entries)
-}
-
 // BlockKey manually blocks a specific key in the target's key pool.
 func (s *Service) BlockKey(targetName string, index int) error {
 	s.mu.RLock()

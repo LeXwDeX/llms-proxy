@@ -1830,7 +1830,6 @@
             +"<td>"+models+"</td>"
             +"<td><div class='btn-group'>"
             +"<button class='btn btn-sm' data-edit-tgt='"+esc(t.name)+"'>编辑</button>"
-            +"<button class='btn btn-sm' data-reset-keys-tgt='"+esc(t.name)+"' title='解除所有 Key 屏蔽'>🔓</button>"
             +"<button class='btn btn-danger btn-sm' data-del-tgt='"+esc(t.name)+"'>删除</button>"
             +"</div></td></tr>";
         }).join("");
@@ -1851,16 +1850,7 @@
             } catch(e) { toast("删除失败: "+e.message, "error"); }
           });
         }
-        if (t.dataset.resetKeysTgt) {
-          var resetName = t.dataset.resetKeysTgt;
-          showConfirm("确认解除目标「"+resetName+"」的所有 Key 屏蔽？", async function() {
-            try {
-              await api("/admin/data/targets/"+encodeURIComponent(resetName)+"/reset-keys", {method:"PUT"});
-              toast("已解除 Key 屏蔽: "+resetName, "success");
-              await loadTargets();
-            } catch(e) { toast("操作失败: "+e.message, "error"); }
-          });
-        }
+
       });
       function updateTargetFormVisibility() {
         var epType = document.getElementById("tgtType").value;
