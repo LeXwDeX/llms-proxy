@@ -805,6 +805,7 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 		bytes.Contains(lower, []byte("exceeded your quota")) ||
 		bytes.Contains(lower, []byte("you exceeded your current quota")) ||
 		bytes.Contains(lower, []byte("resource_exhausted")) ||
+		bytes.Contains(lower, []byte("upgrade your api plan")) ||
 		bytes.Contains(body, []byte(`"code":"QuotaExceeded"`)) ||
 		bytes.Contains(body, []byte("Throttling.AllocationQuota")) ||
 		bytes.Contains(body, []byte("PrepaidBillOverdue")) ||

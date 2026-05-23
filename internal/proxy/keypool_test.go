@@ -156,6 +156,8 @@ func TestIsKeyExhausted(t *testing.T) {
 		{"百炼 429 PostpaidBillOverdue", 429, `{"code":"PostpaidBillOverdue","message":"The postpaid bill is overdue."}`, true, "quota_exceeded"},
 		// 429 CommodityNotPurchased
 		{"百炼 429 CommodityNotPurchased", 429, `{"code":"CommodityNotPurchased","message":"Commodity has not purchased yet."}`, true, "quota_exceeded"},
+		// 429 TokenPlan 配额耗尽（code=Throttling 但 message 含 "upgrade your API plan"）
+		{"百炼 429 TokenPlan quota exhausted", 429, "event:error\ndata:{\"request_id\":\"abc\",\"code\":\"Throttling\",\"message\":\"Rate limit exceeded. Please wait and try again, or upgrade your API plan.\"}", true, "quota_exceeded"},
 
 		// ── OpenAI (developers.openai.com/api/docs/guides/error-codes) ──
 		// 401 "Incorrect API key provided"
