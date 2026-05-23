@@ -761,7 +761,6 @@
                     <th>路径前缀</th>
                     <th>密钥状态</th>
                     <th>SSE聚合</th>
-                    <th>缓存注入</th>
                     <th>允许模型</th>
                     <th>操作</th>
                   </tr>
@@ -1239,11 +1238,6 @@
           </select>
           <small style="color:var(--text-muted)">Token Plan Anthropic 兼容端点请选择 Bearer Token</small>
         </div>
-        <div class="form-group" id="tgtKeyCooldownGroup">
-          <label>Key 冷却期（秒）</label>
-          <input class="form-control" id="tgtKeyCooldown" type="number" min="0" placeholder="1800" value="1800">
-          <small style="color:var(--text-muted)">Key 耗尽后进入冷却期，过期后自动恢复（默认 1800 秒）</small>
-        </div>
         <div class="form-group" id="tgtKeyResetTimeGroup">
           <label>Key 额度重置时间</label>
           <input class="form-control" id="tgtKeyResetTime" type="text" placeholder="2026-07-01 或 2026-07-01 08:00">
@@ -1254,27 +1248,6 @@
             <input type="checkbox" id="tgtSSEAutoAgg" checked> SSE 自动聚合
           </label>
           <small style="color:var(--text-muted)">开启后，当客户端请求 non-streaming 但上游返回 SSE 时自动聚合为标准 JSON</small>
-        </div>
-        <div class="form-group">
-          <label style="display:flex;align-items:center;gap:8px;">
-            <input type="checkbox" id="tgtCacheControlEnabled"> 自动注入 Cache Control
-          </label>
-          <small style="color:var(--text-muted)">为需要显式缓存的 Provider（如百炼 qwen3.7-max）自动注入 cache_control 标记</small>
-        </div>
-        <div id="cacheControlOptions" style="display:none;margin-left:20px;padding:10px;border-left:2px solid var(--border);">
-          <div class="form-group" style="margin-bottom:8px;">
-            <label>注入目标 Role</label>
-            <input class="form-control" id="tgtCacheControlRole" value="system" placeholder="system">
-            <small style="color:var(--text-muted)">注入到哪个 role 的消息（默认 system）</small>
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label>回退策略</label>
-            <select class="form-control" id="tgtCacheControlFallback">
-              <option value="second_to_last">倒数第二条消息</option>
-              <option value="none">不注入</option>
-            </select>
-            <small style="color:var(--text-muted)">当目标 role 不存在时的处理方式</small>
-          </div>
         </div>
         <div class="form-group">
           <label>允许模型 (逗号分隔)</label>
@@ -1816,9 +1789,6 @@
           var sseAgg = (t.sse_auto_aggregate !== false)
             ? "<span style='color:var(--success)'>✅</span>"
             : "<span style='color:var(--text-muted)'>⏸</span>";
-          var cacheCtrl = (t.cache_control && t.cache_control.enabled)
-            ? "<span style='color:var(--success)'>✅ "+esc(t.cache_control.role||"system")+"</span>"
-            : "<span style='color:var(--text-muted)'>⏸</span>";
           return "<tr><td>"+esc(t.name)+"</td>"
             +"<td><span class='badge' style='background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:4px;font-size:12px;'>"
             +esc(epDisplayName(t.endpoint_type))+"</span></td>"
@@ -1826,7 +1796,6 @@
             +"<td>"+esc(t.resource_path_prefix||"-")+"</td>"
             +"<td>"+keyStatus+"</td>"
             +"<td>"+sseAgg+"</td>"
-            +"<td>"+cacheCtrl+"</td>"
             +"<td>"+models+"</td>"
             +"<td><div class='btn-group'>"
             +"<button class='btn btn-sm' data-edit-tgt='"+esc(t.name)+"'>编辑</button>"
@@ -1924,12 +1893,6 @@
         document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
-        // Cache Control
-        var cc = t && t.cache_control ? t.cache_control : {};
-        document.getElementById("tgtCacheControlEnabled").checked = cc.enabled === true;
-        document.getElementById("tgtCacheControlRole").value = cc.role || "system";
-        document.getElementById("tgtCacheControlFallback").value = cc.fallback || "second_to_last";
-        document.getElementById("cacheControlOptions").style.display = cc.enabled ? "block" : "none";
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
         // API Keys：构建卡片列表（合并 api_key + api_keys + key_statuses）
         tgtKeyList = [];
@@ -1949,15 +1912,11 @@
         }
         renderKeyList();
         document.getElementById("tgtNewKeyInput").value = "";
-        document.getElementById("tgtKeyCooldown").value = t && t.key_cooldown_seconds ? t.key_cooldown_seconds : 1800;
         document.getElementById("tgtKeyResetTime").value = t && t.key_reset_time ? t.key_reset_time : "";
         updateTargetFormVisibility();
         openModal("targetModal");
       }
       document.getElementById("tgtType").addEventListener("change", updateTargetFormVisibility);
-      document.getElementById("tgtCacheControlEnabled").addEventListener("change", function() {
-        document.getElementById("cacheControlOptions").style.display = this.checked ? "block" : "none";
-      });
       var tgtModelDebounce = null;
       document.getElementById("tgtModels").addEventListener("input", function() {
         clearTimeout(tgtModelDebounce);
@@ -1981,16 +1940,11 @@
         var allowBearer = document.getElementById("tgtAllowBearer").checked;
         var authMode = document.getElementById("tgtAuthMode").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
-        var cacheControlEnabled = document.getElementById("tgtCacheControlEnabled").checked;
-        var cacheControlRole = document.getElementById("tgtCacheControlRole").value.trim() || "system";
-        var cacheControlFallback = document.getElementById("tgtCacheControlFallback").value || "second_to_last";
-        var cacheControl = { enabled: cacheControlEnabled, role: cacheControlRole, fallback: cacheControlFallback };
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
         // 统一 keypool：从卡片列表读取，第一个为 api_key，其余为 api_keys
         var allKeys = tgtKeyList.map(function(item){return item.value;}).filter(Boolean);
         var apiKey = allKeys.length > 0 ? allKeys[0] : "";
         var apiKeys = allKeys.length > 1 ? allKeys.slice(1) : [];
-        var keyCooldown = parseInt(document.getElementById("tgtKeyCooldown").value, 10) || 0;
         var keyResetTime = document.getElementById("tgtKeyResetTime").value.trim();
 
         if (!name) { toast("请填写名称", "error"); return; }
@@ -2006,26 +1960,10 @@
               auth_mode: authMode,
               allowed_models: models,
               sse_auto_aggregate: sseAutoAgg,
-              cache_control: cacheControl,
-              api_key: apiKey,
               api_keys: apiKeys,
-              key_cooldown_seconds: keyCooldown,
-              key_reset_time: keyResetTime
-            };
-            await api("/admin/data/targets/"+encodeURIComponent(name), { method: "PUT", body: updateBody });
-            toast("目标已更新", "success");
-          } else {
-            await api("/admin/data/targets", { method: "POST", body: {
-              name: name, endpoint_type: epType, endpoint: endpoint,
-              resource_path_prefix: rpp, api_key: apiKey,
-              allow_bearer_passthrough: allowBearer, auth_mode: authMode, allowed_models: models,
-              sse_auto_aggregate: sseAutoAgg,
-              cache_control: cacheControl,
-              api_keys: apiKeys,
-              key_cooldown_seconds: keyCooldown,
-              key_reset_time: keyResetTime
-            }});
-            toast("目标已创建", "success");
+        key_reset_time: keyResetTime
+      }});
+      toast("目标已创建", "success");
           }
           closeModal("targetModal");
           await loadTargets();

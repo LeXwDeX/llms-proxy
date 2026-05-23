@@ -102,16 +102,6 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
-// CacheControlConfig controls automatic cache_control injection for prompt caching.
-// When enabled, the proxy injects cache_control markers into messages for providers
-// that require explicit caching (e.g., Bailian/DashScope qwen3.7-max).
-// If the client already provides cache_control markers, they are preserved.
-type CacheControlConfig struct {
-	Enabled  bool   `json:"enabled"`            // 是否启用自动注入
-	Role     string `json:"role,omitempty"`     // 注入目标 role，默认 "system"
-	Fallback string `json:"fallback,omitempty"` // 无匹配 role 时的回退策略: "second_to_last" (默认) | "none"
-}
-
 // Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
 type Target struct {
 	Name               string             `json:"name"`
@@ -120,13 +110,11 @@ type Target struct {
 	ResourcePathPrefix string             `json:"resource_path_prefix"`
 	APIKey             string             `json:"api_key"`
 	APIKeys            []string           `json:"api_keys,omitempty"`             // 额外 key 池（与 api_key 合并为有序池）
-	KeyCooldownSeconds int                `json:"key_cooldown_seconds,omitempty"` // 耗尽冷却期（秒），默认 1800
 	KeyResetTime       string             `json:"key_reset_time,omitempty"`       // 额度重置时间点（CST），格式 "2006-01-02" 或 "2006-01-02 15:04"
 	AllowBearer        bool               `json:"allow_bearer_passthrough"`
 	AuthMode           string             `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
 	AllowedModels      []string           `json:"allowed_models"`
 	SSEAutoAggregate   *bool              `json:"sse_auto_aggregate,omitempty"`   // nil defaults to true
-	CacheControl       CacheControlConfig `json:"cache_control,omitempty"`        // 自动注入 cache_control 配置
 }
 
 // Client describes a consumer and its access rights.

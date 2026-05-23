@@ -7,7 +7,7 @@ import (
 )
 
 func newTestKeyPool(keys []string) *keyPool {
-	return newKeyPool("test-target", keys, 1800, "", slog.Default())
+	return newKeyPool("test-target", keys, "", slog.Default())
 }
 
 func TestSelectKeyForClient_Affinity(t *testing.T) {
@@ -116,7 +116,7 @@ func TestMarkExhausted_QuotaExceeded_WithResetTime(t *testing.T) {
 	futureReset := time.Now().In(cst).AddDate(0, 0, 7) // 7天后
 	resetStr := futureReset.Format("2006-01-02 15:04")
 
-	pool := newKeyPool("test", []string{"key-a"}, 1800, resetStr, slog.Default())
+	pool := newKeyPool("test", []string{"key-a"}, resetStr, slog.Default())
 	pool.markExhausted(0, "quota_exceeded")
 
 	// cooldownEnd 应该等于 resetTime
@@ -129,10 +129,9 @@ func TestMarkExhausted_QuotaExceeded_NoResetTime(t *testing.T) {
 	pool := newTestKeyPool([]string{"key-a"})
 	pool.markExhausted(0, "quota_exceeded")
 
-	// 没有 resetTime，应该用默认冷却
-	expected := pool.entries[0].exhaustedAt.Add(pool.cooldown)
-	if !pool.entries[0].cooldownEnd.Equal(expected) {
-		t.Errorf("quota_exceeded without resetTime should use default cooldown, got %v want %v", pool.entries[0].cooldownEnd, expected)
+	// 没有 resetTime，应该永久屏蔽（cooldownEnd 在远未来）
+	if pool.entries[0].cooldownEnd.Year() < 9000 {
+		t.Errorf("quota_exceeded without resetTime should be permanent, got %v", pool.entries[0].cooldownEnd)
 	}
 }
 

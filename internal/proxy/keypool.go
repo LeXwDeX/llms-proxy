@@ -23,22 +23,17 @@ type keyEntry struct {
 type keyPool struct {
 	mu         sync.Mutex
 	entries    []keyEntry
-	cooldown   time.Duration // 默认冷却（非 quota/rate_limited）
 	resetTime  time.Time     // 额度重置时间点（零值表示未配置）
 	logger     *slog.Logger
 	targetName string
 }
 
-func newKeyPool(targetName string, keys []string, cooldownSecs int, resetTimeStr string, logger *slog.Logger) *keyPool {
+func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *slog.Logger) *keyPool {
 	if len(keys) == 0 {
 		return nil
 	}
 	if logger == nil {
 		logger = slog.Default()
-	}
-	cooldown := time.Duration(cooldownSecs) * time.Second
-	if cooldown <= 0 {
-		cooldown = 1800 * time.Second
 	}
 	
 	// 解析 resetTimeStr
@@ -64,7 +59,6 @@ func newKeyPool(targetName string, keys []string, cooldownSecs int, resetTimeStr
 	}
 	return &keyPool{
 		entries:    entries,
-		cooldown:   cooldown,
 		resetTime:  resetTime,
 		logger:     logger,
 		targetName: targetName,
@@ -222,6 +216,10 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 	p.entries[index].exhaustReason = errorCode
 	
 	// 按 errorCode 计算冷却结束时间
+	// rate_limited → 60s 自动恢复
+	// quota_exceeded → resetTime（如已配置且在未来），否则永久屏蔽
+	// 其他错误 → 永久屏蔽（需手动解除）
+	permanentEnd := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	switch errorCode {
 	case "rate_limited":
 		p.entries[index].cooldownEnd = now.Add(60 * time.Second)
@@ -229,10 +227,10 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 		if !p.resetTime.IsZero() && p.resetTime.After(now) {
 			p.entries[index].cooldownEnd = p.resetTime
 		} else {
-			p.entries[index].cooldownEnd = now.Add(p.cooldown)
+			p.entries[index].cooldownEnd = permanentEnd
 		}
 	default:
-		p.entries[index].cooldownEnd = now.Add(p.cooldown)
+		p.entries[index].cooldownEnd = permanentEnd
 	}
 	
 	maskKey := maskAPIKey(p.entries[index].key)
@@ -241,7 +239,6 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 		"key_index", index,
 		"key", maskKey,
 		"error_code", errorCode,
-		"cooldown_seconds", int(p.cooldown.Seconds()),
 		"cooldown_end", p.entries[index].cooldownEnd,
 	)
 }

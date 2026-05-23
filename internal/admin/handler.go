@@ -703,13 +703,11 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"has_api_key":              t.APIKey != "",
 			"api_key":                  t.APIKey,
 			"api_keys":                 t.APIKeys,
-			"key_cooldown_seconds":     t.KeyCooldownSeconds,
 			"key_reset_time":           t.KeyResetTime,
 			"allow_bearer_passthrough": t.AllowBearer,
 			"auth_mode":                t.AuthMode,
 			"allowed_models":           t.AllowedModels,
 			"sse_auto_aggregate":       sseAutoAgg,
-			"cache_control":            t.CacheControl,
 		}
 		// 附加 key 池运行时状态
 		if statuses := h.proxyService.KeyPoolStatus(t.Name); statuses != nil {
@@ -732,13 +730,11 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		ResourcePathPrefix string                   `json:"resource_path_prefix"`
 		APIKey             string                   `json:"api_key"`
 		APIKeys            []string                 `json:"api_keys"`
-		KeyCooldownSeconds int                      `json:"key_cooldown_seconds"`
 		KeyResetTime       string                   `json:"key_reset_time"`
 		AllowBearer        bool                     `json:"allow_bearer_passthrough"`
 		AuthMode           string                   `json:"auth_mode"`
 		AllowedModels      []string                 `json:"allowed_models"`
 		SSEAutoAggregate   *bool                    `json:"sse_auto_aggregate,omitempty"`
-		CacheControl       config.CacheControlConfig `json:"cache_control"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -792,13 +788,11 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		ResourcePathPrefix: rpp,
 		APIKey:             apiKey,
 		APIKeys:            body.APIKeys,
-		KeyCooldownSeconds: body.KeyCooldownSeconds,
 		KeyResetTime:       body.KeyResetTime,
 		AllowBearer:        body.AllowBearer,
 		AuthMode:           body.AuthMode,
 		AllowedModels:      body.AllowedModels,
 		SSEAutoAggregate:   body.SSEAutoAggregate,
-		CacheControl:       body.CacheControl,
 	}
 	cfg.Targets = append(cfg.Targets, newTarget)
 
@@ -834,13 +828,11 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		ResourcePathPrefix string                    `json:"resource_path_prefix"`
 		APIKey             *string                   `json:"api_key"`
 		APIKeys            *[]string                 `json:"api_keys"`
-		KeyCooldownSeconds *int                      `json:"key_cooldown_seconds"`
 		KeyResetTime       *string                   `json:"key_reset_time"`
 		AllowBearer        bool                      `json:"allow_bearer_passthrough"`
 		AuthMode           *string                   `json:"auth_mode"`
 		AllowedModels      []string                  `json:"allowed_models"`
 		SSEAutoAggregate   *bool                     `json:"sse_auto_aggregate,omitempty"`
-		CacheControl       *config.CacheControlConfig `json:"cache_control,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -890,14 +882,8 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			if body.APIKeys != nil {
 				t.APIKeys = *body.APIKeys
 			}
-			if body.KeyCooldownSeconds != nil {
-				t.KeyCooldownSeconds = *body.KeyCooldownSeconds
-			}
 			if body.KeyResetTime != nil {
 				t.KeyResetTime = *body.KeyResetTime
-			}
-			if body.CacheControl != nil {
-				t.CacheControl = *body.CacheControl
 			}
 
 			// Validate: api_key must be non-empty when allow_bearer is false.

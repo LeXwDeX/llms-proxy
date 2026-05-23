@@ -48,13 +48,6 @@ type Service struct {
 	rrCounter atomic.Uint64
 }
 
-// CacheControl holds runtime cache injection settings for a target.
-type CacheControl struct {
-	Enabled  bool
-	Role     string // target role for injection (default "system")
-	Fallback string // fallback when role not found: "second_to_last" | "none"
-}
-
 // Target represents an upstream endpoint with runtime metadata.
 type Target struct {
 	Name               string
@@ -63,13 +56,11 @@ type Target struct {
 	ResourcePathPrefix string
 	APIKey             string
 	APIKeys            []string // 合并后的有序 key 池 [api_key, api_keys...]
-	KeyCooldownSeconds int      // 冷却期秒数
 	KeyResetTime       string   // 额度重置时间点（CST）
 	AllowBearer        bool
 	AuthMode           string
 	AllowedModels      []string
 	SSEAutoAggregate   bool
-	CacheControl       CacheControl
 	allowedModelsSet   map[string]struct{}
 }
 
@@ -266,11 +257,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var strippedFields []string
 	sanitizedComputed := false
 
-	// Cache-control body is computed lazily — only when the selected target has cache_control enabled.
-	// Injects cache_control markers into messages for explicit prompt caching.
-	var cacheControlBody []byte
-	cacheControlComputed := false
-
 	var attempted map[string]struct{}
 	attempt := 0
 	model := strings.ToLower(extractModel(r, bodyBytes))
@@ -338,16 +324,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			forwardBody = sanitizedBody
-		}
-
-		// Cache control injection: auto-inject cache_control markers for explicit prompt caching.
-		// Only applies when target has cache_control enabled. Respects client-provided markers.
-		if target.CacheControl.Enabled {
-			if !cacheControlComputed {
-				cacheControlBody = injectCacheControl(bodyBytes, target.CacheControl.Role, target.CacheControl.Fallback)
-				cacheControlComputed = true
-			}
-			forwardBody = cacheControlBody
 		}
 
 		// 对非 Azure target 的 multipart 请求，自动转换为 JSON。

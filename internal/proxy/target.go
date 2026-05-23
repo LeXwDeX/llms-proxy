@@ -41,7 +41,7 @@ type TargetStats struct {
 func newTargetState(t *Target, logger *slog.Logger) *targetState {
 	s := &targetState{target: t}
 	if len(t.APIKeys) > 1 {
-		s.keyPool = newKeyPool(t.Name, t.APIKeys, t.KeyCooldownSeconds, t.KeyResetTime, logger)
+		s.keyPool = newKeyPool(t.Name, t.APIKeys, t.KeyResetTime, logger)
 	}
 	return s
 }
@@ -304,24 +304,6 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			seen[k] = struct{}{}
 		}
 
-		cooldownSecs := t.KeyCooldownSeconds
-		if cooldownSecs <= 0 {
-			cooldownSecs = 1800
-		}
-
-		// CacheControl defaults: role="system", fallback="second_to_last"
-		cc := CacheControl{
-			Enabled:  t.CacheControl.Enabled,
-			Role:     strings.TrimSpace(t.CacheControl.Role),
-			Fallback: strings.TrimSpace(t.CacheControl.Fallback),
-		}
-		if cc.Role == "" {
-			cc.Role = "system"
-		}
-		if cc.Fallback == "" {
-			cc.Fallback = "second_to_last"
-		}
-
 		info := &Target{
 			Name:               strings.TrimSpace(t.Name),
 			EndpointType:       config.NormalizeEndpointType(t.EndpointType),
@@ -329,13 +311,11 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
 			APIKey:             primaryKey,
 			APIKeys:            mergedKeys,
-			KeyCooldownSeconds: cooldownSecs,
 			KeyResetTime:       t.KeyResetTime,
 			AllowBearer:        t.AllowBearer,
 			AuthMode:           t.AuthMode,
 			AllowedModels:      models,
 			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
-			CacheControl:       cc,
 			allowedModelsSet:   modelSet,
 		}
 		if info.Name == "" {
