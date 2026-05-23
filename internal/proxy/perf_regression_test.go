@@ -32,7 +32,7 @@ func TestIsKeyExhausted_CaseInsensitiveMatching(t *testing.T) {
 	}{
 		{"uppercase QUOTA EXCEEDED", 429, `{"error":"QUOTA EXCEEDED"}`, true},
 		{"mixed case Quota Exceeded", 429, `{"error":"Quota Exceeded"}`, true},
-		{"uppercase RATE LIMIT", 429, `{"error":"RATE LIMIT reached"}`, false}, // pure rate limit
+		{"uppercase RATE LIMIT", 429, `{"error":"RATE LIMIT reached"}`, true}, // rate_limited (triggers key switch)
 		{"uppercase ACCOUNT DISABLED", 403, `{"error":"ACCOUNT DISABLED"}`, true},
 		{"uppercase INVALID API KEY", 401, `{"error":"INVALID API KEY"}`, true},
 	}
@@ -75,11 +75,11 @@ func TestIsKeyExhausted_429QuotaVsRateLimit(t *testing.T) {
 		{"PostpaidBillOverdue", `{"code":"PostpaidBillOverdue"}`, true},
 		{"CommodityNotPurchased", `{"code":"CommodityNotPurchased"}`, true},
 
-		// Pure rate limit → NOT exhausted
-		{"throttling only", `{"code":"Throttling","message":"Requests throttling"}`, false},
-		{"rate limit", `{"error":"Rate limit reached"}`, false},
-		{"too many requests", `{"error":"Too many requests"}`, false},
-		{"rate_limit_error", `{"error":{"type":"rate_limit_error"}}`, false},
+		// Pure rate limit → rate_limited (triggers key switch with 60s cooldown)
+		{"throttling only", `{"code":"Throttling","message":"Requests throttling"}`, true},
+		{"rate limit", `{"error":"Rate limit reached"}`, true},
+		{"too many requests", `{"error":"Too many requests"}`, true},
+		{"rate_limit_error", `{"error":{"type":"rate_limit_error"}}`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

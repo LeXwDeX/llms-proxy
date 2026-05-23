@@ -1176,7 +1176,7 @@
 
   <!-- ===== Confirm Modal ===== -->
   <div class="modal-overlay" id="confirmModal">
-    <div class="modal" style="max-width: 400px;">
+    <div class="modal" style="max-width: 720px;">
       <div class="modal-header">
         <h3>确认操作</h3>
         <button class="modal-close" data-close="confirmModal">&times;</button>
@@ -1193,7 +1193,7 @@
 
   <!-- ===== Target Modal ===== -->
   <div class="modal-overlay" id="targetModal">
-    <div class="modal" style="max-width: 600px;">
+    <div class="modal" style="max-width: 720px;">
       <div class="modal-header">
         <h3 id="targetModalTitle">新增目标</h3>
         <button class="modal-close" data-close="targetModal">&times;</button>
@@ -1220,7 +1220,7 @@
         <div class="form-group" id="tgtApiKeysGroup">
           <label>API Keys（一行一个）<span style="color:#ef4444">*</span></label>
           <textarea class="form-control" id="tgtApiKeys" rows="4" placeholder="sk-key1&#10;sk-key2&#10;sk-key3" style="font-family:monospace;font-size:12px;"></textarea>
-          <small style="color:var(--text-muted)">第一个为主 Key；多个 Key 时按客户端亲和分配（同一客户端始终走同一 Key），耗尽自动溢出到下一个</small>
+          <small style="color:var(--text-muted)">第一个为主 Key；多个 Key 时按顺序消费（集中流量最大化单 Key 缓存命中），耗尽自动切换到下一个</small>
         </div>
         <div class="form-group" id="tgtBearerGroup">
           <label style="display:flex;align-items:center;gap:8px;">
@@ -1239,6 +1239,11 @@
           <label>Key 冷却期（秒）</label>
           <input class="form-control" id="tgtKeyCooldown" type="number" min="0" placeholder="1800" value="1800">
           <small style="color:var(--text-muted)">Key 耗尽后进入冷却期，过期后自动恢复（默认 1800 秒）</small>
+        </div>
+        <div class="form-group" id="tgtKeyResetTimeGroup">
+          <label>Key 额度重置时间</label>
+          <input class="form-control" id="tgtKeyResetTime" type="text" placeholder="2026-07-01 或 2026-07-01 08:00">
+          <small style="color:var(--text-muted)">额度耗尽的 Key 将在此时间点自动恢复（CST/UTC+8，留空则使用默认冷却期）</small>
         </div>
         <div class="form-group">
           <label style="display:flex;align-items:center;gap:8px;">
@@ -1282,7 +1287,7 @@
 
   <!-- ===== Change Password Modal ===== -->
   <div class="modal-overlay" id="changePasswordModal">
-    <div class="modal" style="max-width:420px;">
+    <div class="modal" style="max-width: 720px;">
       <div class="modal-header">
         <h3>修改密码</h3>
         <button class="modal-close" data-close="changePasswordModal">&times;</button>
@@ -1310,7 +1315,7 @@
 
   <!-- ===== Copilot Pool Modal ===== -->
   <div class="modal-overlay" id="copilotPoolModal">
-    <div class="modal" style="max-width: 560px;">
+    <div class="modal" style="max-width: 720px;">
       <div class="modal-header">
         <h3 id="copilotPoolModalTitle">新增 Copilot 订阅池</h3>
         <button class="modal-close" data-close="copilotPoolModal">&times;</button>
@@ -1344,7 +1349,7 @@
 
   <!-- ===== Copilot Pool Models Modal ===== -->
   <div class="modal-overlay" id="copilotPoolModelsModal">
-    <div class="modal" style="max-width: 640px;">
+    <div class="modal" style="max-width: 720px;">
       <div class="modal-header">
         <h3 id="copilotPoolModelsTitle">池可用模型</h3>
         <button class="modal-close" data-close="copilotPoolModelsModal">&times;</button>
@@ -1366,7 +1371,7 @@
 
   <!-- ===== Copilot Auth (Device Code) Modal ===== -->
   <div class="modal-overlay" id="copilotAuthModal">
-    <div class="modal" style="max-width: 480px;">
+    <div class="modal" style="max-width: 720px;">
       <div class="modal-header">
         <h3>GitHub 设备授权</h3>
         <button class="modal-close" data-close="copilotAuthModal">&times;</button>
@@ -1680,6 +1685,14 @@
               ? "<span style='color:var(--success)'>✅ Bearer</span>"
               : "<span style='color:var(--success)'>✅ 已配置</span>" + (totalKeyCount > 1 ? " <span style='background:#dbeafe;color:#2563eb;padding:1px 6px;border-radius:4px;font-size:11px;'>"+totalKeyCount+" keys</span>" : ""))
             : (t.allow_bearer_passthrough ? "<span style='color:var(--warning)'>🔄 Bearer透传</span>" : "<span style='color:var(--danger)'>❌ 未配置</span>");
+          var keyPoolInfo = "";
+          if (Array.isArray(t.key_statuses) && t.key_statuses.length > 0) {
+            var exhaustedCount = t.key_statuses.filter(function(s){ return s.exhausted; }).length;
+            if (exhaustedCount > 0) {
+              keyPoolInfo = " <span style='background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:11px;'>" + exhaustedCount + " blocked</span>";
+            }
+          }
+          keyStatus += keyPoolInfo;
           var sseAgg = (t.sse_auto_aggregate !== false)
             ? "<span style='color:var(--success)'>✅</span>"
             : "<span style='color:var(--text-muted)'>⏸</span>";
@@ -1697,6 +1710,7 @@
             +"<td>"+models+"</td>"
             +"<td><div class='btn-group'>"
             +"<button class='btn btn-sm' data-edit-tgt='"+esc(t.name)+"'>编辑</button>"
+            +"<button class='btn btn-sm' data-reset-keys-tgt='"+esc(t.name)+"' title='解除所有 Key 屏蔽'>🔓</button>"
             +"<button class='btn btn-danger btn-sm' data-del-tgt='"+esc(t.name)+"'>删除</button>"
             +"</div></td></tr>";
         }).join("");
@@ -1715,6 +1729,16 @@
               toast("已删除目标: "+name, "success");
               await loadTargets();
             } catch(e) { toast("删除失败: "+e.message, "error"); }
+          });
+        }
+        if (t.dataset.resetKeysTgt) {
+          var resetName = t.dataset.resetKeysTgt;
+          showConfirm("确认解除目标「"+resetName+"」的所有 Key 屏蔽？", async function() {
+            try {
+              await api("/admin/data/targets/"+encodeURIComponent(resetName)+"/reset-keys", {method:"PUT"});
+              toast("已解除 Key 屏蔽: "+resetName, "success");
+              await loadTargets();
+            } catch(e) { toast("操作失败: "+e.message, "error"); }
           });
         }
       });
@@ -1807,6 +1831,7 @@
         }
         document.getElementById("tgtApiKeys").value = allKeys.join("\n");
         document.getElementById("tgtKeyCooldown").value = t && t.key_cooldown_seconds ? t.key_cooldown_seconds : 1800;
+        document.getElementById("tgtKeyResetTime").value = t && t.key_reset_time ? t.key_reset_time : "";
         updateTargetFormVisibility();
         openModal("targetModal");
       }
@@ -1847,6 +1872,7 @@
         var apiKey = allKeys.length > 0 ? allKeys[0] : "";
         var apiKeys = allKeys.length > 1 ? allKeys.slice(1) : [];
         var keyCooldown = parseInt(document.getElementById("tgtKeyCooldown").value, 10) || 0;
+        var keyResetTime = document.getElementById("tgtKeyResetTime").value.trim();
 
         if (!name) { toast("请填写名称", "error"); return; }
         if (!endpoint) { toast("请填写 Endpoint URL", "error"); return; }
@@ -1864,7 +1890,8 @@
               cache_control: cacheControl,
               api_key: apiKey,
               api_keys: apiKeys,
-              key_cooldown_seconds: keyCooldown
+              key_cooldown_seconds: keyCooldown,
+              key_reset_time: keyResetTime
             };
             await api("/admin/data/targets/"+encodeURIComponent(name), { method: "PUT", body: updateBody });
             toast("目标已更新", "success");
@@ -1876,7 +1903,8 @@
               sse_auto_aggregate: sseAutoAgg,
               cache_control: cacheControl,
               api_keys: apiKeys,
-              key_cooldown_seconds: keyCooldown
+              key_cooldown_seconds: keyCooldown,
+              key_reset_time: keyResetTime
             }});
             toast("目标已创建", "success");
           }

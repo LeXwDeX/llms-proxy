@@ -63,6 +63,7 @@ type Target struct {
 	APIKey             string
 	APIKeys            []string // 合并后的有序 key 池 [api_key, api_keys...]
 	KeyCooldownSeconds int      // 冷却期秒数
+	KeyResetTime       string   // 额度重置时间点（CST）
 	AllowBearer        bool
 	AuthMode           string
 	AllowedModels      []string
@@ -390,11 +391,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			// 检查是否有下一个可用 key（当前 key 已在 forwardRequest 中被标记耗尽）
-			retryClientName := ""
-			if principal != nil {
-				retryClientName = principal.Name
-			}
-			nextKey, nextIdx := state.keyPool.selectKeyForClient(retryClientName)
+			nextKey, nextIdx := state.keyPool.selectKey()
 			if nextKey == "" || nextIdx == keyIndex {
 				break
 			}
@@ -402,6 +399,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			resp.Body.Close()
 			if cancel != nil {
 				cancel()
+			}
+			retryClientName := ""
+			if principal != nil {
+				retryClientName = principal.Name
 			}
 			s.logger.Info("[keypool] retrying with next key",
 				"request_id", appmiddleware.RequestIDFromContext(r.Context()),

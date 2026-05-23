@@ -9,9 +9,11 @@ import (
 
 // keyEntry 表示 key 池中一个 key 的运行时状态。
 type keyEntry struct {
-	key         string
-	exhausted   bool
-	exhaustedAt time.Time
+	key           string
+	exhausted     bool
+	exhaustedAt   time.Time
+	exhaustReason string    // 耗尽原因
+	cooldownEnd   time.Time // 冷却结束时间
 }
 
 // keyPool 管理一个 target 的多个 API key。
@@ -20,12 +22,13 @@ type keyEntry struct {
 type keyPool struct {
 	mu         sync.Mutex
 	entries    []keyEntry
-	cooldown   time.Duration
+	cooldown   time.Duration // 默认冷却（非 quota/rate_limited）
+	resetTime  time.Time     // 额度重置时间点（零值表示未配置）
 	logger     *slog.Logger
 	targetName string
 }
 
-func newKeyPool(targetName string, keys []string, cooldownSecs int, logger *slog.Logger) *keyPool {
+func newKeyPool(targetName string, keys []string, cooldownSecs int, resetTimeStr string, logger *slog.Logger) *keyPool {
 	if len(keys) == 0 {
 		return nil
 	}
@@ -36,6 +39,24 @@ func newKeyPool(targetName string, keys []string, cooldownSecs int, logger *slog
 	if cooldown <= 0 {
 		cooldown = 1800 * time.Second
 	}
+	
+	// 解析 resetTimeStr
+	var resetTime time.Time
+	cst := time.FixedZone("CST", 8*3600)
+	if resetTimeStr != "" {
+		if t, err := time.ParseInLocation("2006-01-02", resetTimeStr, cst); err == nil {
+			resetTime = t
+		} else if t, err := time.ParseInLocation("2006-01-02 15:04", resetTimeStr, cst); err == nil {
+			resetTime = t
+		} else {
+			logger.Warn("[keypool] invalid reset_time format, ignoring",
+				"target", targetName,
+				"reset_time", resetTimeStr,
+				"error", err,
+			)
+		}
+	}
+	
 	entries := make([]keyEntry, len(keys))
 	for i, k := range keys {
 		entries[i] = keyEntry{key: k}
@@ -43,6 +64,7 @@ func newKeyPool(targetName string, keys []string, cooldownSecs int, logger *slog
 	return &keyPool{
 		entries:    entries,
 		cooldown:   cooldown,
+		resetTime:  resetTime,
 		logger:     logger,
 		targetName: targetName,
 	}
@@ -69,9 +91,11 @@ func (p *keyPool) selectKey() (string, int) {
 
 	// 第二轮：全部 exhausted，找冷却期已过的最旧的
 	for i := range p.entries {
-		if now.Sub(p.entries[i].exhaustedAt) >= p.cooldown {
+		if now.After(p.entries[i].cooldownEnd) || now.Equal(p.entries[i].cooldownEnd) {
 			p.entries[i].exhausted = false
 			p.entries[i].exhaustedAt = time.Time{}
+			p.entries[i].exhaustReason = ""
+			p.entries[i].cooldownEnd = time.Time{}
 			maskKey := maskAPIKey(p.entries[i].key)
 			p.logger.Info("[keypool] key recovered",
 				"target", p.targetName,
@@ -132,9 +156,11 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 	// 4. 全部 exhausted，找冷却期已过的最旧的（从 preferred 开始优先恢复自己的亲和 key）
 	for offset := 0; offset < n; offset++ {
 		idx := (preferred + offset) % n
-		if now.Sub(p.entries[idx].exhaustedAt) >= p.cooldown {
+		if now.After(p.entries[idx].cooldownEnd) || now.Equal(p.entries[idx].cooldownEnd) {
 			p.entries[idx].exhausted = false
 			p.entries[idx].exhaustedAt = time.Time{}
+			p.entries[idx].exhaustReason = ""
+			p.entries[idx].cooldownEnd = time.Time{}
 			maskKey := maskAPIKey(p.entries[idx].key)
 			p.logger.Info("[keypool] key recovered",
 				"target", p.targetName,
@@ -183,8 +209,25 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 		return // 已标记，不重复
 	}
 
+	now := time.Now()
 	p.entries[index].exhausted = true
-	p.entries[index].exhaustedAt = time.Now()
+	p.entries[index].exhaustedAt = now
+	p.entries[index].exhaustReason = errorCode
+	
+	// 按 errorCode 计算冷却结束时间
+	switch errorCode {
+	case "rate_limited":
+		p.entries[index].cooldownEnd = now.Add(60 * time.Second)
+	case "quota_exceeded":
+		if !p.resetTime.IsZero() && p.resetTime.After(now) {
+			p.entries[index].cooldownEnd = p.resetTime
+		} else {
+			p.entries[index].cooldownEnd = now.Add(p.cooldown)
+		}
+	default:
+		p.entries[index].cooldownEnd = now.Add(p.cooldown)
+	}
+	
 	maskKey := maskAPIKey(p.entries[index].key)
 	p.logger.Warn("[keypool] key exhausted",
 		"target", p.targetName,
@@ -192,6 +235,7 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 		"key", maskKey,
 		"error_code", errorCode,
 		"cooldown_seconds", int(p.cooldown.Seconds()),
+		"cooldown_end", p.entries[index].cooldownEnd,
 	)
 }
 
@@ -205,6 +249,8 @@ func (p *keyPool) resetAll() {
 	for i := range p.entries {
 		p.entries[i].exhausted = false
 		p.entries[i].exhaustedAt = time.Time{}
+		p.entries[i].exhaustReason = ""
+		p.entries[i].cooldownEnd = time.Time{}
 	}
 	p.logger.Info("[keypool] all keys reset",
 		"target", p.targetName,
@@ -214,11 +260,12 @@ func (p *keyPool) resetAll() {
 
 // KeyStatus 表示单个 key 的状态快照（用于 admin API）。
 type KeyStatus struct {
-	Index       int       `json:"index"`
-	KeyMask     string    `json:"key_mask"`
-	Exhausted   bool      `json:"exhausted"`
-	ExhaustedAt time.Time `json:"exhausted_at,omitempty"`
-	CooldownEnd time.Time `json:"cooldown_end,omitempty"`
+	Index         int       `json:"index"`
+	KeyMask       string    `json:"key_mask"`
+	Exhausted     bool      `json:"exhausted"`
+	ExhaustReason string    `json:"exhaust_reason,omitempty"`
+	ExhaustedAt   time.Time `json:"exhausted_at,omitempty"`
+	CooldownEnd   time.Time `json:"cooldown_end,omitempty"`
 }
 
 func (p *keyPool) status() []KeyStatus {
@@ -235,8 +282,9 @@ func (p *keyPool) status() []KeyStatus {
 			Exhausted: e.exhausted,
 		}
 		if e.exhausted {
+			ks.ExhaustReason = e.exhaustReason
 			ks.ExhaustedAt = e.exhaustedAt
-			ks.CooldownEnd = e.exhaustedAt.Add(p.cooldown)
+			ks.CooldownEnd = e.cooldownEnd
 		}
 		result[i] = ks
 	}

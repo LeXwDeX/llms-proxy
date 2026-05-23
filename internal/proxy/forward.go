@@ -833,7 +833,7 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 			bytes.Contains(lower, []byte("too many requests")) ||
 			bytes.Contains(lower, []byte("rate_limit_exceeded")) ||
 			bytes.Contains(lower, []byte("rate_limit_error")) {
-			return false, ""
+			return true, "rate_limited"
 		}
 	}
 

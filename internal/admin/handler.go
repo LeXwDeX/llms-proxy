@@ -703,6 +703,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"api_key":                  t.APIKey,
 			"api_keys":                 t.APIKeys,
 			"key_cooldown_seconds":     t.KeyCooldownSeconds,
+			"key_reset_time":           t.KeyResetTime,
 			"allow_bearer_passthrough": t.AllowBearer,
 			"auth_mode":                t.AuthMode,
 			"allowed_models":           t.AllowedModels,
@@ -731,6 +732,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey             string                   `json:"api_key"`
 		APIKeys            []string                 `json:"api_keys"`
 		KeyCooldownSeconds int                      `json:"key_cooldown_seconds"`
+		KeyResetTime       string                   `json:"key_reset_time"`
 		AllowBearer        bool                     `json:"allow_bearer_passthrough"`
 		AuthMode           string                   `json:"auth_mode"`
 		AllowedModels      []string                 `json:"allowed_models"`
@@ -790,6 +792,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey:             apiKey,
 		APIKeys:            body.APIKeys,
 		KeyCooldownSeconds: body.KeyCooldownSeconds,
+		KeyResetTime:       body.KeyResetTime,
 		AllowBearer:        body.AllowBearer,
 		AuthMode:           body.AuthMode,
 		AllowedModels:      body.AllowedModels,
@@ -831,6 +834,7 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey             *string                   `json:"api_key"`
 		APIKeys            *[]string                 `json:"api_keys"`
 		KeyCooldownSeconds *int                      `json:"key_cooldown_seconds"`
+		KeyResetTime       *string                   `json:"key_reset_time"`
 		AllowBearer        bool                      `json:"allow_bearer_passthrough"`
 		AuthMode           *string                   `json:"auth_mode"`
 		AllowedModels      []string                  `json:"allowed_models"`
@@ -887,6 +891,9 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.KeyCooldownSeconds != nil {
 				t.KeyCooldownSeconds = *body.KeyCooldownSeconds
+			}
+			if body.KeyResetTime != nil {
+				t.KeyResetTime = *body.KeyResetTime
 			}
 			if body.CacheControl != nil {
 				t.CacheControl = *body.CacheControl

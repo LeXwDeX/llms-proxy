@@ -3,10 +3,11 @@ package proxy
 import (
 	"log/slog"
 	"testing"
+	"time"
 )
 
 func newTestKeyPool(keys []string) *keyPool {
-	return newKeyPool("test-target", keys, 1800, slog.Default())
+	return newKeyPool("test-target", keys, 1800, "", slog.Default())
 }
 
 func TestSelectKeyForClient_Affinity(t *testing.T) {
@@ -80,26 +81,79 @@ func TestSelectKeyForClient_Deterministic(t *testing.T) {
 func TestSelectKeyForClient_Distribution(t *testing.T) {
 	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2", "key-3", "key-4"})
 
-	counts := make(map[int]int)
 	clients := []string{
-		"alice", "bob", "charlie", "dave", "eve",
-		"frank", "grace", "heidi", "ivan", "judy",
-		"mallory", "oscar", "peggy", "trent", "victor",
-		"wendy", "xavier", "yvonne", "zoe", "admin",
+		"client-a", "client-b", "client-c", "client-d", "client-e",
+		"client-f", "client-g", "client-h", "client-i", "client-j",
 	}
 
-	for _, c := range clients {
-		_, idx := pool.selectKeyForClient(c)
-		counts[idx]++
+	distribution := make(map[int]int)
+	for _, client := range clients {
+		_, idx := pool.selectKeyForClient(client)
+		distribution[idx]++
 	}
 
-	// 20 个 client 分到 5 个 key，每个 key 至少应该有 1 个 client
+	// 验证分布：每个 key 至少被选中一次
 	for i := 0; i < 5; i++ {
-		if counts[i] == 0 {
-			t.Errorf("key %d got zero clients (distribution: %v)", i, counts)
+		if distribution[i] == 0 {
+			t.Errorf("key %d was never selected, distribution: %v", i, distribution)
 		}
 	}
-	t.Logf("key distribution: %v", counts)
+}
+
+func TestMarkExhausted_RateLimited(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-a", "key-b"})
+	pool.markExhausted(0, "rate_limited")
+
+	// rate_limited 应该 60 秒冷却
+	if pool.entries[0].cooldownEnd.Sub(pool.entries[0].exhaustedAt) != 60*time.Second {
+		t.Errorf("rate_limited should have 60s cooldown, got %v", pool.entries[0].cooldownEnd.Sub(pool.entries[0].exhaustedAt))
+	}
+}
+
+func TestMarkExhausted_QuotaExceeded_WithResetTime(t *testing.T) {
+	// 设置一个未来的 resetTime
+	cst := time.FixedZone("CST", 8*3600)
+	futureReset := time.Now().In(cst).AddDate(0, 0, 7) // 7天后
+	resetStr := futureReset.Format("2006-01-02 15:04")
+
+	pool := newKeyPool("test", []string{"key-a"}, 1800, resetStr, slog.Default())
+	pool.markExhausted(0, "quota_exceeded")
+
+	// cooldownEnd 应该等于 resetTime
+	if !pool.entries[0].cooldownEnd.Equal(pool.resetTime) {
+		t.Errorf("quota_exceeded with future resetTime should use resetTime, got %v want %v", pool.entries[0].cooldownEnd, pool.resetTime)
+	}
+}
+
+func TestMarkExhausted_QuotaExceeded_NoResetTime(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-a"})
+	pool.markExhausted(0, "quota_exceeded")
+
+	// 没有 resetTime，应该用默认冷却
+	expected := pool.entries[0].exhaustedAt.Add(pool.cooldown)
+	if !pool.entries[0].cooldownEnd.Equal(expected) {
+		t.Errorf("quota_exceeded without resetTime should use default cooldown, got %v want %v", pool.entries[0].cooldownEnd, expected)
+	}
+}
+
+func TestSelectKey_CooldownEnd(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-a", "key-b"})
+	pool.markExhausted(0, "rate_limited")
+	pool.markExhausted(1, "rate_limited")
+
+	// 全部在冷却中
+	key, idx := pool.selectKey()
+	if key != "" || idx != -1 {
+		t.Errorf("all in cooldown should return empty, got (%s, %d)", key, idx)
+	}
+
+	// 手动设置 cooldownEnd 为过去
+	pool.entries[0].cooldownEnd = time.Now().Add(-1 * time.Second)
+
+	key, idx = pool.selectKey()
+	if key != "key-a" || idx != 0 {
+		t.Errorf("should recover key-a after cooldown, got (%s, %d)", key, idx)
+	}
 }
 
 func TestHashClientKey_Deterministic(t *testing.T) {
@@ -127,17 +181,17 @@ func TestIsKeyExhausted(t *testing.T) {
 		// ── 2xx 不算 ──
 		{"200 OK", 200, `{"ok":true}`, false, ""},
 
-		// ── 纯 429 限流不算（RPS/RPM 级别）──
+		// ── 纯 429 限流（RPS/RPM 级别，现在算 rate_limited，60秒冷却）──
 		// 百炼: Throttling / Throttling.RateQuota / Throttling.BurstRate
-		{"百炼 429 Throttling 纯限流", 429, `{"code":"Throttling","message":"Requests throttling triggered."}`, false, ""},
-		{"百炼 429 Throttling.RateQuota", 429, `{"code":"Throttling.RateQuota","message":"You have exceeded your request limit."}`, false, ""},
-		{"百炼 429 Throttling.BurstRate", 429, `{"code":"Throttling.BurstRate","message":"Request rate increased too quickly."}`, false, ""},
+		{"百炼 429 Throttling 纯限流", 429, `{"code":"Throttling","message":"Requests throttling triggered."}`, true, "rate_limited"},
+		{"百炼 429 Throttling.RateQuota", 429, `{"code":"Throttling.RateQuota","message":"You have exceeded your request limit."}`, true, "rate_limited"},
+		{"百炼 429 Throttling.BurstRate", 429, `{"code":"Throttling.BurstRate","message":"Request rate increased too quickly."}`, true, "rate_limited"},
 		// OpenAI: "Rate limit reached for requests"
-		{"OpenAI 429 rate limit", 429, `{"error":{"message":"Rate limit reached for requests","type":"rate_limit_error"}}`, false, ""},
+		{"OpenAI 429 rate limit", 429, `{"error":{"message":"Rate limit reached for requests","type":"rate_limit_error"}}`, true, "rate_limited"},
 		// Claude: rate_limit_error
-		{"Claude 429 rate_limit_error", 429, `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded."}}`, false, ""},
+		{"Claude 429 rate_limit_error", 429, `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded."}}`, true, "rate_limited"},
 		// DeepSeek: "Rate Limit Reached"
-		{"DeepSeek 429 rate limit", 429, `{"error":{"message":"Rate Limit Reached","type":"rate_limit_reached"}}`, false, ""},
+		{"DeepSeek 429 rate limit", 429, `{"error":{"message":"Rate Limit Reached","type":"rate_limit_reached"}}`, true, "rate_limited"},
 
 		// ── 百炼 (alibabacloud.com/help/en/model-studio/error-code) ──
 		// 401 InvalidApiKey

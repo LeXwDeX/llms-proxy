@@ -41,7 +41,7 @@ type TargetStats struct {
 func newTargetState(t *Target, logger *slog.Logger) *targetState {
 	s := &targetState{target: t}
 	if len(t.APIKeys) > 1 {
-		s.keyPool = newKeyPool(t.Name, t.APIKeys, t.KeyCooldownSeconds, logger)
+		s.keyPool = newKeyPool(t.Name, t.APIKeys, t.KeyCooldownSeconds, t.KeyResetTime, logger)
 	}
 	return s
 }
@@ -330,6 +330,7 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			APIKey:             primaryKey,
 			APIKeys:            mergedKeys,
 			KeyCooldownSeconds: cooldownSecs,
+			KeyResetTime:       t.KeyResetTime,
 			AllowBearer:        t.AllowBearer,
 			AuthMode:           t.AuthMode,
 			AllowedModels:      models,
