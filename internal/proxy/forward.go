@@ -281,11 +281,18 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 
 	resp, err := s.httpClient.Do(req)
 
+	// 提取上游响应头中的关键标识，用于问题排查时关联百炼等上游的 request_id
+	var upstreamRequestID string
+	if resp != nil {
+		upstreamRequestID = resp.Header.Get("X-Request-Id")
+	}
+
 	// 对大请求（>100KB）输出详细 trace 日志；对慢请求（>5s）输出简要日志
 	totalDuration := time.Since(traceStart)
 	if traceEnabled {
 		logFields := []any{
 			"request_id", reqID,
+			"upstream_request_id", upstreamRequestID,
 			"target", targetName(target),
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -327,10 +334,22 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	} else if totalDuration > 5*time.Second {
 		s.logger.Warn("upstream slow request",
 			"request_id", reqID,
+			"upstream_request_id", upstreamRequestID,
 			"target", targetName(target),
 			"method", r.Method,
 			"path", r.URL.Path,
 			"req_bytes", reqBodySize,
+			"total_ms", totalDuration.Milliseconds(),
+		)
+	}
+
+	// 每个请求都记录 proxy → upstream request_id 映射，便于向上游厂商报障
+	if upstreamRequestID != "" {
+		s.logger.Info("upstream request id mapping",
+			"request_id", reqID,
+			"upstream_request_id", upstreamRequestID,
+			"target", targetName(target),
+			"path", r.URL.Path,
 			"total_ms", totalDuration.Milliseconds(),
 		)
 	}
