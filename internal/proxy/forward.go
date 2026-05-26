@@ -793,9 +793,12 @@ func isUpstreamFailureStatus(statusCode int) bool {
 	return false
 }
 
-// isKeyExhausted 检查上游响应是否表示 key 额度耗尽（适用于所有 provider）。
-// 仅检查非 2xx 响应。纯 429 限流（RPS/RPM）不算耗尽，由 failover 逻辑处理。
-// 错误码来源：各 provider 官方文档。
+// isKeyExhausted 检查上游响应是否表示 key 真正不可用（适用于所有 provider）。
+// 仅检查非 2xx 响应。
+//
+// 核心原则：只有 key 本身出了问题（无效、欠费、封禁、总额度耗尽）才标记耗尽。
+// 429 限流（TPM/RPM）是临时性的，key 本身没问题，不标记——换 key 也没用（同账号共享配额）。
+//
 // 返回 (是否耗尽, 错误码)。
 func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	if statusCode >= 200 && statusCode < 300 {
@@ -856,23 +859,21 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 		return true, "free_tier_exhausted"
 	}
 
-	// ── 配额耗尽（必须在 429 限流排除之前检测）──
+	// ── 真正的配额耗尽（key 的总额度用完了，不是临时限流）──
 	// OpenAI:  "You exceeded your current quota" (429)
 	// Gemini:  "RESOURCE_EXHAUSTED" (429)
-	// 百炼:    code=QuotaExceeded / Throttling.AllocationQuota (429, TPS/TPM 配额耗尽)
+	// 百炼:    code=QuotaExceeded (429, 真正的配额耗尽)
 	// 百炼:    PrepaidBillOverdue / PostpaidBillOverdue / CommodityNotPurchased (429, 账单过期)
-	// 百炼:    "Your token-plan quota has been exhausted" (429, TokenPlan 额度耗尽)
-	// 百炼:    code=insufficient_quota (429, TokenPlan OpenAI 兼容模式)
-	if bytes.Contains(lower, []byte("quota exceeded")) ||
-		bytes.Contains(lower, []byte("exceeded your quota")) ||
+	// 百炼:    "Your token-plan quota has been exhausted" (429, TokenPlan 总额度耗尽)
+	//
+	// ⚠️ 不包含：百炼 "Allocated quota exceeded" / insufficient_quota /
+	// Throttling.AllocationQuota / "upgrade your API plan" — 这些是 TPM 限流。
+	if bytes.Contains(lower, []byte("exceeded your quota")) ||
 		bytes.Contains(lower, []byte("you exceeded your current quota")) ||
 		bytes.Contains(lower, []byte("resource_exhausted")) ||
-		bytes.Contains(lower, []byte("upgrade your api plan")) ||
 		bytes.Contains(lower, []byte("quota has been exhausted")) ||
 		bytes.Contains(lower, []byte("token-plan quota")) ||
 		bytes.Contains(body, []byte(`"code":"QuotaExceeded"`)) ||
-		bytes.Contains(body, []byte(`"code":"insufficient_quota"`)) ||
-		bytes.Contains(body, []byte("Throttling.AllocationQuota")) ||
 		bytes.Contains(body, []byte("PrepaidBillOverdue")) ||
 		bytes.Contains(body, []byte("PostpaidBillOverdue")) ||
 		bytes.Contains(body, []byte("CommodityNotPurchased")) {
@@ -886,21 +887,12 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 		return true, "account_disabled"
 	}
 
-	// ── 纯 429 限流排除（RPS/RPM 级别，不算 key 耗尽）──
-	// 百炼:    Throttling / Throttling.RateQuota / Throttling.BurstRate
-	// OpenAI:  "Rate limit reached for requests"
-	// Claude:  rate_limit_error
-	// Gemini:  "RESOURCE_EXHAUSTED"（已在上面配额耗尽中匹配）
-	// DeepSeek: "Rate Limit Reached"
-	if statusCode == 429 {
-		if bytes.Contains(lower, []byte("throttling")) ||
-			bytes.Contains(lower, []byte("rate limit")) ||
-			bytes.Contains(lower, []byte("too many requests")) ||
-			bytes.Contains(lower, []byte("rate_limit_exceeded")) ||
-			bytes.Contains(lower, []byte("rate_limit_error")) {
-			return true, "rate_limited"
-		}
-	}
+	// ── 429 限流：不标记 key 耗尽 ──
+	// 限流是临时性的，key 本身没问题。同账号的 key 共享 TPM/RPM 配额，
+	// 换 key 也会被限，所以不标记、不换 key，直接返回 429 给客户端。
+	// 包括：百炼 Throttling / Throttling.RateQuota / Throttling.BurstRate /
+	// Throttling.AllocationQuota / insufficient_quota (Allocated quota exceeded)
+	// OpenAI "Rate limit reached" / Claude rate_limit_error / DeepSeek "Rate Limit Reached"
 
 	return false, ""
 }

@@ -360,13 +360,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var keyIndex int
 		var fErr error
 
-		// key 池内重试：当 key 耗尽时，同 target 换 key 重试
+		// key 池内重试：仅当 key 被标记耗尽（额度用完等）时换 key 重试。
+		// 429 限流不换 key（同账号共享 TPM/RPM 配额，换 key 也会被限）。
 		for {
 			resp, cancel, keyIndex, fErr = s.forwardRequest(r, state, forwardBody)
 			if fErr != nil {
 				break
 			}
 			if resp == nil || resp.StatusCode < 400 {
+				break
+			}
+			// 429 限流：不标记 key、不换 key，直接返回给客户端
+			if resp.StatusCode == 429 {
 				break
 			}
 			if state.keyPool == nil || keyIndex < 0 {

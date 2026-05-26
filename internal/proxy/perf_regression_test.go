@@ -30,9 +30,9 @@ func TestIsKeyExhausted_CaseInsensitiveMatching(t *testing.T) {
 		body    string
 		wantExh bool
 	}{
-		{"uppercase QUOTA EXCEEDED", 429, `{"error":"QUOTA EXCEEDED"}`, true},
-		{"mixed case Quota Exceeded", 429, `{"error":"Quota Exceeded"}`, true},
-		{"uppercase RATE LIMIT", 429, `{"error":"RATE LIMIT reached"}`, true}, // rate_limited (triggers key switch)
+		{"uppercase EXCEEDED YOUR QUOTA", 429, `{"error":"EXCEEDED YOUR QUOTA"}`, true},
+		{"mixed case Exceeded Your Quota", 429, `{"error":"Exceeded Your Quota"}`, true},
+		{"uppercase RATE LIMIT", 429, `{"error":"RATE LIMIT reached"}`, false}, // 429 限流不标记 key
 		{"uppercase ACCOUNT DISABLED", 403, `{"error":"ACCOUNT DISABLED"}`, true},
 		{"uppercase INVALID API KEY", 401, `{"error":"INVALID API KEY"}`, true},
 	}
@@ -49,7 +49,7 @@ func TestIsKeyExhausted_CaseInsensitiveMatching(t *testing.T) {
 func TestIsKeyExhausted_LargeBody(t *testing.T) {
 	// Body up to 4096 bytes (the LimitReader cap in forward.go)
 	padding := strings.Repeat("x", 3900)
-	body := fmt.Sprintf(`{"error":"%squota exceeded%s"}`, padding, padding[:50])
+	body := fmt.Sprintf(`{"error":"%syou exceeded your current quota%s"}`, padding, padding[:50])
 	exh, code := isKeyExhausted(429, []byte(body))
 	if !exh {
 		t.Error("expected quota exceeded to be detected in large body")
@@ -60,26 +60,26 @@ func TestIsKeyExhausted_LargeBody(t *testing.T) {
 }
 
 func TestIsKeyExhausted_429QuotaVsRateLimit(t *testing.T) {
-	// Critical: 429 with quota patterns must be exhausted, 429 with only rate-limit patterns must not
+	// Critical: 429 with true quota exhaustion → mark key; 429 with rate limit → don't mark
 	cases := []struct {
 		name    string
 		body    string
 		wantExh bool
 	}{
-		// Quota patterns → exhausted
+		// 真正配额耗尽 → 标记 key
 		{"quota exceeded", `{"error":"You exceeded your current quota"}`, true},
 		{"exceeded your quota", `{"error":"exceeded your quota"}`, true},
 		{"resource_exhausted", `{"error":"RESOURCE_EXHAUSTED"}`, true},
-		{"Throttling.AllocationQuota", `{"code":"Throttling.AllocationQuota"}`, true},
 		{"PrepaidBillOverdue", `{"code":"PrepaidBillOverdue"}`, true},
 		{"PostpaidBillOverdue", `{"code":"PostpaidBillOverdue"}`, true},
 		{"CommodityNotPurchased", `{"code":"CommodityNotPurchased"}`, true},
 
-		// Pure rate limit → rate_limited (triggers key switch with 60s cooldown)
-		{"throttling only", `{"code":"Throttling","message":"Requests throttling"}`, true},
-		{"rate limit", `{"error":"Rate limit reached"}`, true},
-		{"too many requests", `{"error":"Too many requests"}`, true},
-		{"rate_limit_error", `{"error":{"type":"rate_limit_error"}}`, true},
+		// TPM/RPM 限流 → 不标记 key（临时限速，换 key 也没用）
+		{"Throttling.AllocationQuota", `{"code":"Throttling.AllocationQuota"}`, false},
+		{"throttling only", `{"code":"Throttling","message":"Requests throttling"}`, false},
+		{"rate limit", `{"error":"Rate limit reached"}`, false},
+		{"too many requests", `{"error":"Too many requests"}`, false},
+		{"rate_limit_error", `{"error":{"type":"rate_limit_error"}}`, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

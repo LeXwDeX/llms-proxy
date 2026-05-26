@@ -135,16 +135,6 @@ func TestSelectKeyForClient_Distribution(t *testing.T) {
 	}
 }
 
-func TestMarkExhausted_RateLimited(t *testing.T) {
-	pool := newTestKeyPool([]string{"key-a", "key-b"})
-	pool.markExhausted(0, "rate_limited")
-
-	// rate_limited 应该 60 秒冷却
-	if pool.entries[0].cooldownEnd.Sub(pool.entries[0].exhaustedAt) != 60*time.Second {
-		t.Errorf("rate_limited should have 60s cooldown, got %v", pool.entries[0].cooldownEnd.Sub(pool.entries[0].exhaustedAt))
-	}
-}
-
 func TestMarkExhausted_QuotaExceeded_WithResetTime(t *testing.T) {
 	// 设置一个未来的 resetTime
 	cst := time.FixedZone("CST", 8*3600)
@@ -171,9 +161,14 @@ func TestMarkExhausted_QuotaExceeded_NoResetTime(t *testing.T) {
 }
 
 func TestSelectKey_CooldownEnd(t *testing.T) {
-	pool := newTestKeyPool([]string{"key-a", "key-b"})
-	pool.markExhausted(0, "rate_limited")
-	pool.markExhausted(1, "rate_limited")
+	// 用 quota_exceeded + 近未来 resetTime 测试冷却恢复
+	cst := time.FixedZone("CST", 8*3600)
+	futureReset := time.Now().In(cst).Add(1 * time.Hour)
+	resetStr := futureReset.Format("2006-01-02 15:04")
+
+	pool := newKeyPool("test-target", []string{"key-a", "key-b"}, resetStr, slog.Default())
+	pool.markExhausted(0, "quota_exceeded")
+	pool.markExhausted(1, "quota_exceeded")
 
 	// 全部在冷却中
 	key, idx := pool.selectKey()
@@ -215,17 +210,17 @@ func TestIsKeyExhausted(t *testing.T) {
 		// ── 2xx 不算 ──
 		{"200 OK", 200, `{"ok":true}`, false, ""},
 
-		// ── 纯 429 限流（RPS/RPM 级别，现在算 rate_limited，60秒冷却）──
+		// ── 429 限流：不标记 key 耗尽（临时限速，key 没问题）──
 		// 百炼: Throttling / Throttling.RateQuota / Throttling.BurstRate
-		{"百炼 429 Throttling 纯限流", 429, `{"code":"Throttling","message":"Requests throttling triggered."}`, true, "rate_limited"},
-		{"百炼 429 Throttling.RateQuota", 429, `{"code":"Throttling.RateQuota","message":"You have exceeded your request limit."}`, true, "rate_limited"},
-		{"百炼 429 Throttling.BurstRate", 429, `{"code":"Throttling.BurstRate","message":"Request rate increased too quickly."}`, true, "rate_limited"},
+		{"百炼 429 Throttling 纯限流", 429, `{"code":"Throttling","message":"Requests throttling triggered."}`, false, ""},
+		{"百炼 429 Throttling.RateQuota", 429, `{"code":"Throttling.RateQuota","message":"You have exceeded your request limit."}`, false, ""},
+		{"百炼 429 Throttling.BurstRate", 429, `{"code":"Throttling.BurstRate","message":"Request rate increased too quickly."}`, false, ""},
 		// OpenAI: "Rate limit reached for requests"
-		{"OpenAI 429 rate limit", 429, `{"error":{"message":"Rate limit reached for requests","type":"rate_limit_error"}}`, true, "rate_limited"},
+		{"OpenAI 429 rate limit", 429, `{"error":{"message":"Rate limit reached for requests","type":"rate_limit_error"}}`, false, ""},
 		// Claude: rate_limit_error
-		{"Claude 429 rate_limit_error", 429, `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded."}}`, true, "rate_limited"},
+		{"Claude 429 rate_limit_error", 429, `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded."}}`, false, ""},
 		// DeepSeek: "Rate Limit Reached"
-		{"DeepSeek 429 rate limit", 429, `{"error":{"message":"Rate Limit Reached","type":"rate_limit_reached"}}`, true, "rate_limited"},
+		{"DeepSeek 429 rate limit", 429, `{"error":{"message":"Rate Limit Reached","type":"rate_limit_reached"}}`, false, ""},
 
 		// ── 百炼 (alibabacloud.com/help/en/model-studio/error-code) ──
 		// 401 InvalidApiKey
@@ -236,17 +231,17 @@ func TestIsKeyExhausted(t *testing.T) {
 		{"百炼 403 AccessDenied.Unpurchased", 403, `{"code":"AccessDenied.Unpurchased","message":"Access to model denied. Please make sure you are eligible for using the model."}`, true, "AccessDenied.Unpurchased"},
 		// 403 AllocationQuota.FreeTierOnly
 		{"百炼 403 FreeTierOnly", 403, `{"code":"AllocationQuota.FreeTierOnly","message":"The free tier of the model has been exhausted."}`, true, "free_tier_exhausted"},
-		// 429 Throttling.AllocationQuota — TPS/TPM 配额耗尽（不是纯限流！）
-		{"百炼 429 Throttling.AllocationQuota", 429, `{"code":"Throttling.AllocationQuota","message":"Allocated quota exceeded, please increase your quota limit."}`, true, "quota_exceeded"},
+		// 429 Throttling.AllocationQuota — TPM 限流（不是真正配额耗尽，不标记 key）
+		{"百炼 429 Throttling.AllocationQuota", 429, `{"code":"Throttling.AllocationQuota","message":"Allocated quota exceeded, please increase your quota limit."}`, false, ""},
 		// 429 PrepaidBillOverdue
 		{"百炼 429 PrepaidBillOverdue", 429, `{"code":"PrepaidBillOverdue","message":"The prepaid bill is overdue."}`, true, "quota_exceeded"},
 		// 429 PostpaidBillOverdue
 		{"百炼 429 PostpaidBillOverdue", 429, `{"code":"PostpaidBillOverdue","message":"The postpaid bill is overdue."}`, true, "quota_exceeded"},
 		// 429 CommodityNotPurchased
 		{"百炼 429 CommodityNotPurchased", 429, `{"code":"CommodityNotPurchased","message":"Commodity has not purchased yet."}`, true, "quota_exceeded"},
-		// 429 TokenPlan 配额耗尽（code=Throttling 但 message 含 "upgrade your API plan"）
-		{"百炼 429 TokenPlan quota exhausted", 429, "event:error\ndata:{\"request_id\":\"abc\",\"code\":\"Throttling\",\"message\":\"Rate limit exceeded. Please wait and try again, or upgrade your API plan.\"}", true, "quota_exceeded"},
-		// 429 TokenPlan 额度耗尽（OpenAI 兼容模式，明文 JSON）
+		// 429 TokenPlan TPM 限流（"upgrade your API plan" 是限流建议，不是真正额度耗尽）
+		{"百炼 429 TokenPlan TPM rate limit", 429, "event:error\ndata:{\"request_id\":\"abc\",\"code\":\"Throttling\",\"message\":\"Rate limit exceeded. Please wait and try again, or upgrade your API plan.\"}", false, ""},
+		// 429 TokenPlan 总额度耗尽（OpenAI 兼容模式，"token-plan quota has been exhausted"）
 		{"百炼 429 TokenPlan quota has been exhausted", 429, `{"error":{"message":"Your token-plan quota has been exhausted.","id":"abc","type":"insufficient_quota","code":"insufficient_quota"}}`, true, "quota_exceeded"},
 
 		// ── OpenAI (developers.openai.com/api/docs/guides/error-codes) ──

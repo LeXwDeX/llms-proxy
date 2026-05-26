@@ -238,13 +238,11 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 	p.entries[index].exhaustReason = errorCode
 	
 	// 按 errorCode 计算冷却结束时间
-	// rate_limited → 60s 自动恢复
 	// quota_exceeded → resetTime（如已配置且在未来），否则永久屏蔽
 	// 其他错误 → 永久屏蔽（需手动解除）
+	// 注意：429 限流不会调用 markExhausted（isKeyExhausted 对限流返回 false）
 	permanentEnd := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	switch errorCode {
-	case "rate_limited":
-		p.entries[index].cooldownEnd = now.Add(60 * time.Second)
 	case "quota_exceeded":
 		if !p.resetTime.IsZero() && p.resetTime.After(now) {
 			p.entries[index].cooldownEnd = p.resetTime
