@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 #
 # ⚠️ 构建必须使用 --no-cache，否则 BuildKit 会缓存旧二进制！
 #   docker build --no-cache -t llms-proxy:latest -f deploy/docker/Dockerfile .
