@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -13,16 +14,20 @@ func newTestKeyPool(keys []string) *keyPool {
 func TestSelectKeyForClient_Affinity(t *testing.T) {
 	pool := newTestKeyPool([]string{"key-a", "key-b", "key-c", "key-d"})
 
-	// 同一 client 应该始终返回同一个 key
+	// 同一 client 首次分配后应该始终返回同一个 key（亲和保持）
 	key1, idx1 := pool.selectKeyForClient("alice")
 	key2, idx2 := pool.selectKeyForClient("alice")
 	if key1 != key2 || idx1 != idx2 {
-		t.Errorf("same client should get same key: got (%s,%d) and (%s,%d)", key1, idx1, key2, idx2)
+		t.Errorf("same client should get same key after affinity: got (%s,%d) and (%s,%d)", key1, idx1, key2, idx2)
 	}
 
-	// 不同 client 可能得到不同 key（不强制，但 hash 应该分散）
-	keyBob, _ := pool.selectKeyForClient("bob")
-	_ = keyBob // 不强制不同，只验证不 panic
+	// 多次调用仍然保持亲和
+	for i := 0; i < 5; i++ {
+		k, idx := pool.selectKeyForClient("alice")
+		if k != key1 || idx != idx1 {
+			t.Errorf("iteration %d: affinity broken, got (%s,%d) want (%s,%d)", i, k, idx, key1, idx1)
+		}
+	}
 }
 
 func TestSelectKeyForClient_EmptyClient(t *testing.T) {
@@ -66,15 +71,45 @@ func TestSelectKeyForClient_AllExhausted(t *testing.T) {
 	}
 }
 
-func TestSelectKeyForClient_Deterministic(t *testing.T) {
-	// 多次创建 pool，同一 client 应该映射到同一 key
-	for i := 0; i < 10; i++ {
-		pool := newTestKeyPool([]string{"key-0", "key-1", "key-2", "key-3", "key-4"})
-		_, idx := pool.selectKeyForClient("test-user")
-		expected := int(hashClientKey("test-user", "test-target") % 5)
-		if idx != expected {
-			t.Errorf("iteration %d: expected idx=%d, got %d", i, expected, idx)
+func TestSelectKeyForClient_RoundRobin(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2", "key-3", "key-4"})
+
+	// 5 个不同客户端应该按轮询分配到 5 个不同的 key
+	assigned := make(map[string]int)
+	for i := 0; i < 5; i++ {
+		client := fmt.Sprintf("client-%d", i)
+		_, idx := pool.selectKeyForClient(client)
+		assigned[client] = idx
+	}
+
+	// 验证每个 key 恰好被分配一次
+	keyCount := make(map[int]int)
+	for _, idx := range assigned {
+		keyCount[idx]++
+	}
+	for i := 0; i < 5; i++ {
+		if keyCount[i] != 1 {
+			t.Errorf("key %d assigned %d times, want 1 (assignments: %v)", i, keyCount[i], assigned)
 		}
+	}
+}
+
+func TestSelectKeyForClient_AffinityAfterRoundRobin(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 3 个客户端轮询分配
+	_, idx0 := pool.selectKeyForClient("c0")
+	_, idx1 := pool.selectKeyForClient("c1")
+	_, idx2 := pool.selectKeyForClient("c2")
+
+	// 再次请求应该返回之前分配的 key（亲和保持）
+	_, got0 := pool.selectKeyForClient("c0")
+	_, got1 := pool.selectKeyForClient("c1")
+	_, got2 := pool.selectKeyForClient("c2")
+
+	if got0 != idx0 || got1 != idx1 || got2 != idx2 {
+		t.Errorf("affinity broken after round-robin: want (%d,%d,%d) got (%d,%d,%d)",
+			idx0, idx1, idx2, got0, got1, got2)
 	}
 }
 
@@ -211,6 +246,8 @@ func TestIsKeyExhausted(t *testing.T) {
 		{"百炼 429 CommodityNotPurchased", 429, `{"code":"CommodityNotPurchased","message":"Commodity has not purchased yet."}`, true, "quota_exceeded"},
 		// 429 TokenPlan 配额耗尽（code=Throttling 但 message 含 "upgrade your API plan"）
 		{"百炼 429 TokenPlan quota exhausted", 429, "event:error\ndata:{\"request_id\":\"abc\",\"code\":\"Throttling\",\"message\":\"Rate limit exceeded. Please wait and try again, or upgrade your API plan.\"}", true, "quota_exceeded"},
+		// 429 TokenPlan 额度耗尽（OpenAI 兼容模式，明文 JSON）
+		{"百炼 429 TokenPlan quota has been exhausted", 429, `{"error":{"message":"Your token-plan quota has been exhausted.","id":"abc","type":"insufficient_quota","code":"insufficient_quota"}}`, true, "quota_exceeded"},
 
 		// ── OpenAI (developers.openai.com/api/docs/guides/error-codes) ──
 		// 401 "Incorrect API key provided"

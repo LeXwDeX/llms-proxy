@@ -18,14 +18,16 @@ type keyEntry struct {
 }
 
 // keyPool 管理一个 target 的多个 API key。
-// 支持客户端亲和（hash 绑定）、耗尽检测、冷却恢复。
+// 支持轮询分配 + 客户端亲和（首次分配后记忆绑定）、耗尽检测、冷却恢复。
 // 适用于所有 provider 类型。
 type keyPool struct {
-	mu         sync.Mutex
-	entries    []keyEntry
-	resetTime  time.Time     // 额度重置时间点（零值表示未配置）
-	logger     *slog.Logger
-	targetName string
+	mu             sync.Mutex
+	entries        []keyEntry
+	resetTime      time.Time     // 额度重置时间点（零值表示未配置）
+	logger         *slog.Logger
+	targetName     string
+	rrCounter      uint32        // 轮询计数器，新客户端按此值分配 key
+	clientAffinity map[string]int // 客户端 → 已分配的 key index（记忆绑定）
 }
 
 func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *slog.Logger) *keyPool {
@@ -58,10 +60,11 @@ func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *s
 		entries[i] = keyEntry{key: k}
 	}
 	return &keyPool{
-		entries:    entries,
-		resetTime:  resetTime,
-		logger:     logger,
-		targetName: targetName,
+		entries:        entries,
+		resetTime:      resetTime,
+		logger:         logger,
+		targetName:     targetName,
+		clientAffinity: make(map[string]int),
 	}
 }
 
@@ -109,9 +112,14 @@ func (p *keyPool) selectKey() (string, int) {
 	return "", -1
 }
 
-// selectKeyForClient 按客户端名称做 hash 亲和，保证同一客户端倾向走同一个 key。
-// 如果绑定的 key 已 exhausted，溢出到下一个 active key。
-// 全部 exhausted 时走冷却恢复逻辑（与 selectKey 一致）。
+// selectKeyForClient 按轮询分配 + 客户端亲和选择 key。
+//
+// 分配策略：
+//  1. 已有亲和绑定 → 复用绑定的 key（如果 active）
+//  2. 新客户端 → 轮询分配下一个 key，并记录亲和绑定
+//  3. 绑定的 key exhausted/blocked → 溢出到下一个 active key，更新亲和绑定
+//  4. 全部 exhausted → 冷却恢复（与 selectKey 一致）
+//
 // clientName 为空时退化为 selectKey（顺序消费）。
 func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 	if p == nil || len(p.entries) == 0 {
@@ -127,23 +135,37 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 	now := time.Now()
 	n := len(p.entries)
 
-	// 1. 计算亲和 key index
-	preferred := int(hashClientKey(clientName, p.targetName) % uint32(n))
-
-	// 2. 优先用亲和 key（如果 active 且未 blocked）
-	if !p.entries[preferred].exhausted && !p.entries[preferred].blocked {
-		return p.entries[preferred].key, preferred
+	// 1. 检查已有亲和绑定
+	if preferred, ok := p.clientAffinity[clientName]; ok && preferred >= 0 && preferred < n {
+		if !p.entries[preferred].exhausted && !p.entries[preferred].blocked {
+			return p.entries[preferred].key, preferred
+		}
+		// 绑定的 key 不可用，走溢出
 	}
 
-	// 3. 亲和 key exhausted/blocked，溢出：从 preferred+1 开始找第一个 active
-	for offset := 1; offset < n; offset++ {
-		idx := (preferred + offset) % n
+	// 2. 新客户端：轮询分配
+	if _, ok := p.clientAffinity[clientName]; !ok {
+		for i := 0; i < n; i++ {
+			idx := int(p.rrCounter) % n
+			p.rrCounter++
+			if !p.entries[idx].exhausted && !p.entries[idx].blocked {
+				p.clientAffinity[clientName] = idx
+				return p.entries[idx].key, idx
+			}
+		}
+		// 所有 key 都 exhausted/blocked，跳过轮询分配，走冷却恢复
+	}
+
+	// 3. 溢出：从当前位置开始找下一个 active key
+	start := int(p.rrCounter) % n
+	for i := 0; i < n; i++ {
+		idx := (start + i) % n
 		if !p.entries[idx].exhausted && !p.entries[idx].blocked {
+			p.clientAffinity[clientName] = idx
 			maskKey := maskAPIKey(p.entries[idx].key)
 			p.logger.Info("[keypool] affinity overflow",
 				"target", p.targetName,
 				"client", clientName,
-				"preferred_key_index", preferred,
 				"actual_key_index", idx,
 				"actual_key", maskKey,
 			)
@@ -151,26 +173,26 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 		}
 	}
 
-	// 4. 全部 exhausted/blocked，找冷却期已过的最旧的（跳过 blocked）
-	for offset := 0; offset < n; offset++ {
-		idx := (preferred + offset) % n
-		if p.entries[idx].blocked {
+	// 4. 全部 exhausted/blocked，找冷却期已过的（跳过 blocked）
+	for i := 0; i < n; i++ {
+		if p.entries[i].blocked {
 			continue
 		}
-		if now.After(p.entries[idx].cooldownEnd) || now.Equal(p.entries[idx].cooldownEnd) {
-			p.entries[idx].exhausted = false
-			p.entries[idx].exhaustedAt = time.Time{}
-			p.entries[idx].exhaustReason = ""
-			p.entries[idx].cooldownEnd = time.Time{}
-			maskKey := maskAPIKey(p.entries[idx].key)
+		if now.After(p.entries[i].cooldownEnd) || now.Equal(p.entries[i].cooldownEnd) {
+			p.entries[i].exhausted = false
+			p.entries[i].exhaustedAt = time.Time{}
+			p.entries[i].exhaustReason = ""
+			p.entries[i].cooldownEnd = time.Time{}
+			p.clientAffinity[clientName] = i
+			maskKey := maskAPIKey(p.entries[i].key)
 			p.logger.Info("[keypool] key recovered",
 				"target", p.targetName,
-				"key_index", idx,
+				"key_index", i,
 				"key", maskKey,
 				"reason", "cooldown_expired",
 				"client", clientName,
 			)
-			return p.entries[idx].key, idx
+			return p.entries[i].key, i
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 // Principal represents an authenticated client.
 type Principal struct {
 	Name           string
+	AccessKey      string // 客户端的 access_key（唯一标识）
 	allowAll       bool
 	allowedTargets map[string]struct{}
 	allowedList    []string
@@ -55,6 +56,7 @@ func (p *Principal) Clone() *Principal {
 	}
 	clone := &Principal{
 		Name:        p.Name,
+		AccessKey:   p.AccessKey,
 		allowAll:    p.allowAll,
 		allowedList: make([]string, len(p.allowedList)),
 	}
@@ -106,6 +108,7 @@ func (s *Store) LoadFromConfig(clients []config.Client) error {
 
 		principal := &Principal{
 			Name:           name,
+			AccessKey:      key,
 			allowAll:       len(client.AllowedTargets) == 0,
 			allowedTargets: make(map[string]struct{}),
 			allowedList:    make([]string, 0, len(client.AllowedTargets)),

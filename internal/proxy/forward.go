@@ -3,6 +3,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -72,15 +73,17 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	}
 
-	// 选择 key：如果有 key 池则按客户端亲和选（hash 绑定），否则用 target.APIKey
+	// 选择 key：如果有 key 池则按客户端亲和选（轮询分配 + 记忆绑定），否则用 target.APIKey
 	apiKey := target.APIKey
 	keyIndex := -1
 	if state.keyPool != nil {
-		clientName := ""
+		clientKey := ""
 		if principal, ok := auth.PrincipalFromContext(r.Context()); ok && principal != nil {
-			clientName = principal.Name
+			clientKey = principal.AccessKey
 		}
-		selected, idx := state.keyPool.selectKeyForClient(clientName)
+		// 亲和键：IP + 客户端 access_key，区分同 token 不同机器/用户
+		affinityID := clientIP(r) + "|" + clientKey
+		selected, idx := state.keyPool.selectKeyForClient(affinityID)
 		if selected == "" {
 			return nil, nil, -1, &forwardAttemptError{
 				status:    http.StatusServiceUnavailable,
@@ -91,10 +94,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 		apiKey = selected
 		keyIndex = idx
+		clientName := ""
+		if principal, ok := auth.PrincipalFromContext(r.Context()); ok && principal != nil {
+			clientName = principal.Name
+		}
 		s.logger.Debug("[keypool] key selected",
 			"request_id", appmiddleware.RequestIDFromContext(r.Context()),
 			"target", target.Name,
 			"client", clientName,
+			"client_ip", clientIP(r),
 			"key_index", idx,
 			"key", maskAPIKey(selected),
 		)
@@ -373,7 +381,18 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(checkBody))
 
-		if exhausted, code := isKeyExhausted(resp.StatusCode, checkBody); exhausted {
+		// 如果响应体是 gzip 压缩的，先解压再做模式匹配
+		exhaustionBody := checkBody
+		if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+			if gr, err := gzip.NewReader(bytes.NewReader(checkBody)); err == nil {
+				if decompressed, err := io.ReadAll(io.LimitReader(gr, 8192)); err == nil {
+					exhaustionBody = decompressed
+				}
+				gr.Close()
+			}
+		}
+
+		if exhausted, code := isKeyExhausted(resp.StatusCode, exhaustionBody); exhausted {
 			state.keyPool.markExhausted(keyIndex, code)
 		}
 	}
@@ -394,6 +413,9 @@ func (s *Service) writeResponse(
 ) {
 	defer deferCancel(cancel)
 	defer resp.Body.Close()
+
+	// 提取上游 request_id，用于回传给客户端做问题排查关联
+	upstreamRequestID := resp.Header.Get("X-Request-Id")
 
 	target := state.Target()
 
@@ -425,8 +447,11 @@ func (s *Service) writeResponse(
 						w.Header().Set("X-Proxy-Target", target.Name)
 						w.Header().Set("X-Azure-Target", target.Name)
 					}
-					w.Header().Set("X-SSE-Aggregated", "true")
-					w.WriteHeader(resp.StatusCode)
+				w.Header().Set("X-SSE-Aggregated", "true")
+				if upstreamRequestID != "" {
+					w.Header().Set("X-Upstream-Request-Id", upstreamRequestID)
+				}
+				w.WriteHeader(resp.StatusCode)
 					w.Write(aggregated)
 
 					state.MarkSuccess(time.Now())
@@ -457,6 +482,9 @@ func (s *Service) writeResponse(
 	if target != nil {
 		w.Header().Set("X-Proxy-Target", target.Name)
 		w.Header().Set("X-Azure-Target", target.Name) // backward compat
+	}
+	if upstreamRequestID != "" {
+		w.Header().Set("X-Upstream-Request-Id", upstreamRequestID)
 	}
 	w.WriteHeader(resp.StatusCode)
 
@@ -519,6 +547,19 @@ func writeUpstreamErrorLog(r *http.Request, target *Target, resp *http.Response,
 	excerpt := body
 	if len(excerpt) > 1024 {
 		excerpt = excerpt[:1024]
+	}
+
+	// 如果响应体是 gzip 压缩的，解压后再取 excerpt（避免日志中出现乱码）
+	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+		if gr, err := gzip.NewReader(bytes.NewReader(body)); err == nil {
+			if decompressed, err := io.ReadAll(io.LimitReader(gr, 2048)); err == nil {
+				excerpt = decompressed
+				if len(excerpt) > 1024 {
+					excerpt = excerpt[:1024]
+				}
+			}
+			gr.Close()
+		}
 	}
 
 	entry := errorlog.Entry{
@@ -820,12 +861,17 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	// Gemini:  "RESOURCE_EXHAUSTED" (429)
 	// 百炼:    code=QuotaExceeded / Throttling.AllocationQuota (429, TPS/TPM 配额耗尽)
 	// 百炼:    PrepaidBillOverdue / PostpaidBillOverdue / CommodityNotPurchased (429, 账单过期)
+	// 百炼:    "Your token-plan quota has been exhausted" (429, TokenPlan 额度耗尽)
+	// 百炼:    code=insufficient_quota (429, TokenPlan OpenAI 兼容模式)
 	if bytes.Contains(lower, []byte("quota exceeded")) ||
 		bytes.Contains(lower, []byte("exceeded your quota")) ||
 		bytes.Contains(lower, []byte("you exceeded your current quota")) ||
 		bytes.Contains(lower, []byte("resource_exhausted")) ||
 		bytes.Contains(lower, []byte("upgrade your api plan")) ||
+		bytes.Contains(lower, []byte("quota has been exhausted")) ||
+		bytes.Contains(lower, []byte("token-plan quota")) ||
 		bytes.Contains(body, []byte(`"code":"QuotaExceeded"`)) ||
+		bytes.Contains(body, []byte(`"code":"insufficient_quota"`)) ||
 		bytes.Contains(body, []byte("Throttling.AllocationQuota")) ||
 		bytes.Contains(body, []byte("PrepaidBillOverdue")) ||
 		bytes.Contains(body, []byte("PostpaidBillOverdue")) ||
