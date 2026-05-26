@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -361,7 +362,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var fErr error
 
 		// key 池内重试：仅当 key 被标记耗尽（额度用完等）时换 key 重试。
-		// 429 限流不换 key（同账号共享 TPM/RPM 配额，换 key 也会被限）。
+		// 429 限流不换 key（同账号共享 TPM/RPM 配额，换 key 也会被限），
+		// 但同 key 退避重试最多 2 次（上游短暂限流通常 1-2 次重试即可恢复）。
+		rateLimitRetries := 0
+		const maxRateLimitRetries = 2
 		for {
 			resp, cancel, keyIndex, fErr = s.forwardRequest(r, state, forwardBody)
 			if fErr != nil {
@@ -370,9 +374,30 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if resp == nil || resp.StatusCode < 400 {
 				break
 			}
-			// 429 限流：不标记 key、不换 key，直接返回给客户端
-			if resp.StatusCode == 429 {
-				break
+			// 429 限流：同 key 退避重试，不换 key
+			if resp.StatusCode == 429 && rateLimitRetries < maxRateLimitRetries {
+				rateLimitRetries++
+				// 退避时间：优先用 Retry-After，否则 1s * 重试次数
+				backoff := time.Duration(rateLimitRetries) * time.Second
+				if ra := resp.Header.Get("Retry-After"); ra != "" {
+					if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs <= 10 {
+						backoff = time.Duration(secs) * time.Second
+					}
+				}
+				resp.Body.Close()
+				if cancel != nil {
+					cancel()
+				}
+				s.logger.Info("[keypool] 429 rate limit, retrying same key",
+					"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+					"target", target.Name,
+					"key_index", keyIndex,
+					"retry", rateLimitRetries,
+					"backoff_ms", backoff.Milliseconds(),
+				)
+				s.metrics.totalKeyRetries.Add(1)
+				time.Sleep(backoff)
+				continue
 			}
 			if state.keyPool == nil || keyIndex < 0 {
 				break

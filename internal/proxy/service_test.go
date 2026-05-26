@@ -1840,16 +1840,80 @@ func TestService429PassThrough(t *testing.T) {
 	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 pass-through, got %d", rr.Code)
 	}
-	if got := attempts.Load(); got != 1 {
-		t.Fatalf("expected exactly 1 upstream call, got %d", got)
+	// 429 限流会重试 2 次，共 3 次上游调用
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("expected 3 upstream calls (1 + 2 retries), got %d", got)
 	}
 	if got := rr.Result().Header.Get("Retry-After"); got != "42" {
 		t.Fatalf("expected Retry-After header to be passed through, got %q", got)
 	}
 
 	metrics := service.MetricsSnapshot()
-	if metrics.TotalRetries != 0 {
-		t.Fatalf("expected no retries on 429 pass-through, got %d", metrics.TotalRetries)
+	// 2 次 429 重试（totalKeyRetries 计数）
+	if metrics.TotalRetries != 2 {
+		t.Fatalf("expected 2 retries on 429, got %d", metrics.TotalRetries)
+	}
+}
+
+func TestService429RetrySuccess(t *testing.T) {
+	// 第一次 429，第二次 200 — 验证重试机制能恢复
+	var attempts atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate_limited"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{{
+			Name:               "openai",
+			Endpoint:           upstream.URL,
+			ResourcePathPrefix: "/openai",
+			APIKey:             "key",
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 after retry, got %d", rr.Code)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("expected 2 upstream calls (1 x 429 + 1 x 200), got %d", got)
 	}
 }
 
