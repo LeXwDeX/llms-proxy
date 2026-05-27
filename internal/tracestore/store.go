@@ -56,8 +56,8 @@ type TraceRecord struct {
 	CachedTokens int64 `json:"cached_tokens"`
 
 	// === 内容 ===
-	RequestBody  []byte `json:"request_body"`
-	ResponseBody []byte `json:"response_body"`
+	RequestBody  string `json:"request_body"`
+	ResponseBody string `json:"response_body"`
 }
 
 // Config 配置 TraceStore。

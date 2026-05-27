@@ -3,6 +3,7 @@ package tracestore
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -120,10 +121,7 @@ func TestStoreBodyTruncation(t *testing.T) {
 	defer store.Close()
 
 	// Record with large body
-	largeBody := make([]byte, 100)
-	for i := range largeBody {
-		largeBody[i] = 'x'
-	}
+	largeBody := strings.Repeat("x", 100)
 
 	store.Record(&TraceRecord{
 		TraceID:      "test-large",

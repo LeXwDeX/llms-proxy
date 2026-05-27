@@ -676,8 +676,8 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 		DurationMS: time.Since(startedAt).Milliseconds(),
 
 		// 内容
-		RequestBody:  requestBody,
-		ResponseBody: responseBody,
+		RequestBody:  string(requestBody),
+		ResponseBody: string(responseBody),
 	}
 
 	s.traceStore.Record(record)
