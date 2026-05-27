@@ -527,6 +527,11 @@ func (s *Store) Stats() map[string]int64 {
 	}
 }
 
+// MaxBodySize 返回配置的最大 body 大小。
+func (s *Store) MaxBodySize() int {
+	return s.cfg.MaxBodySize
+}
+
 // Close 关闭 store，等待异步落盘完成。可安全多次调用。
 func (s *Store) Close() error {
 	if !s.cfg.Enabled {

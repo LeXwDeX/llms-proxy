@@ -449,11 +449,11 @@ func (s *Service) writeResponse(
 						w.Header().Set("X-Proxy-Target", target.Name)
 						w.Header().Set("X-Azure-Target", target.Name)
 					}
-				w.Header().Set("X-SSE-Aggregated", "true")
-				if upstreamRequestID != "" {
-					w.Header().Set("X-Upstream-Request-Id", upstreamRequestID)
-				}
-				w.WriteHeader(resp.StatusCode)
+					w.Header().Set("X-SSE-Aggregated", "true")
+					if upstreamRequestID != "" {
+						w.Header().Set("X-Upstream-Request-Id", upstreamRequestID)
+					}
+					w.WriteHeader(resp.StatusCode)
 					w.Write(aggregated)
 
 					state.MarkSuccess(time.Now())
@@ -613,25 +613,39 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 	requestHeaders := make(map[string]string)
 	for key := range r.Header {
 		lower := strings.ToLower(key)
-		if lower == "authorization" || lower == "x-api-key" || lower == "cookie" {
+		if lower == "authorization" || lower == "x-api-key" || lower == "x-goog-api-key" || lower == "cookie" {
 			requestHeaders[key] = "***"
 		} else {
 			requestHeaders[key] = r.Header.Get(key)
 		}
 	}
 
-	// 收集上游响应头
+	// 收集上游响应头（脱敏）
 	upstreamHeaders := make(map[string]string)
 	if resp != nil {
 		for key := range resp.Header {
-			upstreamHeaders[key] = resp.Header.Get(key)
+			lower := strings.ToLower(key)
+			if lower == "authorization" || lower == "x-api-key" || lower == "x-goog-api-key" || lower == "set-cookie" {
+				upstreamHeaders[key] = "***"
+			} else {
+				upstreamHeaders[key] = resp.Header.Get(key)
+			}
 		}
 	}
 
-	// 构建上游 URL
+	// 构建上游 URL（脱敏 query 中的 api-key 参数）
 	upstreamURL := ""
 	if resp != nil && resp.Request != nil && resp.Request.URL != nil {
-		upstreamURL = resp.Request.URL.String()
+		u := *resp.Request.URL
+		q := u.Query()
+		for param := range q {
+			lower := strings.ToLower(param)
+			if lower == "api-key" || lower == "apikey" || lower == "key" || lower == "api_key" {
+				q.Set(param, "***")
+			}
+		}
+		u.RawQuery = q.Encode()
+		upstreamURL = u.String()
 	}
 
 	// 提取 key mask
@@ -643,6 +657,17 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 		}
 		if keyIndex < len(keys) {
 			keyMask = maskAPIKey(keys[keyIndex])
+		}
+	}
+
+	// 如果响应体是 gzip 压缩的，解压后再存储（避免存储乱码）
+	respBodyStr := string(responseBody)
+	if resp != nil && strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") && len(responseBody) > 0 {
+		if gr, err := gzip.NewReader(bytes.NewReader(responseBody)); err == nil {
+			if decompressed, err := io.ReadAll(io.LimitReader(gr, int64(s.traceStore.MaxBodySize()))); err == nil {
+				respBodyStr = string(decompressed)
+			}
+			gr.Close()
 		}
 	}
 
@@ -677,7 +702,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 
 		// 内容
 		RequestBody:  string(requestBody),
-		ResponseBody: string(responseBody),
+		ResponseBody: respBodyStr,
 	}
 
 	s.traceStore.Record(record)

@@ -699,14 +699,26 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 	for i, t := range cfg.Targets {
 		epType := config.NormalizeEndpointType(t.EndpointType)
 		sseAutoAgg := t.SSEAutoAggregate == nil || *t.SSEAutoAggregate
+
+		// Mask API keys for security (only return masked versions)
+		maskedAPIKey := ""
+		if t.APIKey != "" {
+			maskedAPIKey = maskKey(t.APIKey)
+		}
+		maskedAPIKeys := make([]string, len(t.APIKeys))
+		for j, k := range t.APIKeys {
+			maskedAPIKeys[j] = maskKey(k)
+		}
+
 		m := map[string]any{
 			"name":                     t.Name,
 			"endpoint_type":            epType,
 			"endpoint":                 t.Endpoint,
 			"resource_path_prefix":     t.ResourcePathPrefix,
 			"has_api_key":              t.APIKey != "",
-			"api_key":                  t.APIKey,
-			"api_keys":                 t.APIKeys,
+			"api_key":                  maskedAPIKey,
+			"api_keys":                 maskedAPIKeys,
+			"api_key_count":            len(t.APIKeys),
 			"key_reset_time":           t.KeyResetTime,
 			"provider_class":           t.ProviderClass,
 			"allow_bearer_passthrough": t.AllowBearer,

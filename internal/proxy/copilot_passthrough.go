@@ -270,7 +270,7 @@ func (s *Service) HandleCopilotModels(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Copilot-Quota-Remaining", fmt.Sprintf("%.1f", account.QuotaPercentRemaining))
 
 	for key, values := range resp.Header {
-		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+		if _, skip := hopHeaders[key]; skip {
 			continue
 		}
 		for _, v := range values {
@@ -406,7 +406,7 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("X-Copilot-Quota-Remaining", fmt.Sprintf("%.1f", account.QuotaPercentRemaining))
 
 	for key, values := range resp.Header {
-		if _, skip := hopHeaders[strings.ToLower(key)]; skip {
+		if _, skip := hopHeaders[key]; skip {
 			continue
 		}
 		for _, v := range values {
