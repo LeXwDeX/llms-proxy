@@ -20,6 +20,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/copilot"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
+	"github.com/ycgame/llms-proxy/internal/tracestore"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -43,6 +44,9 @@ type Service struct {
 
 	// Copilot 动态 token 相关（nil = 未配置）
 	copilotService *copilot.CopilotService
+
+	// Trace store for DEBUG mode (nil = disabled)
+	traceStore *tracestore.Store
 
 	metrics   requestMetrics
 	startTime time.Time
@@ -125,6 +129,37 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		startTime:     time.Now(),
 	}
 	service.setRequestTimeout(time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second)
+
+	// Initialize trace store (DEBUG mode only)
+	traceCfg := tracestore.Config{
+		Enabled:        cfg.TraceStore.Enabled,
+		RingBufferSize: cfg.TraceStore.RingBufferSize,
+		MaxBodySize:    cfg.TraceStore.MaxBodySize,
+		DiskPath:       cfg.TraceStore.DiskPath,
+		DiskMaxSizeMB:  cfg.TraceStore.DiskMaxSizeMB,
+		DiskTTLHours:   cfg.TraceStore.DiskTTLHours,
+		ChannelBuffer:  cfg.TraceStore.ChannelBuffer,
+	}
+	// Apply defaults for zero values
+	if traceCfg.RingBufferSize == 0 {
+		traceCfg.RingBufferSize = 1000
+	}
+	if traceCfg.MaxBodySize == 0 {
+		traceCfg.MaxBodySize = 2 * 1024 * 1024 // 2MB
+	}
+	if traceCfg.DiskPath == "" {
+		traceCfg.DiskPath = "/var/lib/llms-proxy/trace.log"
+	}
+	if traceCfg.DiskMaxSizeMB == 0 {
+		traceCfg.DiskMaxSizeMB = 1024 // 1GB
+	}
+	if traceCfg.DiskTTLHours == 0 {
+		traceCfg.DiskTTLHours = 24
+	}
+	if traceCfg.ChannelBuffer == 0 {
+		traceCfg.ChannelBuffer = 500
+	}
+	service.traceStore = tracestore.New(traceCfg, logger)
 
 	if err := service.ApplyConfig(cfg); err != nil {
 		return nil, err
@@ -678,4 +713,28 @@ func normalizeRequestTimeout(timeout time.Duration) time.Duration {
 		return 1800 * time.Second
 	}
 	return timeout
+}
+
+// GetTrace 按 request_id 查询单条 trace 记录（DEBUG 模式）。
+func (s *Service) GetTrace(requestID string) *tracestore.TraceRecord {
+	if s.traceStore == nil {
+		return nil
+	}
+	return s.traceStore.Get(requestID)
+}
+
+// ListTrace 列出最近的 trace 记录（DEBUG 模式）。
+func (s *Service) ListTrace(limit int) []*tracestore.TraceRecord {
+	if s.traceStore == nil {
+		return nil
+	}
+	return s.traceStore.List(limit)
+}
+
+// TraceStats 返回 trace store 的统计信息（DEBUG 模式）。
+func (s *Service) TraceStats() map[string]int64 {
+	if s.traceStore == nil {
+		return nil
+	}
+	return s.traceStore.Stats()
 }

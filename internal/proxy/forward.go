@@ -19,6 +19,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/errorlog"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
+	"github.com/ycgame/llms-proxy/internal/tracestore"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -535,6 +536,11 @@ func (s *Service) writeResponse(
 	if resp.StatusCode >= 400 {
 		writeUpstreamErrorLog(r, target, resp, capture.Bytes(), startedAt)
 	}
+
+	// DEBUG 模式：记录完整 trace（请求/响应 META + body）
+	if s.traceStore != nil {
+		s.recordTrace(r, target, resp, requestBody, capture.Bytes(), startedAt, keyIndex, model)
+	}
 }
 
 // writeUpstreamErrorLog 在 writeResponse 写完响应体后落一条 NDJSON 错误日志。
@@ -587,6 +593,102 @@ func writeUpstreamErrorLog(r *http.Request, target *Target, resp *http.Response,
 		entry.UpstreamFullURL = resp.Request.URL.String()
 	}
 	errorlog.Write(entry)
+}
+
+// recordTrace 记录完整的请求/响应 trace（DEBUG 模式）。
+func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Response, requestBody, responseBody []byte, startedAt time.Time, keyIndex int, model string) {
+	if s.traceStore == nil {
+		return
+	}
+
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	clientName := ""
+	clientAccessKey := ""
+	if principal != nil {
+		clientName = principal.Name
+		clientAccessKey = maskAPIKey(principal.AccessKey)
+	}
+
+	// 收集请求头（脱敏）
+	requestHeaders := make(map[string]string)
+	for key := range r.Header {
+		lower := strings.ToLower(key)
+		if lower == "authorization" || lower == "x-api-key" || lower == "cookie" {
+			requestHeaders[key] = "***"
+		} else {
+			requestHeaders[key] = r.Header.Get(key)
+		}
+	}
+
+	// 收集上游响应头
+	upstreamHeaders := make(map[string]string)
+	if resp != nil {
+		for key := range resp.Header {
+			upstreamHeaders[key] = resp.Header.Get(key)
+		}
+	}
+
+	// 构建上游 URL
+	upstreamURL := ""
+	if resp != nil && resp.Request != nil && resp.Request.URL != nil {
+		upstreamURL = resp.Request.URL.String()
+	}
+
+	// 提取 key mask
+	keyMask := ""
+	if target != nil && keyIndex >= 0 {
+		keys := target.APIKeys
+		if len(keys) == 0 && target.APIKey != "" {
+			keys = []string{target.APIKey}
+		}
+		if keyIndex < len(keys) {
+			keyMask = maskAPIKey(keys[keyIndex])
+		}
+	}
+
+	record := &tracestore.TraceRecord{
+		// META: 请求侧
+		TraceID:         appmiddleware.RequestIDFromContext(r.Context()),
+		Timestamp:       startedAt,
+		ClientName:      clientName,
+		ClientIP:        clientIP(r),
+		ClientAccessKey: clientAccessKey,
+		Method:          r.Method,
+		Path:            r.URL.Path,
+		QueryParams:     r.URL.RawQuery,
+		RequestHeaders:  requestHeaders,
+
+		// META: 路由决策
+		Target:       targetName(target),
+		EndpointType: targetEndpointType(target),
+		Model:        model,
+		KeyIndex:     keyIndex,
+		KeyMask:      keyMask,
+
+		// META: 上游
+		UpstreamURL:       upstreamURL,
+		UpstreamRequestID: resp.Header.Get("X-Request-Id"),
+		UpstreamStatus:    resp.StatusCode,
+		UpstreamHeaders:   upstreamHeaders,
+
+		// META: 结果
+		StatusCode: resp.StatusCode,
+		DurationMS: time.Since(startedAt).Milliseconds(),
+
+		// 内容
+		RequestBody:  requestBody,
+		ResponseBody: responseBody,
+	}
+
+	s.traceStore.Record(record)
+}
+
+// targetEndpointType 返回 target 的 endpoint type。
+func targetEndpointType(target *Target) string {
+	if target == nil {
+		return ""
+	}
+	return target.EndpointType
 }
 
 func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode int, model string, contentType string, body []byte, state *targetState, keyIndex int) {

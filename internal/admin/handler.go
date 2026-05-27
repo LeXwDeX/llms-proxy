@@ -136,6 +136,10 @@ func NewHandler(
 
 		// Endpoint type metadata（单一信息源，UI 下拉/徽章数据）
 		r.Get("/endpoint-types", h.handleListEndpointTypes)
+
+		// Trace store (DEBUG mode)
+		r.Get("/trace", h.handleListTrace)
+		r.Get("/trace/{request_id}", h.handleGetTrace)
 	})
 	return r
 }
@@ -1277,4 +1281,40 @@ func maskKey(key string) string {
 		return "****"
 	}
 	return key[:4] + "..." + key[len(key)-4:]
+}
+
+// handleGetTrace 按 request_id 查询单条 trace 记录。
+func (h *Handler) handleGetTrace(w http.ResponseWriter, r *http.Request) {
+	requestID := chi.URLParam(r, "request_id")
+	if requestID == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("request_id required"))
+		return
+	}
+
+	record := h.proxyService.GetTrace(requestID)
+	if record == nil {
+		writeJSON(w, http.StatusNotFound, errorResponse("trace not found"))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, record)
+}
+
+// handleListTrace 列出最近的 trace 记录。
+func (h *Handler) handleListTrace(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+
+	records := h.proxyService.ListTrace(limit)
+	stats := h.proxyService.TraceStats()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"records": records,
+		"count":   len(records),
+		"stats":   stats,
+	})
 }

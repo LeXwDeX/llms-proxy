@@ -67,6 +67,19 @@ type Config struct {
 	DataFiles    DataFiles          `json:"data_files,omitempty"` // legacy, used for migration only
 	AdminSession AdminSessionConfig `json:"admin_session"`
 	Logging      LoggingConfig      `json:"logging"`
+	TraceStore   TraceStoreConfig   `json:"trace_store,omitempty"`
+}
+
+// TraceStoreConfig controls the DEBUG mode trace store.
+// 仅当 Enabled=true 时启用，生产环境应保持 false 以避免性能开销。
+type TraceStoreConfig struct {
+	Enabled        bool   `json:"enabled"`          // 是否启用（仅 DEBUG 时开启）
+	RingBufferSize int    `json:"ring_buffer_size"` // 内存 Ring Buffer 容量（条数）
+	MaxBodySize    int    `json:"max_body_size"`    // 单个 body 最大字节数
+	DiskPath       string `json:"disk_path"`        // 磁盘存储路径
+	DiskMaxSizeMB  int    `json:"disk_max_size_mb"` // 磁盘存储最大 MB
+	DiskTTLHours   int    `json:"disk_ttl_hours"`   // 磁盘记录 TTL（小时）
+	ChannelBuffer  int    `json:"channel_buffer"`   // 异步写入 channel buffer
 }
 
 // DataFiles contains paths to file-backed NoSQL data.
