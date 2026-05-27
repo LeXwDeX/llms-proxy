@@ -135,6 +135,14 @@ func main() {
 		"db_path", dbPath,
 	)
 
+	// Trace store: 仅通过环境变量 TRACE_STORE_ENABLED 控制，不从 config.json 读取
+	if envTrace := strings.TrimSpace(os.Getenv("TRACE_STORE_ENABLED")); envTrace == "true" {
+		cfg.TraceStore.Enabled = true
+		appLogger.Info("trace store enabled via TRACE_STORE_ENABLED=true")
+	} else {
+		cfg.TraceStore.Enabled = false
+	}
+
 	authStore := auth.NewStore()
 	if err := authStore.LoadFromConfig(clients); err != nil {
 		appLogger.Error("failed to initialize auth store", "error", err)
