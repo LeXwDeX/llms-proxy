@@ -1,6 +1,8 @@
 package tracestore
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -575,5 +577,262 @@ func TestStoreGetFromDiskWithBackups(t *testing.T) {
 	record = store.Get("nonexistent")
 	if record != nil {
 		t.Error("expected nil for nonexistent record")
+	}
+}
+
+// TestReadLastNFromFileRingBuffer 验证 readLastNFromFile 使用环形缓冲区，不会将整个文件加载到内存
+func TestReadLastNFromFileRingBuffer(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "tracestore-ring-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	filePath := filepath.Join(tmpDir, "large.log")
+
+	// 写入 1000 条记录
+	f, err := os.Create(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1000; i++ {
+		record := TraceRecord{
+			TraceID:   fmt.Sprintf("record-%d", i),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Second),
+			Model:     "test-model",
+		}
+		data, _ := json.Marshal(record)
+		f.Write(data)
+		f.Write([]byte("\n"))
+	}
+	f.Close()
+
+	cfg := Config{
+		Enabled:        true,
+		RingBufferSize: 10,
+		MaxBodySize:    1024,
+		DiskPath:       filePath,
+		DiskMaxSizeMB:  10,
+		DiskMaxBackups: 3,
+		DiskTTLHours:   24,
+		ChannelBuffer:  10,
+	}
+	store := New(cfg, nil)
+	defer store.Close()
+
+	// 只读取最后 10 条记录
+	records := store.readLastNFromFile(filePath, 10)
+	if len(records) != 10 {
+		t.Errorf("expected 10 records, got %d", len(records))
+	}
+
+	// 验证是最后 10 条（record-990 到 record-999）
+	if records[0].TraceID != "record-990" {
+		t.Errorf("expected first record to be record-990, got %s", records[0].TraceID)
+	}
+	if records[9].TraceID != "record-999" {
+		t.Errorf("expected last record to be record-999, got %s", records[9].TraceID)
+	}
+}
+
+// TestGetTraceFilesSorted 验证备份文件按编号正确排序
+func TestGetTraceFilesSorted(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "tracestore-sort-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// 创建当前文件和多个备份文件（乱序创建）
+	files := []string{"trace.log", "trace.log.3", "trace.log.1", "trace.log.2"}
+	for _, name := range files {
+		f, err := os.Create(filepath.Join(tmpDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+
+	cfg := Config{
+		Enabled:        true,
+		RingBufferSize: 10,
+		MaxBodySize:    1024,
+		DiskPath:       filepath.Join(tmpDir, "trace.log"),
+		DiskMaxSizeMB:  10,
+		DiskMaxBackups: 3,
+		DiskTTLHours:   24,
+		ChannelBuffer:  10,
+	}
+	store := New(cfg, nil)
+	defer store.Close()
+
+	sortedFiles := store.getTraceFiles()
+
+	// 验证顺序：trace.log → trace.log.1 → trace.log.2 → trace.log.3
+	expected := []string{"trace.log", "trace.log.1", "trace.log.2", "trace.log.3"}
+	if len(sortedFiles) != len(expected) {
+		t.Fatalf("expected %d files, got %d", len(expected), len(sortedFiles))
+	}
+
+	for i, exp := range expected {
+		actual := filepath.Base(sortedFiles[i])
+		if actual != exp {
+			t.Errorf("position %d: expected %s, got %s", i, exp, actual)
+		}
+	}
+}
+
+// TestSearchInFilePreciseMatch 验证 searchInFile 使用精确匹配，不会误匹配 body 内容
+func TestSearchInFilePreciseMatch(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "tracestore-precise-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	filePath := filepath.Join(tmpDir, "trace.log")
+
+	// 写入一条记录，其 body 包含另一个 trace_id 的字符串
+	f, err := os.Create(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 记录 1：trace_id 是 "real-id"，但 body 包含 "fake-id"
+	record1 := TraceRecord{
+		TraceID:      "real-id",
+		Timestamp:    time.Now(),
+		Model:        "test-model",
+		RequestBody:  `{"message": "This contains fake-id in the body"}`,
+		ResponseBody: `{"result": "Also mentions fake-id here"}`,
+	}
+	data1, _ := json.Marshal(record1)
+	f.Write(data1)
+	f.Write([]byte("\n"))
+
+	// 记录 2：trace_id 是 "fake-id"
+	record2 := TraceRecord{
+		TraceID:   "fake-id",
+		Timestamp: time.Now(),
+		Model:     "test-model",
+	}
+	data2, _ := json.Marshal(record2)
+	f.Write(data2)
+	f.Write([]byte("\n"))
+	f.Close()
+
+	cfg := Config{
+		Enabled:        true,
+		RingBufferSize: 10,
+		MaxBodySize:    1024,
+		DiskPath:       filePath,
+		DiskMaxSizeMB:  10,
+		DiskMaxBackups: 3,
+		DiskTTLHours:   24,
+		ChannelBuffer:  10,
+	}
+	store := New(cfg, nil)
+	defer store.Close()
+
+	// 搜索 "fake-id"，应该返回记录 2，而不是记录 1
+	matchPattern := []byte(`"trace_id":"fake-id"`)
+	record := store.searchInFile(filePath, "fake-id", matchPattern)
+	if record == nil {
+		t.Fatal("expected to find fake-id")
+	}
+	if record.TraceID != "fake-id" {
+		t.Errorf("expected trace_id to be fake-id, got %s", record.TraceID)
+	}
+
+	// 搜索 "real-id"，应该返回记录 1
+	matchPattern = []byte(`"trace_id":"real-id"`)
+	record = store.searchInFile(filePath, "real-id", matchPattern)
+	if record == nil {
+		t.Fatal("expected to find real-id")
+	}
+	if record.TraceID != "real-id" {
+		t.Errorf("expected trace_id to be real-id, got %s", record.TraceID)
+	}
+	// 验证 body 确实包含 "fake-id" 字符串
+	if !strings.Contains(record.RequestBody, "fake-id") {
+		t.Error("expected request body to contain fake-id")
+	}
+}
+
+// TestListConcurrentAccess 验证 List() 在磁盘 I/O 期间不阻塞 Record()
+func TestListConcurrentAccess(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "tracestore-concurrent-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	filePath := filepath.Join(tmpDir, "trace.log")
+
+	// 预先写入大量记录到磁盘
+	f, err := os.Create(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		record := TraceRecord{
+			TraceID:   fmt.Sprintf("disk-record-%d", i),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Second),
+			Model:     "test-model",
+		}
+		data, _ := json.Marshal(record)
+		f.Write(data)
+		f.Write([]byte("\n"))
+	}
+	f.Close()
+
+	cfg := Config{
+		Enabled:        true,
+		RingBufferSize: 5, // 很小的内存缓冲区
+		MaxBodySize:    1024,
+		DiskPath:       filePath,
+		DiskMaxSizeMB:  10,
+		DiskMaxBackups: 3,
+		DiskTTLHours:   24,
+		ChannelBuffer:  100,
+	}
+	store := New(cfg, nil)
+	defer store.Close()
+
+	// 启动一个 goroutine 持续调用 List()（会触发磁盘 I/O）
+	listDone := make(chan bool)
+	go func() {
+		for i := 0; i < 10; i++ {
+			records := store.List(50)
+			if len(records) == 0 {
+				t.Error("List() returned empty results")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		listDone <- true
+	}()
+
+	// 同时持续调用 Record()，验证不会被阻塞
+	recordDone := make(chan bool)
+	go func() {
+		for i := 0; i < 100; i++ {
+			store.Record(&TraceRecord{
+				TraceID:   fmt.Sprintf("new-record-%d", i),
+				Timestamp: time.Now(),
+				Model:     "test-model",
+			})
+			time.Sleep(1 * time.Millisecond)
+		}
+		recordDone <- true
+	}()
+
+	// 等待两个 goroutine 完成
+	<-listDone
+	<-recordDone
+
+	// 验证 Record() 成功写入了记录
+	stats := store.Stats()
+	if stats["total_records"] < 100 {
+		t.Errorf("expected at least 100 records, got %d", stats["total_records"])
 	}
 }

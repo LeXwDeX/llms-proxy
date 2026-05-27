@@ -5,6 +5,7 @@
 // 架构：
 //   - 内存 Ring Buffer：sync.Map 存储最近 N 条记录，查询 O(1)
 //   - 异步落盘：channel + goroutine 非阻塞写入磁盘
+//   - 磁盘回退：内存 miss 时自动从磁盘文件查询（当前 + 备份）
 //   - 仅 DEBUG 模式启用，生产环境零开销
 package tracestore
 
@@ -16,6 +17,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,6 +115,7 @@ type Store struct {
 	totalRecords   atomic.Int64
 	droppedRecords atomic.Int64
 	diskWrites     atomic.Int64
+	diskReads      atomic.Int64
 
 	// 关闭保护
 	closeOnce sync.Once
@@ -259,63 +263,106 @@ func (s *Store) getFromDisk(traceID string) *TraceRecord {
 		return nil
 	}
 
+	s.diskReads.Add(1)
+
+	// 构造精确匹配模式，避免 body 内容误匹配
+	matchPattern := []byte(`"trace_id":"` + traceID + `"`)
+
 	// 读取当前文件和所有备份文件
 	files := s.getTraceFiles()
 	for _, file := range files {
-		if record := s.searchInFile(file, traceID); record != nil {
+		if record := s.searchInFile(file, traceID, matchPattern); record != nil {
 			return record
 		}
 	}
 	return nil
 }
 
-// getTraceFiles 返回所有 trace 文件路径（当前文件 + 备份文件）。
+// traceFileEntry 用于排序备份文件。
+type traceFileEntry struct {
+	path  string
+	index int // 0 = 当前文件，1 = .1 备份，2 = .2 备份...
+}
+
+// getTraceFiles 返回所有 trace 文件路径（当前文件 + 备份文件，按编号排序）。
 func (s *Store) getTraceFiles() []string {
-	var files []string
-	
-	// 当前文件
-	if _, err := os.Stat(s.cfg.DiskPath); err == nil {
-		files = append(files, s.cfg.DiskPath)
-	}
-	
-	// 备份文件（trace.log.1, trace.log.2, ...）
 	dir := filepath.Dir(s.cfg.DiskPath)
 	base := filepath.Base(s.cfg.DiskPath)
-	entries, err := os.ReadDir(dir)
+
+	var entries []traceFileEntry
+
+	// 当前文件（index=0，最新）
+	if _, err := os.Stat(s.cfg.DiskPath); err == nil {
+		entries = append(entries, traceFileEntry{path: s.cfg.DiskPath, index: 0})
+	}
+
+	// 备份文件（trace.log.1, trace.log.2, ...）
+	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("trace store: failed to read trace directory", "path", dir, "error", err)
+		}
+		// 至少返回当前文件
+		var files []string
+		for _, e := range entries {
+			files = append(files, e.path)
+		}
 		return files
 	}
-	
-	for _, entry := range entries {
-		name := entry.Name()
-		if name != base && strings.HasPrefix(name, base+".") {
-			files = append(files, filepath.Join(dir, name))
+
+	for _, de := range dirEntries {
+		name := de.Name()
+		if name == base || !strings.HasPrefix(name, base+".") {
+			continue
 		}
+		// 解析编号：trace.log.1 → 1, trace.log.2 → 2
+		suffix := strings.TrimPrefix(name, base+".")
+		idx, err := strconv.Atoi(suffix)
+		if err != nil {
+			continue // 跳过非数字后缀（如 .gz）
+		}
+		entries = append(entries, traceFileEntry{
+			path:  filepath.Join(dir, name),
+			index: idx,
+		})
 	}
-	
+
+	// 按编号排序：0（当前）→ 1 → 2 → ...（越新越先）
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].index < entries[j].index
+	})
+
+	files := make([]string, len(entries))
+	for i, e := range entries {
+		files[i] = e.path
+	}
 	return files
 }
 
 // searchInFile 在指定文件中搜索 trace_id。
-func (s *Store) searchInFile(filePath, traceID string) *TraceRecord {
+func (s *Store) searchInFile(filePath, traceID string, matchPattern []byte) *TraceRecord {
 	f, err := os.Open(filePath)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("trace store: failed to open file for search", "path", filePath, "error", err)
+		}
 		return nil
 	}
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
-	// 增大 buffer 以处理大行（2MB body + metadata）
-	buf := make([]byte, 0, 4*1024*1024)
-	scanner.Buffer(buf, 4*1024*1024)
+	// 增大 buffer 以处理大行（512KB body × 2 + metadata ≈ 1.1MB）
+	const maxLineSize = 2 * 1024 * 1024
+	buf := make([]byte, 0, maxLineSize)
+	scanner.Buffer(buf, maxLineSize)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		// 快速检查是否包含 trace_id（避免完整解析）
-		if !bytes.Contains(line, []byte(traceID)) {
+		// 精确匹配 "trace_id":"xxx"，避免 body 内容误匹配
+		if !bytes.Contains(line, matchPattern) {
 			continue
 		}
-		
+
 		// 完整解析
 		var record TraceRecord
 		if err := json.Unmarshal(line, &record); err != nil {
@@ -324,6 +371,10 @@ func (s *Store) searchInFile(filePath, traceID string) *TraceRecord {
 		if record.TraceID == traceID {
 			return &record
 		}
+	}
+
+	if err := scanner.Err(); err != nil && s.logger != nil {
+		s.logger.Warn("trace store: file scan error", "path", filePath, "error", err)
 	}
 	return nil
 }
@@ -334,13 +385,11 @@ func (s *Store) List(limit int) []*TraceRecord {
 		return nil
 	}
 
+	// 第一步：在锁内收集内存记录
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var results []*TraceRecord
+	var memResults []*TraceRecord
 	n := len(s.keys)
 	start := (s.head - 1 + n) % n
-
 	for i := 0; i < limit && i < n; i++ {
 		idx := (start - i + n) % n
 		key := s.keys[idx]
@@ -348,24 +397,34 @@ func (s *Store) List(limit int) []*TraceRecord {
 			break
 		}
 		if v, ok := s.ring.Load(key); ok {
-			results = append(results, v.(*TraceRecord))
+			memResults = append(memResults, v.(*TraceRecord))
 		}
 	}
+	s.mu.Unlock()
 
-	// 内存记录不足 limit 时，从磁盘补充
-	if len(results) < limit {
-		diskRecords := s.listFromDisk(limit - len(results))
-		// 去重：排除内存中已有的记录
-		existing := make(map[string]bool)
-		for _, r := range results {
-			existing[r.TraceID] = true
-		}
-		for _, r := range diskRecords {
-			if !existing[r.TraceID] {
-				results = append(results, r)
-				if len(results) >= limit {
-					break
-				}
+	// 内存记录足够，直接返回
+	if len(memResults) >= limit {
+		return memResults
+	}
+
+	// 第二步：释放锁后执行磁盘 I/O（不阻塞 Record）
+	remaining := limit - len(memResults)
+	diskRecords := s.listFromDisk(remaining)
+
+	// 第三步：合并去重
+	existing := make(map[string]bool, len(memResults))
+	for _, r := range memResults {
+		existing[r.TraceID] = true
+	}
+
+	results := make([]*TraceRecord, len(memResults), limit)
+	copy(results, memResults)
+
+	for _, r := range diskRecords {
+		if !existing[r.TraceID] {
+			results = append(results, r)
+			if len(results) >= limit {
+				break
 			}
 		}
 	}
@@ -379,10 +438,12 @@ func (s *Store) listFromDisk(limit int) []*TraceRecord {
 		return nil
 	}
 
+	s.diskReads.Add(1)
+
 	files := s.getTraceFiles()
 	var allRecords []*TraceRecord
 
-	// 从最新的文件开始读（当前文件最先，备份文件按编号倒序）
+	// 从最新的文件开始读（当前文件最先，备份文件按编号升序）
 	for _, file := range files {
 		records := s.readLastNFromFile(file, limit)
 		allRecords = append(allRecords, records...)
@@ -391,8 +452,10 @@ func (s *Store) listFromDisk(limit int) []*TraceRecord {
 		}
 	}
 
-	// 按时间倒序排序
-	sortRecordsByTime(allRecords)
+	// 按时间倒序排序（使用 sort.Slice，O(n log n)）
+	sort.Slice(allRecords, func(i, j int) bool {
+		return allRecords[i].Timestamp.After(allRecords[j].Timestamp)
+	})
 
 	if len(allRecords) > limit {
 		allRecords = allRecords[:limit]
@@ -401,33 +464,51 @@ func (s *Store) listFromDisk(limit int) []*TraceRecord {
 }
 
 // readLastNFromFile 从文件末尾读取最近 N 条记录。
+// 使用环形缓冲区，只保留最后 N 行，避免将整个文件读入内存。
 func (s *Store) readLastNFromFile(filePath string, n int) []*TraceRecord {
 	f, err := os.Open(filePath)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("trace store: failed to open file for list", "path", filePath, "error", err)
+		}
 		return nil
 	}
 	defer f.Close()
 
-	// 读取所有行（对于大文件可以优化为只读末尾，但 DEBUG 模式下文件不会太大）
-	var lines []string
+	// 环形缓冲区：只保留最后 N 行
+	ring := make([]string, n)
+	ringHead := 0
+	ringCount := 0
+
 	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 0, 4*1024*1024)
-	scanner.Buffer(buf, 4*1024*1024)
+	const maxLineSize = 2 * 1024 * 1024
+	buf := make([]byte, 0, maxLineSize)
+	scanner.Buffer(buf, maxLineSize)
 
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		line := scanner.Text()
+		ring[ringHead] = line
+		ringHead = (ringHead + 1) % n
+		if ringCount < n {
+			ringCount++
+		}
 	}
 
-	// 取最后 N 行
-	start := 0
-	if len(lines) > n {
-		start = len(lines) - n
+	if err := scanner.Err(); err != nil && s.logger != nil {
+		s.logger.Warn("trace store: file scan error in readLastN", "path", filePath, "error", err)
 	}
 
+	// 从环形缓冲区提取记录（按写入顺序）
 	var records []*TraceRecord
-	for i := start; i < len(lines); i++ {
+	start := (ringHead - ringCount + n) % n
+	for i := 0; i < ringCount; i++ {
+		idx := (start + i) % n
+		line := ring[idx]
+		if line == "" {
+			continue
+		}
 		var record TraceRecord
-		if err := json.Unmarshal([]byte(lines[i]), &record); err != nil {
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			continue
 		}
 		records = append(records, &record)
@@ -435,23 +516,13 @@ func (s *Store) readLastNFromFile(filePath string, n int) []*TraceRecord {
 	return records
 }
 
-// sortRecordsByTime 按时间倒序排序记录。
-func sortRecordsByTime(records []*TraceRecord) {
-	for i := 0; i < len(records); i++ {
-		for j := i + 1; j < len(records); j++ {
-			if records[j].Timestamp.After(records[i].Timestamp) {
-				records[i], records[j] = records[j], records[i]
-			}
-		}
-	}
-}
-
 // Stats 返回统计信息。
 func (s *Store) Stats() map[string]int64 {
 	return map[string]int64{
-		"total_records":   s.totalRecords.Load(),
-		"dropped_records": s.droppedRecords.Load(),
-		"disk_writes":     s.diskWrites.Load(),
+		"total_records":    s.totalRecords.Load(),
+		"dropped_records":  s.droppedRecords.Load(),
+		"disk_writes":      s.diskWrites.Load(),
+		"disk_reads":       s.diskReads.Load(),
 		"ring_buffer_size": int64(s.cfg.RingBufferSize),
 	}
 }
