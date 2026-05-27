@@ -121,17 +121,344 @@ func TestSelectKeyForClient_Distribution(t *testing.T) {
 		"client-f", "client-g", "client-h", "client-i", "client-j",
 	}
 
-	distribution := make(map[int]int)
-	for _, client := range clients {
-		_, idx := pool.selectKeyForClient(client)
-		distribution[idx]++
+	// 10 个客户端分配到 5 个 key，每个 key 应该被分配 2 次
+	assigned := make(map[string]int)
+	for _, c := range clients {
+		_, idx := pool.selectKeyForClient(c)
+		assigned[c] = idx
 	}
 
-	// 验证分布：每个 key 至少被选中一次
+	keyCount := make(map[int]int)
+	for _, idx := range assigned {
+		keyCount[idx]++
+	}
 	for i := 0; i < 5; i++ {
-		if distribution[i] == 0 {
-			t.Errorf("key %d was never selected, distribution: %v", i, distribution)
+		if keyCount[i] != 2 {
+			t.Errorf("key %d assigned %d times, want 2 (assignments: %v)", i, keyCount[i], assigned)
 		}
+	}
+}
+
+// TestSelectKeyForClient_TokenAware 验证 token 感知调度：新客户端优先分配到累计 token 最少的 key。
+func TestSelectKeyForClient_TokenAware(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 模拟 key-0 已经消耗了大量 token
+	pool.recordTokens(0, 10000)
+	pool.recordTokens(0, 5000)
+
+	// 模拟 key-1 消耗了少量 token
+	pool.recordTokens(1, 1000)
+
+	// key-2 没有消耗（0 token）
+
+	// 新客户端应该分配到 key-2（累计最少）
+	_, idx := pool.selectKeyForClient("new-client")
+	if idx != 2 {
+		t.Errorf("expected new client assigned to key-2 (least tokens), got key-%d", idx)
+	}
+
+	// 再分配一个客户端，应该还是 key-2（因为 key-2 现在也只有刚分配的请求的 token，但还没 record）
+	_, idx2 := pool.selectKeyForClient("new-client-2")
+	if idx2 != 2 {
+		t.Errorf("expected second new client assigned to key-2, got key-%d", idx2)
+	}
+
+	// 给 key-2 记录大量 token
+	pool.recordTokens(2, 20000)
+
+	// 下一个新客户端应该分配到 key-1（现在最少）
+	_, idx3 := pool.selectKeyForClient("new-client-3")
+	if idx3 != 1 {
+		t.Errorf("expected third new client assigned to key-1 (now least tokens), got key-%d", idx3)
+	}
+}
+
+// TestSelectKeyForClient_TokenAwareFallbackToRoundRobin 验证无 token 数据时退化为轮询。
+func TestSelectKeyForClient_TokenAwareFallbackToRoundRobin(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 没有任何 token 数据，应该退化为轮询
+	assigned := make(map[int]int)
+	for i := 0; i < 6; i++ {
+		client := fmt.Sprintf("client-%d", i)
+		_, idx := pool.selectKeyForClient(client)
+		assigned[idx]++
+	}
+
+	// 轮询应该均匀分配
+	for i := 0; i < 3; i++ {
+		if assigned[i] != 2 {
+			t.Errorf("key-%d assigned %d times, want 2 (round-robin fallback)", i, assigned[i])
+		}
+	}
+}
+
+// TestRecordTokens_SlidingWindow 验证滑动窗口过期清理。
+func TestRecordTokens_SlidingWindow(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+	pool.tokenWindow = 100 * time.Millisecond // 缩短窗口便于测试
+
+	// 记录 token
+	pool.recordTokens(0, 1000)
+	pool.recordTokens(0, 2000)
+
+	// 验证累计
+	sum := pool.tokenSumInWindow(0, time.Now())
+	if sum != 3000 {
+		t.Errorf("expected sum 3000, got %d", sum)
+	}
+
+	// 等待窗口过期
+	time.Sleep(150 * time.Millisecond)
+
+	// 过期后应该为 0
+	sum = pool.tokenSumInWindow(0, time.Now())
+	if sum != 0 {
+		t.Errorf("expected sum 0 after window expired, got %d", sum)
+	}
+
+	// 记录新的 token
+	pool.recordTokens(0, 500)
+	sum = pool.tokenSumInWindow(0, time.Now())
+	if sum != 500 {
+		t.Errorf("expected sum 500 after new record, got %d", sum)
+	}
+}
+
+// TestLeastTokenActiveKeyIndex 验证 least-token 选择逻辑。
+func TestLeastTokenActiveKeyIndex(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 无数据时返回 -2（退化为轮询）
+	idx := pool.leastTokenActiveKeyIndex()
+	if idx != -2 {
+		t.Errorf("expected -2 (no data, fallback to round-robin), got %d", idx)
+	}
+
+	// 记录不同 token 量
+	pool.recordTokens(0, 5000)
+	pool.recordTokens(1, 1000)
+	pool.recordTokens(2, 3000)
+
+	// 应该返回 key-1（最少）
+	idx = pool.leastTokenActiveKeyIndex()
+	if idx != 1 {
+		t.Errorf("expected key-1 (least tokens), got key-%d", idx)
+	}
+
+	// 标记 key-1 为 exhausted
+	pool.markExhausted(1, "quota_exceeded")
+
+	// 应该返回 key-2（现在最少）
+	idx = pool.leastTokenActiveKeyIndex()
+	if idx != 2 {
+		t.Errorf("expected key-2 (least among active), got key-%d", idx)
+	}
+
+	// 全部 exhausted
+	pool.markExhausted(0, "quota_exceeded")
+	pool.markExhausted(2, "quota_exceeded")
+
+	// 应该返回 -1（无 active key）
+	idx = pool.leastTokenActiveKeyIndex()
+	if idx != -1 {
+		t.Errorf("expected -1 (no active key), got %d", idx)
+	}
+}
+
+// TestMarkRateLimited 验证限流标记和冷却恢复。
+func TestMarkRateLimited(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+
+	// 标记 key-0 为限流
+	pool.markRateLimited(0)
+
+	// key-0 应该被标记为 exhausted
+	if !pool.entries[0].exhausted {
+		t.Error("expected key-0 to be marked exhausted")
+	}
+	if pool.entries[0].exhaustReason != "rate_limited" {
+		t.Errorf("expected exhaustReason 'rate_limited', got %q", pool.entries[0].exhaustReason)
+	}
+
+	// 冷却时间应该是 30 秒后
+	expectedCooldown := time.Now().Add(30 * time.Second)
+	diff := pool.entries[0].cooldownEnd.Sub(expectedCooldown)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("expected cooldown around 30s, got %v", pool.entries[0].cooldownEnd.Sub(time.Now()))
+	}
+
+	// selectKeyForClient 应该返回 key-1（key-0 被限流）
+	_, idx := pool.selectKeyForClient("alice")
+	if idx != 1 {
+		t.Errorf("expected key-1 (key-0 rate limited), got key-%d", idx)
+	}
+
+	// 等待冷却过期
+	time.Sleep(50 * time.Millisecond)
+	// 手动设置冷却时间为过去（加速测试）
+	pool.mu.Lock()
+	pool.entries[0].cooldownEnd = time.Now().Add(-time.Second)
+	pool.mu.Unlock()
+
+	// 冷却过期后应该能恢复
+	key, idx := pool.selectKey()
+	if key == "" || idx == -1 {
+		t.Error("expected key to recover after cooldown")
+	}
+}
+
+// TestSelectNextActiveKey 验证切换到下一个 active key。
+func TestSelectNextActiveKey(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 从 key-0 之后找，应该返回 key-1
+	_, idx := pool.selectNextActiveKey(0)
+	if idx != 1 {
+		t.Errorf("expected key-1 after key-0, got key-%d", idx)
+	}
+
+	// 标记 key-1 为 exhausted
+	pool.markExhausted(1, "quota_exceeded")
+
+	// 从 key-0 之后找，应该跳过 key-1 返回 key-2
+	_, idx = pool.selectNextActiveKey(0)
+	if idx != 2 {
+		t.Errorf("expected key-2 (skip exhausted key-1), got key-%d", idx)
+	}
+
+	// 标记 key-2 也为 exhausted
+	pool.markExhausted(2, "quota_exceeded")
+
+	// 从 key-0 之后找，应该绕回 key-0
+	_, idx = pool.selectNextActiveKey(0)
+	if idx != 0 {
+		t.Errorf("expected key-0 (wrap around), got key-%d", idx)
+	}
+
+	// 全部 exhausted
+	pool.markExhausted(0, "quota_exceeded")
+
+	// 应该返回 -1（无 active key）
+	_, idx = pool.selectNextActiveKey(0)
+	if idx != -1 {
+		t.Errorf("expected -1 (no active key), got %d", idx)
+	}
+}
+
+// TestPeriodicResetTime 验证周期性 resetTime（monthly:23）。
+func TestPeriodicResetTime(t *testing.T) {
+	// 测试 monthly:23 格式
+	pool := newKeyPool("test", []string{"key-a"}, "monthly:23", slog.Default())
+	if pool.resetTime.IsZero() {
+		t.Error("expected resetTime to be set for monthly:23")
+	}
+	// 验证日期是 23 号
+	if pool.resetTime.Day() != 23 {
+		t.Errorf("expected day 23, got %d", pool.resetTime.Day())
+	}
+
+	// 测试无效格式
+	pool2 := newKeyPool("test", []string{"key-a"}, "monthly:32", slog.Default())
+	if !pool2.resetTime.IsZero() {
+		t.Error("expected resetTime to be zero for invalid monthly:32")
+	}
+
+	pool3 := newKeyPool("test", []string{"key-a"}, "monthly:abc", slog.Default())
+	if !pool3.resetTime.IsZero() {
+		t.Error("expected resetTime to be zero for invalid monthly:abc")
+	}
+}
+
+// TestDesperationProbe 验证绝境探测机制。
+func TestDesperationProbe(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 标记所有 key 为 exhausted，但冷却时间不同
+	now := time.Now()
+	pool.mu.Lock()
+	pool.entries[0].exhausted = true
+	pool.entries[0].exhaustReason = "quota_exceeded"
+	pool.entries[0].cooldownEnd = now.Add(5 * time.Minute) // 5 分钟后
+
+	pool.entries[1].exhausted = true
+	pool.entries[1].exhaustReason = "quota_exceeded"
+	pool.entries[1].cooldownEnd = now.Add(1 * time.Minute) // 1 分钟后（最短）
+
+	pool.entries[2].exhausted = true
+	pool.entries[2].exhaustReason = "quota_exceeded"
+	pool.entries[2].cooldownEnd = now.Add(10 * time.Minute) // 10 分钟后
+	pool.mu.Unlock()
+
+	// selectKey 应该返回冷却最短的 key-1 做绝境探测
+	_, idx := pool.selectKey()
+	if idx != 1 {
+		t.Errorf("expected desperation probe to select key-1 (shortest cooldown), got key-%d", idx)
+	}
+
+	// 模拟绝境探测成功，标记 key-1 为已恢复
+	pool.markRecovered(1)
+
+	// key-1 应该恢复为 active
+	if pool.entries[1].exhausted {
+		t.Error("expected key-1 to be recovered after markRecovered")
+	}
+
+	// 现在 selectKey 应该返回 key-1（唯一的 active key）
+	_, idx = pool.selectKey()
+	if idx != 1 {
+		t.Errorf("expected key-1 after recovery, got key-%d", idx)
+	}
+}
+
+// TestDesperationProbe_SkipRateLimited 验证绝境探测跳过 rate_limited key。
+func TestDesperationProbe_SkipRateLimited(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+
+	now := time.Now()
+	pool.mu.Lock()
+	// key-0 是 rate_limited（应该被跳过）
+	pool.entries[0].exhausted = true
+	pool.entries[0].exhaustReason = "rate_limited"
+	pool.entries[0].cooldownEnd = now.Add(30 * time.Second)
+
+	// key-1 是 quota_exceeded
+	pool.entries[1].exhausted = true
+	pool.entries[1].exhaustReason = "quota_exceeded"
+	pool.entries[1].cooldownEnd = now.Add(5 * time.Minute)
+	pool.mu.Unlock()
+
+	// 绝境探测应该跳过 rate_limited 的 key-0，选 key-1
+	_, idx := pool.selectKey()
+	if idx != 1 {
+		t.Errorf("expected desperation probe to skip rate_limited key-0 and select key-1, got key-%d", idx)
+	}
+}
+
+// TestMarkRecovered 验证 markRecovered 方法。
+func TestMarkRecovered(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0"})
+
+	// 标记为 exhausted
+	pool.markExhausted(0, "quota_exceeded")
+	if !pool.entries[0].exhausted {
+		t.Error("expected key-0 to be exhausted")
+	}
+
+	// 标记为已恢复
+	pool.markRecovered(0)
+	if pool.entries[0].exhausted {
+		t.Error("expected key-0 to be recovered")
+	}
+	if pool.entries[0].exhaustReason != "" {
+		t.Errorf("expected exhaustReason to be cleared, got %q", pool.entries[0].exhaustReason)
+	}
+
+	// 对已经 active 的 key 调用 markRecovered 应该是 no-op
+	pool.markRecovered(0)
+	if pool.entries[0].exhausted {
+		t.Error("expected key-0 to remain active")
 	}
 }
 
@@ -170,10 +497,10 @@ func TestSelectKey_CooldownEnd(t *testing.T) {
 	pool.markExhausted(0, "quota_exceeded")
 	pool.markExhausted(1, "quota_exceeded")
 
-	// 全部在冷却中
+	// 全部在冷却中：绝境探测应该返回冷却最短的 key（而不是空）
 	key, idx := pool.selectKey()
-	if key != "" || idx != -1 {
-		t.Errorf("all in cooldown should return empty, got (%s, %d)", key, idx)
+	if key == "" || idx == -1 {
+		t.Errorf("desperation probe should return a key even when all in cooldown, got (%s, %d)", key, idx)
 	}
 
 	// 手动设置 cooldownEnd 为过去

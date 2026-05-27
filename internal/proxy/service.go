@@ -360,10 +360,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var cancel context.CancelFunc
 		var keyIndex int
 		var fErr error
+		var desperationProbe bool // 标记是否为绝境探测
 
-		// key 池内重试：仅当 key 被标记耗尽（额度用完等）时换 key 重试。
-		// 429 限流不换 key（同账号共享 TPM/RPM 配额，换 key 也会被限），
-		// 但同 key 退避重试最多 2 次（上游短暂限流通常 1-2 次重试即可恢复）。
+		// key 池内重试策略：
+		// - 429 限流：同 key 退避重试 2 次（指数退避），仍 429 则标记 key 为 rate_limited（30s 冷却），切换到下一个 active key
+		// - key 耗尽（quota_exceeded 等）：标记 key 为 exhausted，切换到下一个 active key
+		// - 绝境探测：所有 key 都 exhausted 时，选冷却最短的 key 做探测，成功则恢复，失败则延长冷却
 		rateLimitRetries := 0
 		const maxRateLimitRetries = 2
 		for {
@@ -372,13 +374,17 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			if resp == nil || resp.StatusCode < 400 {
+				// 请求成功：如果是绝境探测，标记 key 为已恢复
+				if desperationProbe && state.keyPool != nil && keyIndex >= 0 {
+					state.keyPool.markRecovered(keyIndex)
+				}
 				break
 			}
-			// 429 限流：同 key 退避重试，不换 key
+			// 429 限流：同 key 退避重试，重试 2 次后标记 rate_limited 并换 key
 			if resp.StatusCode == 429 && rateLimitRetries < maxRateLimitRetries {
 				rateLimitRetries++
-				// 退避时间：优先用 Retry-After，否则 1s * 重试次数
-				backoff := time.Duration(rateLimitRetries) * time.Second
+				// 指数退避：500ms → 1s
+				backoff := time.Duration(rateLimitRetries) * 500 * time.Millisecond
 				if ra := resp.Header.Get("Retry-After"); ra != "" {
 					if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs <= 10 {
 						backoff = time.Duration(secs) * time.Second
@@ -399,6 +405,39 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(backoff)
 				continue
 			}
+			// 429 重试 2 次后仍限流：标记 key 为 rate_limited，切换到下一个 active key
+			if resp.StatusCode == 429 && rateLimitRetries >= maxRateLimitRetries && state.keyPool != nil && keyIndex >= 0 {
+				state.keyPool.markRateLimited(keyIndex)
+				resp.Body.Close()
+				if cancel != nil {
+					cancel()
+				}
+				nextKey, nextIdx := state.keyPool.selectNextActiveKey(keyIndex)
+				if nextKey == "" {
+					// 所有 key 都被限流或耗尽，透传 429 给客户端
+					s.logger.Warn("[keypool] all keys rate limited or exhausted, passing through 429",
+						"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+						"target", target.Name,
+					)
+					// 重新发起请求以获取新的 resp（因为已经 Close 了）
+					resp, cancel, keyIndex, fErr = s.forwardRequest(r, state, forwardBody)
+					break
+				}
+				retryClientName := ""
+				if principal != nil {
+					retryClientName = principal.Name
+				}
+				s.logger.Info("[keypool] 429 rate limit exhausted, switching to next key",
+					"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+					"target", target.Name,
+					"client", retryClientName,
+					"prev_key_index", keyIndex,
+					"next_key_index", nextIdx,
+				)
+				s.metrics.totalKeyRetries.Add(1)
+				rateLimitRetries = 0 // 重置重试计数
+				continue
+			}
 			if state.keyPool == nil || keyIndex < 0 {
 				break
 			}
@@ -407,6 +446,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if nextKey == "" || nextIdx == keyIndex {
 				break
 			}
+			// 判断是否为绝境探测：nextIdx 对应的 key 仍处于 exhausted 状态
+			state.keyPool.mu.Lock()
+			if nextIdx >= 0 && nextIdx < len(state.keyPool.entries) && state.keyPool.entries[nextIdx].exhausted {
+				desperationProbe = true
+			} else {
+				desperationProbe = false
+			}
+			state.keyPool.mu.Unlock()
 			// 有新 key 可用，关闭当前响应，重试
 			resp.Body.Close()
 			if cancel != nil {
@@ -484,7 +531,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody, startedAt)
+		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody, startedAt, keyIndex)
 		// 更新连接粘连：仅在粘连命中（刷新 TTL）或首次轮询（建立粘连）时更新。
 		// Failover（原粘连目标暂不可用）和显式指定目标时不更新，避免劫持粘连。
 		if principal != nil && target != nil && (selKind == selectionAffinityHit || selKind == selectionRoundRobin) {

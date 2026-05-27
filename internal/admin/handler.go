@@ -704,6 +704,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"api_key":                  t.APIKey,
 			"api_keys":                 t.APIKeys,
 			"key_reset_time":           t.KeyResetTime,
+			"provider_class":           t.ProviderClass,
 			"allow_bearer_passthrough": t.AllowBearer,
 			"auth_mode":                t.AuthMode,
 			"allowed_models":           t.AllowedModels,

@@ -110,7 +110,8 @@ type Target struct {
 	ResourcePathPrefix string             `json:"resource_path_prefix"`
 	APIKey             string             `json:"api_key"`
 	APIKeys            []string           `json:"api_keys,omitempty"`             // 额外 key 池（与 api_key 合并为有序池）
-	KeyResetTime       string             `json:"key_reset_time,omitempty"`       // 额度重置时间点（CST），格式 "2006-01-02" 或 "2006-01-02 15:04"
+	KeyResetTime       string             `json:"key_reset_time,omitempty"`       // 额度重置时间点（CST），格式 "2006-01-02" 或 "2006-01-02 15:04" 或 "monthly:23"（每月23号）
+	ProviderClass      string             `json:"provider_class,omitempty"`       // subscription | pay_as_you_go; 影响限流/超额/额度耗尽的处理策略
 	AllowBearer        bool               `json:"allow_bearer_passthrough"`
 	AuthMode           string             `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
 	AllowedModels      []string           `json:"allowed_models"`

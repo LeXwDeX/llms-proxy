@@ -410,6 +410,7 @@ func (s *Service) writeResponse(
 	model string,
 	requestBody []byte,
 	startedAt time.Time,
+	keyIndex int,
 ) {
 	defer deferCancel(cancel)
 	defer resp.Body.Close()
@@ -457,7 +458,7 @@ func (s *Service) writeResponse(
 					state.MarkSuccess(time.Now())
 					s.metrics.totalSuccess.Add(1)
 					// record usage from aggregated body
-					s.recordUsageEvent(r, target, resp.StatusCode, model, newCT, aggregated)
+					s.recordUsageEvent(r, target, resp.StatusCode, model, newCT, aggregated, state, keyIndex)
 					return
 				}
 				s.logger.Warn("SSE aggregation failed, falling back to raw response",
@@ -526,7 +527,7 @@ func (s *Service) writeResponse(
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		s.recordUsageEvent(r, target, resp.StatusCode, model, resp.Header.Get("Content-Type"), capture.Bytes())
+		s.recordUsageEvent(r, target, resp.StatusCode, model, resp.Header.Get("Content-Type"), capture.Bytes(), state, keyIndex)
 	}
 
 	// 上游 4xx/5xx：写结构化错误日志（旁路 access/error log，便于事后 grep）。
@@ -588,7 +589,7 @@ func writeUpstreamErrorLog(r *http.Request, target *Target, resp *http.Response,
 	errorlog.Write(entry)
 }
 
-func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode int, model string, contentType string, body []byte) {
+func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode int, model string, contentType string, body []byte, state *targetState, keyIndex int) {
 	recorder := s.currentUsageRecorder()
 	if recorder == nil || r == nil {
 		return
@@ -602,6 +603,12 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 	tokens, parsedModel, found := extractUsageTokens(contentType, body)
 	if !found {
 		return
+	}
+
+	// 回写 token 用量到 keyPool，用于 token 感知调度
+	if state != nil && state.keyPool != nil && keyIndex >= 0 {
+		totalTokens := tokens.InputTokens + tokens.OutputTokens
+		state.keyPool.recordTokens(keyIndex, totalTokens)
 	}
 
 	model = strings.ToLower(strings.TrimSpace(model))
