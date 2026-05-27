@@ -127,7 +127,7 @@ func TestAffinityFailoverDoesNotHijack(t *testing.T) {
 	}
 
 	// 步骤 1：手动建立粘连到 target-a
-	service.affinity.Set(affinityKey("tester", "qwen3.7-max"), "target-a", time.Now())
+	service.affinity.Set(affinityKey("192.0.2.1", "tester", "qwen3.7-max"), "target-a", time.Now())
 
 	// 步骤 2：验证粘连命中 target-a
 	got := sendRequest()
@@ -150,7 +150,7 @@ func TestAffinityFailoverDoesNotHijack(t *testing.T) {
 	}
 
 	// 步骤 5：验证粘连仍然指向 target-a（未被劫持到 target-b）
-	aKey := affinityKey("tester", "qwen3.7-max")
+	aKey := affinityKey("192.0.2.1", "tester", "qwen3.7-max")
 	affinityTarget, affOK := service.affinity.Get(aKey, time.Now())
 	if !affOK {
 		t.Fatal("step 5: expected affinity record to still exist")

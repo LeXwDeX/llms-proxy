@@ -23,8 +23,9 @@ func newAffinityMap() *affinityMap {
 }
 
 // affinityKey 生成粘连键。
-func affinityKey(clientName, model string) string {
-	return clientName + ":" + model
+// 使用 IP + 客户端名称 + 模型，确保同一客户端从不同 IP 访问时独立分配。
+func affinityKey(clientIP, clientName, model string) string {
+	return clientIP + "|" + clientName + ":" + model
 }
 
 // Get 查询粘连目标，过期则惰性删除并返回空。

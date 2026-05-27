@@ -109,6 +109,7 @@ const (
 
 func (s *Service) selectTarget(
 	principal *auth.Principal,
+	clientIP string,
 	requestedLower string,
 	allowed map[string]struct{},
 	attempted map[string]struct{},
@@ -142,7 +143,7 @@ func (s *Service) selectTarget(
 	// 连接粘连：优先复用上次成功路由的目标
 	hadAffinity := false
 	if principal != nil && len(attempted) == 0 {
-		aKey := affinityKey(principal.Name, model)
+		aKey := affinityKey(clientIP, principal.Name, model)
 		if affinityTarget, ok := s.affinity.Get(aKey, now); ok {
 			hadAffinity = true
 			if state, exists := s.targetByName(affinityTarget); exists {
