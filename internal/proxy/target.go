@@ -97,6 +97,16 @@ func (s *targetState) Stats() TargetStats {
 	}
 }
 
+// selectionKind 描述目标选择的路径，用于决定是否更新连接粘连。
+type selectionKind int
+
+const (
+	selectionExplicit   selectionKind = iota // 用户显式指定目标（header/query）
+	selectionAffinityHit                     // 粘连命中，目标健康可用
+	selectionRoundRobin                      // 无粘连记录，轮询选出（首次或过期后）
+	selectionFailover                        // 有粘连记录但目标不可用，failover 到其他目标
+)
+
 func (s *Service) selectTarget(
 	principal *auth.Principal,
 	requestedLower string,
@@ -105,34 +115,36 @@ func (s *Service) selectTarget(
 	model string,
 	path string,
 	now time.Time,
-) (*targetState, error) {
+) (*targetState, selectionKind, error) {
 	if requestedLower != "" {
 		if !principal.CanAccess(requestedLower) {
-			return nil, newSelectionError(http.StatusForbidden, "target not allowed")
+			return nil, selectionExplicit, newSelectionError(http.StatusForbidden, "target not allowed")
 		}
 		state, ok := s.targetByName(requestedLower)
 		if !ok {
-			return nil, newSelectionError(http.StatusBadRequest, "unknown target")
+			return nil, selectionExplicit, newSelectionError(http.StatusBadRequest, "unknown target")
 		}
 		if !modelAllowed(state.Target(), model) {
-			return nil, newSelectionError(http.StatusBadRequest, fmt.Sprintf("model %q not allowed for target %q", model, state.Target().Name))
+			return nil, selectionExplicit, newSelectionError(http.StatusBadRequest, fmt.Sprintf("model %q not allowed for target %q", model, state.Target().Name))
 		}
 		if !PathSupportedByEndpointType(state.Target().EndpointType, path) {
-			return nil, newSelectionError(http.StatusBadRequest, fmt.Sprintf("target %q does not support path %q", state.Target().Name, path))
+			return nil, selectionExplicit, newSelectionError(http.StatusBadRequest, fmt.Sprintf("target %q does not support path %q", state.Target().Name, path))
 		}
 		if _, tried := attempted[strings.ToLower(state.Target().Name)]; tried {
-			return nil, newSelectionError(http.StatusServiceUnavailable, "requested target already attempted")
+			return nil, selectionExplicit, newSelectionError(http.StatusServiceUnavailable, "requested target already attempted")
 		}
 		if state.IsMuted(now) {
-			return nil, newSelectionError(http.StatusServiceUnavailable, "requested target temporarily unavailable")
+			return nil, selectionExplicit, newSelectionError(http.StatusServiceUnavailable, "requested target temporarily unavailable")
 		}
-		return state, nil
+		return state, selectionExplicit, nil
 	}
 
 	// 连接粘连：优先复用上次成功路由的目标
+	hadAffinity := false
 	if principal != nil && len(attempted) == 0 {
 		aKey := affinityKey(principal.Name, model)
 		if affinityTarget, ok := s.affinity.Get(aKey, now); ok {
+			hadAffinity = true
 			if state, exists := s.targetByName(affinityTarget); exists {
 				t := state.Target()
 				nameKey := strings.ToLower(t.Name)
@@ -141,7 +153,7 @@ func (s *Service) selectTarget(
 					_, allowedOK = allowed[nameKey]
 				}
 				if t != nil && allowedOK && !state.IsMuted(now) && modelAllowed(t, model) && PathSupportedByEndpointType(t.EndpointType, path) {
-					return state, nil
+					return state, selectionAffinityHit, nil
 				}
 			}
 		}
@@ -149,22 +161,27 @@ func (s *Service) selectTarget(
 
 	candidate, mutedCandidate := s.findAvailableTargetWithModel(allowed, attempted, model, path, now)
 	if candidate != nil {
-		return candidate, nil
+		// 如果之前有粘连记录但目标不可用，这是 failover；否则是首次轮询。
+		kind := selectionRoundRobin
+		if hadAffinity {
+			kind = selectionFailover
+		}
+		return candidate, kind, nil
 	}
 
 	if mutedCandidate != nil {
-		return nil, newSelectionError(http.StatusServiceUnavailable, fmt.Sprintf("all targets muted until %s", mutedCandidate.NextRetry().Format(time.RFC3339)))
+		return nil, selectionRoundRobin, newSelectionError(http.StatusServiceUnavailable, fmt.Sprintf("all targets muted until %s", mutedCandidate.NextRetry().Format(time.RFC3339)))
 	}
 
 	if len(attempted) > 0 {
-		return nil, newSelectionError(http.StatusBadGateway, "no alternative target available")
+		return nil, selectionRoundRobin, newSelectionError(http.StatusBadGateway, "no alternative target available")
 	}
 
 	if model != "" {
-		return nil, newSelectionError(http.StatusBadRequest, "model not supported by any target")
+		return nil, selectionRoundRobin, newSelectionError(http.StatusBadRequest, "model not supported by any target")
 	}
 
-	return nil, newSelectionError(http.StatusBadGateway, "no target available")
+	return nil, selectionRoundRobin, newSelectionError(http.StatusBadGateway, "no target available")
 }
 
 func (s *Service) targetByName(name string) (*targetState, bool) {

@@ -270,7 +270,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		attempt++
-		state, err := s.selectTarget(principal, requestedLower, allowed, attempted, model, r.URL.Path, time.Now())
+		state, selKind, err := s.selectTarget(principal, requestedLower, allowed, attempted, model, r.URL.Path, time.Now())
 		if err != nil {
 			var selErr *selectionError
 			if errors.As(err, &selErr) {
@@ -485,8 +485,9 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody, startedAt)
-		// 更新连接粘连
-		if principal != nil && target != nil {
+		// 更新连接粘连：仅在粘连命中（刷新 TTL）或首次轮询（建立粘连）时更新。
+		// Failover（原粘连目标暂不可用）和显式指定目标时不更新，避免劫持粘连。
+		if principal != nil && target != nil && (selKind == selectionAffinityHit || selKind == selectionRoundRobin) {
 			s.affinity.Set(affinityKey(principal.Name, model), strings.ToLower(target.Name), time.Now())
 		}
 		requestOutcomeRecorded = true

@@ -1,8 +1,15 @@
 package proxy
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
+
+	"github.com/ycgame/llms-proxy/internal/auth"
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 func TestAffinityMap(t *testing.T) {
@@ -40,4 +47,127 @@ func TestAffinityMap(t *testing.T) {
 	if ok {
 		t.Fatal("expected miss for different client")
 	}
+}
+
+// TestAffinityFailoverDoesNotHijack 验证 failover 场景不劫持粘连：
+// 当粘连目标暂时不可用（muted），请求 failover 到其他目标后，
+// 粘连记录仍指向原目标；原目标恢复后流量自动回来。
+func TestAffinityFailoverDoesNotHijack(t *testing.T) {
+	// 两个 mock 上游，都返回 200
+	targetA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"mock":"a"}`))
+	}))
+	defer targetA.Close()
+
+	targetB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"mock":"b"}`))
+	}))
+	defer targetB.Close()
+
+	aURL, _ := url.Parse(targetA.URL)
+	bURL, _ := url.Parse(targetB.URL)
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:               "target-a",
+				Endpoint:           targetA.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-a",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+			{
+				Name:               "target-b",
+				Endpoint:           targetB.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-b",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	service.quietPeriod = 50 * time.Millisecond
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected authenticated principal")
+	}
+
+	sendRequest := func() string {
+		body := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+		res := rr.Result()
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", res.StatusCode)
+		}
+		return res.Header.Get("X-Proxy-Target")
+	}
+
+	// 步骤 1：手动建立粘连到 target-a
+	service.affinity.Set(affinityKey("tester", "qwen3.7-max"), "target-a", time.Now())
+
+	// 步骤 2：验证粘连命中 target-a
+	got := sendRequest()
+	if got != "target-a" {
+		t.Fatalf("step 2: expected affinity hit target-a, got %q", got)
+	}
+
+	// 步骤 3：mute target-a，模拟一次失败
+	now := time.Now()
+	stateA, exists := service.targetByName("target-a")
+	if !exists {
+		t.Fatal("target-a not found")
+	}
+	stateA.MarkFailure(now, 200*time.Millisecond)
+
+	// 步骤 4：发送请求 → failover 到 target-b
+	got = sendRequest()
+	if got != "target-b" {
+		t.Fatalf("step 4: expected failover to target-b, got %q", got)
+	}
+
+	// 步骤 5：验证粘连仍然指向 target-a（未被劫持到 target-b）
+	aKey := affinityKey("tester", "qwen3.7-max")
+	affinityTarget, affOK := service.affinity.Get(aKey, time.Now())
+	if !affOK {
+		t.Fatal("step 5: expected affinity record to still exist")
+	}
+	if affinityTarget != "target-a" {
+		t.Fatalf("step 5: expected affinity still pointing to target-a, got %q", affinityTarget)
+	}
+
+	// 步骤 6：等待 mute 过期，target-a 恢复
+	time.Sleep(250 * time.Millisecond)
+
+	// 步骤 7：发送请求 → 粘连命中 target-a，流量回来
+	got = sendRequest()
+	if got != "target-a" {
+		t.Fatalf("step 7: expected affinity hit target-a after recovery, got %q", got)
+	}
+
+	_ = aURL
+	_ = bURL
 }
