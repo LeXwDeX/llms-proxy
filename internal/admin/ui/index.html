@@ -1567,6 +1567,7 @@
       async function api(url, opts) {
         var init = Object.assign({}, opts || {});
         init.headers = Object.assign({}, init.headers || {});
+        init.headers["X-Requested-With"] = "XMLHttpRequest";
         if (init.body && typeof init.body !== "string") {
           init.body = JSON.stringify(init.body);
           init.headers["Content-Type"] = "application/json";
@@ -3441,6 +3442,10 @@
       document.getElementById("refreshTraceBtn").addEventListener("click", function() { loadTrace(); });
       document.getElementById("searchTraceBtn").addEventListener("click", function() { loadTrace(); });
       document.getElementById("traceSearchId").addEventListener("keypress", function(e) { if (e.key === "Enter") loadTrace(); });
+
+      // 暴露 trace 相关函数到全局作用域（供 inline onclick 调用）
+      window.showTraceDetail = showTraceDetail;
+      window.closeTraceDetail = closeTraceDetail;
 
       /* ===== User info ===== */
       async function loadUserInfo() {
