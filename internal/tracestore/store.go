@@ -9,11 +9,14 @@
 package tracestore
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -235,19 +238,97 @@ func (s *Store) Record(record *TraceRecord) {
 	}
 }
 
-// Get 按 trace_id 查询记录。先查内存，miss 返回 nil。
+// Get 按 trace_id 查询记录。先查内存，miss 时回退到磁盘文件。
 func (s *Store) Get(traceID string) *TraceRecord {
 	if !s.cfg.Enabled {
 		return nil
 	}
 
+	// 先查内存
 	if v, ok := s.ring.Load(traceID); ok {
 		return v.(*TraceRecord)
+	}
+
+	// 内存 miss，回退到磁盘
+	return s.getFromDisk(traceID)
+}
+
+// getFromDisk 从磁盘文件读取指定 trace_id 的记录。
+func (s *Store) getFromDisk(traceID string) *TraceRecord {
+	if s.cfg.DiskPath == "" {
+		return nil
+	}
+
+	// 读取当前文件和所有备份文件
+	files := s.getTraceFiles()
+	for _, file := range files {
+		if record := s.searchInFile(file, traceID); record != nil {
+			return record
+		}
 	}
 	return nil
 }
 
-// List 列出最近 N 条记录（按时间倒序）。
+// getTraceFiles 返回所有 trace 文件路径（当前文件 + 备份文件）。
+func (s *Store) getTraceFiles() []string {
+	var files []string
+	
+	// 当前文件
+	if _, err := os.Stat(s.cfg.DiskPath); err == nil {
+		files = append(files, s.cfg.DiskPath)
+	}
+	
+	// 备份文件（trace.log.1, trace.log.2, ...）
+	dir := filepath.Dir(s.cfg.DiskPath)
+	base := filepath.Base(s.cfg.DiskPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return files
+	}
+	
+	for _, entry := range entries {
+		name := entry.Name()
+		if name != base && strings.HasPrefix(name, base+".") {
+			files = append(files, filepath.Join(dir, name))
+		}
+	}
+	
+	return files
+}
+
+// searchInFile 在指定文件中搜索 trace_id。
+func (s *Store) searchInFile(filePath, traceID string) *TraceRecord {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	// 增大 buffer 以处理大行（2MB body + metadata）
+	buf := make([]byte, 0, 4*1024*1024)
+	scanner.Buffer(buf, 4*1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// 快速检查是否包含 trace_id（避免完整解析）
+		if !bytes.Contains(line, []byte(traceID)) {
+			continue
+		}
+		
+		// 完整解析
+		var record TraceRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			continue
+		}
+		if record.TraceID == traceID {
+			return &record
+		}
+	}
+	return nil
+}
+
+// List 列出最近 N 条记录（按时间倒序）。内存不足时回退到磁盘文件。
 func (s *Store) List(limit int) []*TraceRecord {
 	if !s.cfg.Enabled || limit <= 0 {
 		return nil
@@ -271,7 +352,98 @@ func (s *Store) List(limit int) []*TraceRecord {
 		}
 	}
 
+	// 内存记录不足 limit 时，从磁盘补充
+	if len(results) < limit {
+		diskRecords := s.listFromDisk(limit - len(results))
+		// 去重：排除内存中已有的记录
+		existing := make(map[string]bool)
+		for _, r := range results {
+			existing[r.TraceID] = true
+		}
+		for _, r := range diskRecords {
+			if !existing[r.TraceID] {
+				results = append(results, r)
+				if len(results) >= limit {
+					break
+				}
+			}
+		}
+	}
+
 	return results
+}
+
+// listFromDisk 从磁盘文件读取最近 N 条记录。
+func (s *Store) listFromDisk(limit int) []*TraceRecord {
+	if s.cfg.DiskPath == "" {
+		return nil
+	}
+
+	files := s.getTraceFiles()
+	var allRecords []*TraceRecord
+
+	// 从最新的文件开始读（当前文件最先，备份文件按编号倒序）
+	for _, file := range files {
+		records := s.readLastNFromFile(file, limit)
+		allRecords = append(allRecords, records...)
+		if len(allRecords) >= limit {
+			break
+		}
+	}
+
+	// 按时间倒序排序
+	sortRecordsByTime(allRecords)
+
+	if len(allRecords) > limit {
+		allRecords = allRecords[:limit]
+	}
+	return allRecords
+}
+
+// readLastNFromFile 从文件末尾读取最近 N 条记录。
+func (s *Store) readLastNFromFile(filePath string, n int) []*TraceRecord {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	// 读取所有行（对于大文件可以优化为只读末尾，但 DEBUG 模式下文件不会太大）
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 0, 4*1024*1024)
+	scanner.Buffer(buf, 4*1024*1024)
+
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	// 取最后 N 行
+	start := 0
+	if len(lines) > n {
+		start = len(lines) - n
+	}
+
+	var records []*TraceRecord
+	for i := start; i < len(lines); i++ {
+		var record TraceRecord
+		if err := json.Unmarshal([]byte(lines[i]), &record); err != nil {
+			continue
+		}
+		records = append(records, &record)
+	}
+	return records
+}
+
+// sortRecordsByTime 按时间倒序排序记录。
+func sortRecordsByTime(records []*TraceRecord) {
+	for i := 0; i < len(records); i++ {
+		for j := i + 1; j < len(records); j++ {
+			if records[j].Timestamp.After(records[i].Timestamp) {
+				records[i], records[j] = records[j], records[i]
+			}
+		}
+	}
 }
 
 // Stats 返回统计信息。
