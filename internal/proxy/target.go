@@ -210,9 +210,16 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 	if len(snapshot) == 0 {
 		return nil, nil
 	}
-	start := int(s.rrCounter.Add(1)-1) % len(snapshot)
-	for i := 0; i < len(snapshot); i++ {
-		state := snapshot[(start+i)%len(snapshot)]
+
+	// 第一步：过滤出支持该模型的 targets，并统计总 key 数量
+	type targetWithKeys struct {
+		state   *targetState
+		keyCount int
+	}
+	var candidates []targetWithKeys
+	totalKeys := 0
+
+	for _, state := range snapshot {
 		if state == nil || state.Target() == nil {
 			continue
 		}
@@ -234,14 +241,50 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 			continue
 		}
 
-		if !state.IsMuted(now) {
-			return state, mutedCandidate
+		// 统计该 target 的 key 数量
+		keyCount := 1 // 至少有 api_key
+		if len(state.Target().APIKeys) > 0 {
+			keyCount = len(state.Target().APIKeys)
 		}
 
-		if mutedCandidate == nil || state.NextRetry().Before(mutedCandidate.NextRetry()) {
-			mutedCandidate = state
+		candidates = append(candidates, targetWithKeys{state: state, keyCount: keyCount})
+		totalKeys += keyCount
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	// 第二步：按 key 数量做 round-robin（每个 key 有相等概率）
+	// 例如：target-A 有 4 个 key，target-B 有 1 个 key
+	// 总 key = 5，轮询 5 次为一个周期
+	// target-A 获得 4/5 = 80% 流量，target-B 获得 1/5 = 20% 流量
+	keyIndex := int(s.rrCounter.Add(1)-1) % totalKeys
+	cumulativeKeys := 0
+
+	for _, candidate := range candidates {
+		cumulativeKeys += candidate.keyCount
+		if keyIndex < cumulativeKeys {
+			if !candidate.state.IsMuted(now) {
+				return candidate.state, mutedCandidate
+			}
+			if mutedCandidate == nil || candidate.state.NextRetry().Before(mutedCandidate.NextRetry()) {
+				mutedCandidate = candidate.state
+			}
+			break
 		}
 	}
+
+	// 如果选中的 target 被 muted，尝试其他 candidates
+	for _, candidate := range candidates {
+		if !candidate.state.IsMuted(now) {
+			return candidate.state, mutedCandidate
+		}
+		if mutedCandidate == nil || candidate.state.NextRetry().Before(mutedCandidate.NextRetry()) {
+			mutedCandidate = candidate.state
+		}
+	}
+
 	return nil, mutedCandidate
 }
 

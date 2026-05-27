@@ -372,6 +372,341 @@ func TestServiceAffinityByIPAndKey(t *testing.T) {
 	})
 }
 
+func TestServiceModelAwareRoundRobin(t *testing.T) {
+	// 场景：11 个 targets，只有 2 个支持 qwen3.7-max（索引 9 和 10）
+	// target-9 有 4 个 key，target-10 有 1 个 key
+	// 验证：按 key 数量轮询，target-9 获得 80% 流量，target-10 获得 20% 流量
+
+	// 创建 11 个 mock 上游
+	var servers []*httptest.Server
+	for i := 0; i < 11; i++ {
+		idx := i
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"model":"qwen3.7-max","usage":{"prompt_tokens":10,"completion_tokens":5},"target_index":%d}`, idx)))
+		}))
+		defer server.Close()
+		servers = append(servers, server)
+	}
+
+	// 配置 11 个 targets，只有索引 9 和 10 支持 qwen3.7-max
+	targets := make([]config.Target, 11)
+	for i := 0; i < 11; i++ {
+		targets[i] = config.Target{
+			Name:               fmt.Sprintf("target-%d", i),
+			Endpoint:           servers[i].URL,
+			ResourcePathPrefix: "/",
+			APIKey:             fmt.Sprintf("key-%d", i),
+		}
+		// 只有索引 9 和 10 支持 qwen3.7-max
+		if i == 9 {
+			// target-9 有 4 个 key（1 个 api_key + 3 个 api_keys）
+			targets[i].AllowedModels = []string{"qwen3.7-max"}
+			targets[i].APIKeys = []string{"key-9-2", "key-9-3", "key-9-4"}
+		} else if i == 10 {
+			// target-10 有 1 个 key（只有 api_key）
+			targets[i].AllowedModels = []string{"qwen3.7-max"}
+		} else {
+			targets[i].AllowedModels = []string{"other-model"}
+		}
+	}
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: targets,
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// 创建 20 个不同的客户端（避免 affinity 影响）
+	store := auth.NewStore()
+	clients := make([]config.Client, 20)
+	for i := 0; i < 20; i++ {
+		clients[i] = config.Client{
+			Name:      fmt.Sprintf("client-%d", i),
+			AccessKey: fmt.Sprintf("token-%d", i),
+		}
+	}
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+
+	// 发送 20 个请求，统计 target 分布
+	targetCount := make(map[string]int)
+	for i := 0; i < 20; i++ {
+		principal, ok := store.Authenticate(fmt.Sprintf("token-%d", i))
+		if !ok {
+			t.Fatalf("failed to authenticate client-%d", i)
+		}
+
+		body := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+		req.RemoteAddr = fmt.Sprintf("192.168.%d.%d:12345", i/256, i%256) // 不同 IP
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("client-%d: expected 200, got %d", i, rr.Code)
+		}
+
+		target := rr.Header().Get("X-Proxy-Target")
+		if target == "" {
+			t.Fatalf("client-%d: missing X-Proxy-Target header", i)
+		}
+		targetCount[target]++
+	}
+
+	// 验证：只有 target-9 和 target-10 应该被选中
+	if len(targetCount) != 2 {
+		t.Errorf("expected exactly 2 targets to be selected, got %d: %v", len(targetCount), targetCount)
+	}
+
+	// 验证：target-9 应该获得约 80% 流量（16 个请求），target-10 应该获得约 20% 流量（4 个请求）
+	// 允许 10% 偏差：target-9 应该 14-18 个，target-10 应该 2-6 个
+	target9Count := targetCount["target-9"]
+	target10Count := targetCount["target-10"]
+
+	if target9Count < 14 || target9Count > 18 {
+		t.Errorf("target-9 should get ~80%% traffic (14-18 requests), got %d", target9Count)
+	}
+	if target10Count < 2 || target10Count > 6 {
+		t.Errorf("target-10 should get ~20%% traffic (2-6 requests), got %d", target10Count)
+	}
+
+	t.Logf("Target distribution: target-9=%d (80%%), target-10=%d (20%%)", target9Count, target10Count)
+}
+
+func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
+	tests := []struct {
+		name           string
+		targetConfigs  []struct {
+			name     string
+			keyCount int
+			models   []string
+		}
+		requestCount   int
+		expectedDist   map[string]float64 // target name -> expected percentage
+		tolerance      float64            // allowed deviation from expected percentage
+	}{
+		{
+			name: "extreme imbalance 10:1",
+			targetConfigs: []struct {
+				name     string
+				keyCount int
+				models   []string
+			}{
+				{"target-heavy", 10, []string{"qwen3.7-max"}},
+				{"target-light", 1, []string{"qwen3.7-max"}},
+			},
+			requestCount: 22,
+			expectedDist: map[string]float64{
+				"target-heavy": 90.9, // 10/11
+				"target-light": 9.1,  // 1/11
+			},
+			tolerance: 5.0,
+		},
+		{
+			name: "three targets 3:2:1",
+			targetConfigs: []struct {
+				name     string
+				keyCount int
+				models   []string
+			}{
+				{"target-a", 3, []string{"qwen3.7-max"}},
+				{"target-b", 2, []string{"qwen3.7-max"}},
+				{"target-c", 1, []string{"qwen3.7-max"}},
+			},
+			requestCount: 30,
+			expectedDist: map[string]float64{
+				"target-a": 50.0, // 3/6
+				"target-b": 33.3, // 2/6
+				"target-c": 16.7, // 1/6
+			},
+			tolerance: 8.0,
+		},
+		{
+			name: "five targets equal",
+			targetConfigs: []struct {
+				name     string
+				keyCount int
+				models   []string
+			}{
+				{"target-1", 1, []string{"qwen3.7-max"}},
+				{"target-2", 1, []string{"qwen3.7-max"}},
+				{"target-3", 1, []string{"qwen3.7-max"}},
+				{"target-4", 1, []string{"qwen3.7-max"}},
+				{"target-5", 1, []string{"qwen3.7-max"}},
+			},
+			requestCount: 25,
+			expectedDist: map[string]float64{
+				"target-1": 20.0,
+				"target-2": 20.0,
+				"target-3": 20.0,
+				"target-4": 20.0,
+				"target-5": 20.0,
+			},
+			tolerance: 8.0,
+		},
+		{
+			name: "single target with multiple keys",
+			targetConfigs: []struct {
+				name     string
+				keyCount int
+				models   []string
+			}{
+				{"target-only", 5, []string{"qwen3.7-max"}},
+			},
+			requestCount: 10,
+			expectedDist: map[string]float64{
+				"target-only": 100.0,
+			},
+			tolerance: 0.0,
+		},
+		{
+			name: "mixed models with filtering",
+			targetConfigs: []struct {
+				name     string
+				keyCount int
+				models   []string
+			}{
+				{"target-a", 2, []string{"qwen3.7-max"}},
+				{"target-b", 3, []string{"other-model"}}, // should be filtered out
+				{"target-c", 1, []string{"qwen3.7-max"}},
+				{"target-d", 4, []string{"another-model"}}, // should be filtered out
+			},
+			requestCount: 15,
+			expectedDist: map[string]float64{
+				"target-a": 66.7, // 2/3
+				"target-c": 33.3, // 1/3
+			},
+			tolerance: 10.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 创建 mock 上游
+			var servers []*httptest.Server
+			for i := 0; i < len(tt.targetConfigs); i++ {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"model":"qwen3.7-max","usage":{"prompt_tokens":10,"completion_tokens":5}}`))
+				}))
+				defer server.Close()
+				servers = append(servers, server)
+			}
+
+			// 配置 targets
+			targets := make([]config.Target, len(tt.targetConfigs))
+			for i, tc := range tt.targetConfigs {
+				targets[i] = config.Target{
+					Name:               tc.name,
+					Endpoint:           servers[i].URL,
+					ResourcePathPrefix: "/",
+					APIKey:             fmt.Sprintf("key-%d", i),
+					AllowedModels:      tc.models,
+				}
+				// 添加额外的 keys
+				if tc.keyCount > 1 {
+					extraKeys := make([]string, tc.keyCount-1)
+					for j := 0; j < tc.keyCount-1; j++ {
+						extraKeys[j] = fmt.Sprintf("key-%d-%d", i, j+2)
+					}
+					targets[i].APIKeys = extraKeys
+				}
+			}
+
+			cfg := &config.Config{
+				Server: config.ServerConfig{
+					Bind:                  "127.0.0.1:0",
+					RequestTimeoutSeconds: 5,
+				},
+				Targets: targets,
+				Logging: config.LoggingConfig{
+					Level:     "info",
+					AccessLog: "logs/test-access.log",
+					ErrorLog:  "logs/test-error.log",
+				},
+			}
+
+			service, err := NewService(cfg, newTestLogger())
+			if err != nil {
+				t.Fatalf("NewService: %v", err)
+			}
+
+			// 创建客户端
+			store := auth.NewStore()
+			clients := make([]config.Client, tt.requestCount)
+			for i := 0; i < tt.requestCount; i++ {
+				clients[i] = config.Client{
+					Name:      fmt.Sprintf("client-%d", i),
+					AccessKey: fmt.Sprintf("token-%d", i),
+				}
+			}
+			if err := store.LoadFromConfig(clients); err != nil {
+				t.Fatalf("load clients: %v", err)
+			}
+
+			// 发送请求并统计分布
+			targetCount := make(map[string]int)
+			for i := 0; i < tt.requestCount; i++ {
+				principal, ok := store.Authenticate(fmt.Sprintf("token-%d", i))
+				if !ok {
+					t.Fatalf("failed to authenticate client-%d", i)
+				}
+
+				body := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+				req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+				req.RemoteAddr = fmt.Sprintf("192.168.%d.%d:12345", i/256, i%256)
+				req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+				rr := httptest.NewRecorder()
+				service.ServeHTTP(rr, req)
+
+				if rr.Code != http.StatusOK {
+					t.Fatalf("client-%d: expected 200, got %d", i, rr.Code)
+				}
+
+				target := rr.Header().Get("X-Proxy-Target")
+				targetCount[target]++
+			}
+
+			// 验证分布
+			for targetName, expectedPct := range tt.expectedDist {
+				actualCount := targetCount[targetName]
+				actualPct := float64(actualCount) / float64(tt.requestCount) * 100.0
+
+				if actualPct < expectedPct-tt.tolerance || actualPct > expectedPct+tt.tolerance {
+					t.Errorf("%s: expected ~%.1f%% (±%.1f%%), got %.1f%% (%d/%d requests)",
+						targetName, expectedPct, tt.tolerance, actualPct, actualCount, tt.requestCount)
+				}
+			}
+
+			// 验证没有意外的 targets 被选中
+			for targetName := range targetCount {
+				if _, expected := tt.expectedDist[targetName]; !expected {
+					t.Errorf("unexpected target %s was selected", targetName)
+				}
+			}
+
+			t.Logf("Distribution: %v", targetCount)
+		})
+	}
+}
+
 func TestServiceFailoverOnTransportError(t *testing.T) {
 	success := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
