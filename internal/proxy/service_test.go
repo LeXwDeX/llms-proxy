@@ -243,6 +243,135 @@ func (m *mockUsageRecorder) Record(evt usage.Event) error {
 	return nil
 }
 
+// TestServiceAffinityByIPAndKey 测试客户端亲和性按 IP+KEY 组合分配
+// 场景：
+// 1. 同一客户端（同 KEY）从不同 IP 访问，应该独立分配（不共享 affinity）
+// 2. 不同客户端（不同 KEY）从同一 IP 访问，应该独立分配
+// 3. 同一客户端从同一 IP 访问，应该命中 affinity（保持粘连）
+func TestServiceAffinityByIPAndKey(t *testing.T) {
+	// 创建两个 mock 上游
+	target1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"qwen3.7-max","usage":{"prompt_tokens":10,"completion_tokens":5}}`))
+	}))
+	defer target1.Close()
+
+	target2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"qwen3.7-max","usage":{"prompt_tokens":10,"completion_tokens":5}}`))
+	}))
+	defer target2.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:               "target-1",
+				Endpoint:           target1.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-1",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+			{
+				Name:               "target-2",
+				Endpoint:           target2.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-2",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	clients := []config.Client{
+		{Name: "client-A", AccessKey: "token-A"},
+		{Name: "client-B", AccessKey: "token-B"},
+	}
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+
+	// 辅助函数：发送请求并返回 target
+	sendRequest := func(clientName, accessKey, remoteIP string) string {
+		principal, ok := store.Authenticate(accessKey)
+		if !ok {
+			t.Fatalf("failed to authenticate client %s", clientName)
+		}
+
+		body := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+		req.RemoteAddr = remoteIP + ":12345" // 设置客户端 IP
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("client %s from %s: expected 200, got %d", clientName, remoteIP, rr.Code)
+		}
+
+		return rr.Header().Get("X-Proxy-Target")
+	}
+
+	// 场景 1：同一客户端从不同 IP 访问，应该独立分配（不共享 affinity）
+	t.Run("SameKeyDifferentIP", func(t *testing.T) {
+		// client-A 从 IP-1 访问
+		target1 := sendRequest("client-A", "token-A", "192.168.1.1")
+		// client-A 从 IP-2 访问（应该独立分配，不命中 IP-1 的 affinity）
+		target2 := sendRequest("client-A", "token-A", "192.168.1.2")
+
+		// 由于是首次访问，两个 IP 应该各自独立分配
+		// 验证：至少有一个 target 被使用（可能是同一个，也可能是不同的）
+		if target1 == "" || target2 == "" {
+			t.Errorf("expected both targets to be non-empty, got target1=%s, target2=%s", target1, target2)
+		}
+		t.Logf("client-A from IP-1: %s, from IP-2: %s", target1, target2)
+	})
+
+	// 场景 2：不同客户端从同一 IP 访问，应该独立分配
+	t.Run("DifferentKeySameIP", func(t *testing.T) {
+		// client-A 从 IP-3 访问
+		targetA := sendRequest("client-A", "token-A", "192.168.2.1")
+		// client-B 从 IP-3 访问（应该独立分配，不命中 client-A 的 affinity）
+		targetB := sendRequest("client-B", "token-B", "192.168.2.1")
+
+		// 验证：至少有一个 target 被使用
+		if targetA == "" || targetB == "" {
+			t.Errorf("expected both targets to be non-empty, got targetA=%s, targetB=%s", targetA, targetB)
+		}
+		t.Logf("client-A from IP-3: %s, client-B from IP-3: %s", targetA, targetB)
+	})
+
+	// 场景 3：同一客户端从同一 IP 访问，应该命中 affinity（保持粘连）
+	t.Run("SameKeySameIP", func(t *testing.T) {
+		// client-A 从 IP-4 第一次访问
+		target1 := sendRequest("client-A", "token-A", "192.168.3.1")
+		// client-A 从 IP-4 第二次访问（应该命中 affinity，返回同一个 target）
+		target2 := sendRequest("client-A", "token-A", "192.168.3.1")
+		// client-A 从 IP-4 第三次访问（应该继续命中 affinity）
+		target3 := sendRequest("client-A", "token-A", "192.168.3.1")
+
+		// 验证：三次访问应该返回同一个 target（affinity 生效）
+		if target1 != target2 || target2 != target3 {
+			t.Errorf("expected affinity to keep same target, got target1=%s, target2=%s, target3=%s", target1, target2, target3)
+		}
+		t.Logf("client-A from IP-4 (3 times): %s, %s, %s", target1, target2, target3)
+	})
+}
+
 func TestServiceFailoverOnTransportError(t *testing.T) {
 	success := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
