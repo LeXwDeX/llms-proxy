@@ -36,6 +36,213 @@ func (t *failingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return nil, fmt.Errorf("unexpected host %q", req.URL.Host)
 }
 
+func TestServiceRoundRobinLoadBalancing(t *testing.T) {
+	// 创建两个 mock 上游，都支持同一个模型
+	target1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"qwen3.7-max","usage":{"prompt_tokens":10,"completion_tokens":5}}`))
+	}))
+	defer target1.Close()
+
+	target2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"qwen3.7-max","usage":{"prompt_tokens":10,"completion_tokens":5}}`))
+	}))
+	defer target2.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:               "target-1",
+				Endpoint:           target1.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-1",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+			{
+				Name:               "target-2",
+				Endpoint:           target2.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-2",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// 创建多个不同的客户端
+	store := auth.NewStore()
+	clients := []config.Client{
+		{Name: "client-1", AccessKey: "token-1"},
+		{Name: "client-2", AccessKey: "token-2"},
+		{Name: "client-3", AccessKey: "token-3"},
+		{Name: "client-4", AccessKey: "token-4"},
+	}
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+
+	// 每个客户端发送一次请求，统计 target 分配
+	targetCount := make(map[string]int)
+	for _, client := range clients {
+		principal, ok := store.Authenticate(client.AccessKey)
+		if !ok {
+			t.Fatalf("failed to authenticate client %s", client.Name)
+		}
+
+		body := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("client %s: expected 200, got %d", client.Name, rr.Code)
+		}
+
+		target := rr.Header().Get("X-Proxy-Target")
+		if target == "" {
+			t.Fatalf("client %s: missing X-Proxy-Target header", client.Name)
+		}
+		targetCount[target]++
+	}
+
+	// 验证：4 个客户端应该分配到 2 个 target，每个 target 至少 1 次
+	if len(targetCount) < 2 {
+		t.Errorf("expected requests distributed to 2 targets, got %d: %v", len(targetCount), targetCount)
+	}
+
+	// 验证：分配应该相对均匀（允许 3:1 或 2:2）
+	for target, count := range targetCount {
+		if count == 0 {
+			t.Errorf("target %s received 0 requests", target)
+		}
+	}
+
+	t.Logf("Target distribution: %v", targetCount)
+}
+
+func TestServiceLeastTokenLoadBalancing(t *testing.T) {
+	// 创建两个 mock 上游，返回不同的 token 用量
+	target1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// target-1 返回大量 token
+		_, _ = w.Write([]byte(`{"model":"qwen3.7-max","usage":{"prompt_tokens":10000,"completion_tokens":5000}}`))
+	}))
+	defer target1.Close()
+
+	target2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// target-2 返回少量 token
+		_, _ = w.Write([]byte(`{"model":"qwen3.7-max","usage":{"prompt_tokens":100,"completion_tokens":50}}`))
+	}))
+	defer target2.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:               "target-heavy",
+				Endpoint:           target1.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-1",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+			{
+				Name:               "target-light",
+				Endpoint:           target2.URL,
+				ResourcePathPrefix: "/",
+				APIKey:             "key-2",
+				AllowedModels:      []string{"qwen3.7-max"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// 设置 mock usage recorder
+	service.SetUsageRecorder(&mockUsageRecorder{})
+
+	store := auth.NewStore()
+	clients := []config.Client{
+		{Name: "client-1", AccessKey: "token-1"},
+		{Name: "client-2", AccessKey: "token-2"},
+		{Name: "client-3", AccessKey: "token-3"},
+	}
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+
+	// 第一个客户端发送请求（会随机分配到一个 target）
+	principal1, _ := store.Authenticate("token-1")
+	body1 := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+	req1 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body1)
+	req1 = req1.WithContext(auth.WithPrincipal(req1.Context(), principal1))
+	rr1 := httptest.NewRecorder()
+	service.ServeHTTP(rr1, req1)
+	firstTarget := rr1.Header().Get("X-Proxy-Target")
+
+	// 第二个客户端发送请求（应该分配到 token 较少的 target）
+	principal2, _ := store.Authenticate("token-2")
+	body2 := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body2)
+	req2 = req2.WithContext(auth.WithPrincipal(req2.Context(), principal2))
+	rr2 := httptest.NewRecorder()
+	service.ServeHTTP(rr2, req2)
+	secondTarget := rr2.Header().Get("X-Proxy-Target")
+
+	// 第三个客户端发送请求
+	principal3, _ := store.Authenticate("token-3")
+	body3 := bytes.NewBufferString(`{"model":"qwen3.7-max","messages":[{"role":"user","content":"hi"}]}`)
+	req3 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body3)
+	req3 = req3.WithContext(auth.WithPrincipal(req3.Context(), principal3))
+	rr3 := httptest.NewRecorder()
+	service.ServeHTTP(rr3, req3)
+	thirdTarget := rr3.Header().Get("X-Proxy-Target")
+
+	t.Logf("First request: %s", firstTarget)
+	t.Logf("Second request: %s", secondTarget)
+	t.Logf("Third request: %s", thirdTarget)
+
+	// 验证：至少有两个不同的 target 被使用
+	targets := map[string]bool{firstTarget: true, secondTarget: true, thirdTarget: true}
+	if len(targets) < 2 {
+		t.Errorf("expected at least 2 different targets, got %d: %v", len(targets), targets)
+	}
+}
+
+// mockUsageRecorder 是一个简单的 mock usage recorder
+type mockUsageRecorder struct{}
+
+func (m *mockUsageRecorder) Record(evt usage.Event) error {
+	return nil
+}
+
 func TestServiceFailoverOnTransportError(t *testing.T) {
 	success := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
