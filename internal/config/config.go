@@ -77,7 +77,8 @@ type TraceStoreConfig struct {
 	RingBufferSize int    `json:"ring_buffer_size"` // 内存 Ring Buffer 容量（条数）
 	MaxBodySize    int    `json:"max_body_size"`    // 单个 body 最大字节数
 	DiskPath       string `json:"disk_path"`        // 磁盘存储路径
-	DiskMaxSizeMB  int    `json:"disk_max_size_mb"` // 磁盘存储最大 MB
+	DiskMaxSizeMB  int    `json:"disk_max_size_mb"` // 单个日志文件最大 MB
+	DiskMaxBackups int    `json:"disk_max_backups"` // 保留的旧日志文件数
 	DiskTTLHours   int    `json:"disk_ttl_hours"`   // 磁盘记录 TTL（小时）
 	ChannelBuffer  int    `json:"channel_buffer"`   // 异步写入 channel buffer
 }

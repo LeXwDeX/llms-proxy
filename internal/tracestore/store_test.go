@@ -184,17 +184,20 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.RingBufferSize != 1000 {
 		t.Errorf("expected RingBufferSize 1000, got %d", cfg.RingBufferSize)
 	}
-	if cfg.MaxBodySize != 2*1024*1024 {
-		t.Errorf("expected MaxBodySize 2MB, got %d", cfg.MaxBodySize)
+	if cfg.MaxBodySize != 512*1024 {
+		t.Errorf("expected MaxBodySize 512KB, got %d", cfg.MaxBodySize)
 	}
 	if cfg.DiskPath != "/var/lib/llms-proxy/trace.log" {
 		t.Errorf("expected default DiskPath, got %s", cfg.DiskPath)
 	}
-	if cfg.DiskMaxSizeMB != 1024 {
-		t.Errorf("expected DiskMaxSizeMB 1024, got %d", cfg.DiskMaxSizeMB)
+	if cfg.DiskMaxSizeMB != 500 {
+		t.Errorf("expected DiskMaxSizeMB 500, got %d", cfg.DiskMaxSizeMB)
 	}
-	if cfg.DiskTTLHours != 24 {
-		t.Errorf("expected DiskTTLHours 24, got %d", cfg.DiskTTLHours)
+	if cfg.DiskMaxBackups != 10 {
+		t.Errorf("expected DiskMaxBackups 10, got %d", cfg.DiskMaxBackups)
+	}
+	if cfg.DiskTTLHours != 120 {
+		t.Errorf("expected DiskTTLHours 120 (5 days), got %d", cfg.DiskTTLHours)
 	}
 	if cfg.ChannelBuffer != 500 {
 		t.Errorf("expected ChannelBuffer 500, got %d", cfg.ChannelBuffer)

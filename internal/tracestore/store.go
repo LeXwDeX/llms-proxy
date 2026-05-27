@@ -67,6 +67,7 @@ type Config struct {
 	MaxBodySize    int    `json:"max_body_size"`
 	DiskPath       string `json:"disk_path"`
 	DiskMaxSizeMB  int    `json:"disk_max_size_mb"`
+	DiskMaxBackups int    `json:"disk_max_backups"`
 	DiskTTLHours   int    `json:"disk_ttl_hours"`
 	ChannelBuffer  int    `json:"channel_buffer"`
 }
@@ -76,10 +77,11 @@ func DefaultConfig() Config {
 	return Config{
 		Enabled:        false,
 		RingBufferSize: 1000,
-		MaxBodySize:    2 * 1024 * 1024, // 2MB
+		MaxBodySize:    512 * 1024, // 512KB
 		DiskPath:       "/var/lib/llms-proxy/trace.log",
-		DiskMaxSizeMB:  1024, // 1GB
-		DiskTTLHours:   24,
+		DiskMaxSizeMB:  500, // 500MB per file
+		DiskMaxBackups: 10,  // 10 files = 5GB total
+		DiskTTLHours:   120, // 5 days
 		ChannelBuffer:  500,
 	}
 }
@@ -160,9 +162,9 @@ func (s *Store) initDiskWriter() {
 	rolling := &lumberjack.Logger{
 		Filename:   s.cfg.DiskPath,
 		MaxSize:    s.cfg.DiskMaxSizeMB,
-		MaxBackups: 3,
-		MaxAge:     s.cfg.DiskTTLHours / 24,
-		Compress:   true,
+		MaxBackups: s.cfg.DiskMaxBackups,
+		MaxAge:     max(s.cfg.DiskTTLHours/24, 1), // 至少保留 1 天，避免 <24h 时 MaxAge=0 导致不按时间轮转
+		Compress:   false,                          // 不压缩，保留明文 NDJSON 方便 grep/jq 查询历史数据
 	}
 
 	s.diskWriter = rolling

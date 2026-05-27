@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -135,10 +136,36 @@ func main() {
 		"db_path", dbPath,
 	)
 
-	// Trace store: 仅通过环境变量 TRACE_STORE_ENABLED 控制，不从 config.json 读取
+	// Trace store: 仅通过环境变量控制，不从 config.json 读取
 	if envTrace := strings.TrimSpace(os.Getenv("TRACE_STORE_ENABLED")); envTrace == "true" {
 		cfg.TraceStore.Enabled = true
-		appLogger.Info("trace store enabled via TRACE_STORE_ENABLED=true")
+		// 读取可选的磁盘配置
+		if envMaxSize := strings.TrimSpace(os.Getenv("TRACE_STORE_MAX_SIZE_MB")); envMaxSize != "" {
+			if v, err := strconv.Atoi(envMaxSize); err == nil && v > 0 {
+				cfg.TraceStore.DiskMaxSizeMB = v
+			} else {
+				appLogger.Warn("invalid TRACE_STORE_MAX_SIZE_MB, using default", "value", envMaxSize)
+			}
+		}
+		if envMaxBackups := strings.TrimSpace(os.Getenv("TRACE_STORE_MAX_BACKUPS")); envMaxBackups != "" {
+			if v, err := strconv.Atoi(envMaxBackups); err == nil && v > 0 {
+				cfg.TraceStore.DiskMaxBackups = v
+			} else {
+				appLogger.Warn("invalid TRACE_STORE_MAX_BACKUPS, using default", "value", envMaxBackups)
+			}
+		}
+		if envTTL := strings.TrimSpace(os.Getenv("TRACE_STORE_TTL_HOURS")); envTTL != "" {
+			if v, err := strconv.Atoi(envTTL); err == nil && v > 0 {
+				cfg.TraceStore.DiskTTLHours = v
+			} else {
+				appLogger.Warn("invalid TRACE_STORE_TTL_HOURS, using default", "value", envTTL)
+			}
+		}
+		appLogger.Info("trace store enabled via TRACE_STORE_ENABLED=true",
+			"disk_max_size_mb", cfg.TraceStore.DiskMaxSizeMB,
+			"disk_max_backups", cfg.TraceStore.DiskMaxBackups,
+			"disk_ttl_hours", cfg.TraceStore.DiskTTLHours,
+		)
 	} else {
 		cfg.TraceStore.Enabled = false
 	}

@@ -137,6 +137,7 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		MaxBodySize:    cfg.TraceStore.MaxBodySize,
 		DiskPath:       cfg.TraceStore.DiskPath,
 		DiskMaxSizeMB:  cfg.TraceStore.DiskMaxSizeMB,
+		DiskMaxBackups: cfg.TraceStore.DiskMaxBackups,
 		DiskTTLHours:   cfg.TraceStore.DiskTTLHours,
 		ChannelBuffer:  cfg.TraceStore.ChannelBuffer,
 	}
@@ -145,16 +146,19 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		traceCfg.RingBufferSize = 1000
 	}
 	if traceCfg.MaxBodySize == 0 {
-		traceCfg.MaxBodySize = 2 * 1024 * 1024 // 2MB
+		traceCfg.MaxBodySize = 512 * 1024 // 512KB
 	}
 	if traceCfg.DiskPath == "" {
 		traceCfg.DiskPath = "/var/lib/llms-proxy/trace.log"
 	}
 	if traceCfg.DiskMaxSizeMB == 0 {
-		traceCfg.DiskMaxSizeMB = 1024 // 1GB
+		traceCfg.DiskMaxSizeMB = 500 // 500MB per file
+	}
+	if traceCfg.DiskMaxBackups == 0 {
+		traceCfg.DiskMaxBackups = 10 // 10 files = 5GB total
 	}
 	if traceCfg.DiskTTLHours == 0 {
-		traceCfg.DiskTTLHours = 24
+		traceCfg.DiskTTLHours = 120 // 5 days
 	}
 	if traceCfg.ChannelBuffer == 0 {
 		traceCfg.ChannelBuffer = 500
