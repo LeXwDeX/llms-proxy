@@ -607,6 +607,83 @@
     .model-cat-badge.cat-low      { background: #dbeafe; color: #2563eb; }
     .model-cat-badge.cat-standard { background: #f1f5f9; color: #64748b; }
     .model-cat-badge.cat-high     { background: #fee2e2; color: #dc2626; }
+
+    /* ===== Debug Badge ===== */
+    .debug-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      background: #f59e0b;
+      color: #fff;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    /* ===== Trace Stats ===== */
+    .trace-stats {
+      display: flex;
+      gap: 16px;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .trace-stats .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .trace-stats .stat-value {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* ===== Trace Detail ===== */
+    .trace-detail-section {
+      margin-bottom: 16px;
+    }
+    .trace-detail-section h4 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--line);
+    }
+    .trace-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    .trace-detail-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .trace-detail-item .label {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .trace-detail-item .value {
+      font-size: 13px;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .trace-body-preview {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 12px;
+      border-radius: 6px;
+      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      max-height: 300px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
@@ -652,6 +729,11 @@
         <div class="sidebar-nav-item" data-page="audit">
           <span class="nav-icon">📋</span>
           <span class="nav-label">审计日志</span>
+        </div>
+        <div class="sidebar-nav-item" data-page="trace" id="nav-trace" style="display:none;">
+          <span class="nav-icon">🔍</span>
+          <span class="nav-label">请求记录</span>
+          <span class="debug-badge">DEBUG</span>
         </div>
       </nav>
       <div class="sidebar-footer">
@@ -963,6 +1045,67 @@
                   <tr class="empty-row"><td colspan="6">加载中...</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== Page: 请求记录 (DEBUG) ========== -->
+        <div class="page" id="page-trace">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>请求记录 <span class="debug-badge">DEBUG</span></h3>
+              <div class="btn-group">
+                <input type="text" class="form-control" id="traceSearchId" placeholder="Request ID / Upstream ID" style="width:220px;">
+                <select class="form-control" id="traceClientFilter" style="width:140px;">
+                  <option value="">全部客户端</option>
+                </select>
+                <select class="form-control" id="traceTargetFilter" style="width:140px;">
+                  <option value="">全部目标</option>
+                </select>
+                <select class="form-control" id="traceStatusFilter" style="width:100px;">
+                  <option value="">全部状态</option>
+                  <option value="2xx">2xx 成功</option>
+                  <option value="4xx">4xx 客户端错误</option>
+                  <option value="5xx">5xx 服务端错误</option>
+                </select>
+                <input type="number" class="form-control" id="traceLimit" value="50" min="1" max="200" style="width:80px;" title="显示条数">
+                <button class="btn" id="searchTraceBtn">🔍 查询</button>
+                <button class="btn" id="refreshTraceBtn">🔄 刷新</button>
+              </div>
+            </div>
+            <div class="panel-body no-pad">
+              <div class="trace-stats" id="traceStats"></div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>Request ID</th>
+                    <th>客户端</th>
+                    <th>目标</th>
+                    <th>模型</th>
+                    <th>状态</th>
+                    <th>耗时</th>
+                    <th>Tokens</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="traceTableBody">
+                  <tr class="empty-row"><td colspan="9">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Trace Detail Modal -->
+          <div class="modal-overlay" id="traceDetailModal" style="display:none;">
+            <div class="modal" style="max-width:900px;">
+              <div class="modal-header">
+                <h3>请求详情</h3>
+                <button class="modal-close" onclick="closeTraceDetail()">&times;</button>
+              </div>
+              <div class="modal-body" id="traceDetailBody">
+                <div class="loading-overlay"><span class="loading-spinner"></span> 加载中...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -3085,6 +3228,220 @@
       }
       document.getElementById("refreshAuditBtn").addEventListener("click", function() { loadAudit(); });
 
+      /* ===== Trace (DEBUG) ===== */
+      var traceEnabled = false;
+
+      async function checkTraceEnabled() {
+        try {
+          var data = await api("/admin/data/trace?limit=1");
+          if (data && data.stats) {
+            traceEnabled = true;
+            document.getElementById("nav-trace").style.display = "";
+          }
+        } catch(e) {
+          traceEnabled = false;
+        }
+      }
+
+      async function loadTrace() {
+        if (!traceEnabled) {
+          document.getElementById("traceTableBody").innerHTML = "<tr class='empty-row'><td colspan='9'>Trace Store 未启用</td></tr>";
+          return;
+        }
+
+        var limit = parseInt(document.getElementById("traceLimit").value) || 50;
+        var searchId = document.getElementById("traceSearchId").value.trim();
+        var clientFilter = document.getElementById("traceClientFilter").value;
+        var targetFilter = document.getElementById("traceTargetFilter").value;
+        var statusFilter = document.getElementById("traceStatusFilter").value;
+
+        try {
+          // If searching by ID, use the single-record endpoint
+          if (searchId) {
+            var record = await api("/admin/data/trace/" + encodeURIComponent(searchId));
+            if (record && record.trace_id) {
+              renderTraceTable([record], {});
+            } else {
+              renderTraceTable([], {});
+            }
+            return;
+          }
+
+          var data = await api("/admin/data/trace?limit=" + limit);
+          var records = data.records || [];
+
+          // Client-side filtering
+          if (clientFilter) {
+            records = records.filter(function(r) { return r.client_name === clientFilter; });
+          }
+          if (targetFilter) {
+            records = records.filter(function(r) { return r.target === targetFilter; });
+          }
+          if (statusFilter) {
+            records = records.filter(function(r) {
+              var code = r.status_code || 0;
+              if (statusFilter === "2xx") return code >= 200 && code < 300;
+              if (statusFilter === "4xx") return code >= 400 && code < 500;
+              if (statusFilter === "5xx") return code >= 500;
+              return true;
+            });
+          }
+
+          renderTraceTable(records, data.stats || {});
+          populateTraceFilters(data.records || []);
+        } catch(e) {
+          toast("加载请求记录失败: " + e.message, "error");
+          document.getElementById("traceTableBody").innerHTML = "<tr class='empty-row'><td colspan='9'>加载失败</td></tr>";
+        }
+      }
+
+      function populateTraceFilters(records) {
+        var clients = {};
+        var targets = {};
+        records.forEach(function(r) {
+          if (r.client_name) clients[r.client_name] = true;
+          if (r.target) targets[r.target] = true;
+        });
+
+        var clientSelect = document.getElementById("traceClientFilter");
+        var currentClient = clientSelect.value;
+        clientSelect.innerHTML = "<option value=''>全部客户端</option>";
+        Object.keys(clients).sort().forEach(function(c) {
+          clientSelect.innerHTML += "<option value='" + esc(c) + "'" + (c === currentClient ? " selected" : "") + ">" + esc(c) + "</option>";
+        });
+
+        var targetSelect = document.getElementById("traceTargetFilter");
+        var currentTarget = targetSelect.value;
+        targetSelect.innerHTML = "<option value=''>全部目标</option>";
+        Object.keys(targets).sort().forEach(function(t) {
+          targetSelect.innerHTML += "<option value='" + esc(t) + "'" + (t === currentTarget ? " selected" : "") + ">" + esc(t) + "</option>";
+        });
+      }
+
+      function renderTraceTable(records, stats) {
+        var tb = document.getElementById("traceTableBody");
+        var statsDiv = document.getElementById("traceStats");
+
+        // Render stats
+        statsDiv.innerHTML = "<div class='stat-item'>总记录: <span class='stat-value'>" + (stats.total_records || 0) + "</span></div>"
+          + "<div class='stat-item'>磁盘写入: <span class='stat-value'>" + (stats.disk_writes || 0) + "</span></div>"
+          + "<div class='stat-item'>丢弃: <span class='stat-value'>" + (stats.dropped_records || 0) + "</span></div>"
+          + "<div class='stat-item'>缓冲区: <span class='stat-value'>" + (stats.ring_buffer_size || 0) + "</span></div>";
+
+        if (!records.length) {
+          tb.innerHTML = "<tr class='empty-row'><td colspan='9'>暂无请求记录</td></tr>";
+          return;
+        }
+
+        tb.innerHTML = records.map(function(r) {
+          var statusClass = "";
+          var code = r.status_code || 0;
+          if (code >= 200 && code < 300) statusClass = "color:var(--success)";
+          else if (code >= 400 && code < 500) statusClass = "color:var(--warning)";
+          else if (code >= 500) statusClass = "color:var(--danger)";
+
+          var tokens = "";
+          if (r.input_tokens || r.output_tokens) {
+            tokens = (r.input_tokens || 0) + " / " + (r.output_tokens || 0);
+          }
+
+          return "<tr>"
+            + "<td>" + esc(fmtTime(r.timestamp)) + "</td>"
+            + "<td style='font-family:monospace;font-size:12px;'>" + esc((r.trace_id || "").substring(0, 8)) + "...</td>"
+            + "<td>" + esc(r.client_name || "-") + "</td>"
+            + "<td>" + esc(r.target || "-") + "</td>"
+            + "<td>" + esc(r.model || "-") + "</td>"
+            + "<td style='" + statusClass + ";font-weight:600;'>" + code + "</td>"
+            + "<td>" + (r.duration_ms || 0) + "ms</td>"
+            + "<td style='font-size:12px;'>" + tokens + "</td>"
+            + "<td><button class='btn btn-sm' onclick='showTraceDetail(\"" + esc(r.trace_id) + "\")'>详情</button></td>"
+            + "</tr>";
+        }).join("");
+      }
+
+      async function showTraceDetail(traceId) {
+        var modal = document.getElementById("traceDetailModal");
+        var body = document.getElementById("traceDetailBody");
+        modal.style.display = "flex";
+        body.innerHTML = "<div class='loading-overlay'><span class='loading-spinner'></span> 加载中...</div>";
+
+        try {
+          var r = await api("/admin/data/trace/" + encodeURIComponent(traceId));
+          if (!r || !r.trace_id) {
+            body.innerHTML = "<p>未找到记录</p>";
+            return;
+          }
+
+          var html = "";
+
+          // META: 请求侧
+          html += "<div class='trace-detail-section'><h4>请求信息</h4><div class='trace-detail-grid'>";
+          html += detailItem("Trace ID", r.trace_id);
+          html += detailItem("时间", fmtTime(r.timestamp));
+          html += detailItem("客户端", r.client_name);
+          html += detailItem("客户端 IP", r.client_ip);
+          html += detailItem("Access Key", r.client_access_key);
+          html += detailItem("Method", r.method);
+          html += detailItem("Path", r.path);
+          html += detailItem("Query", r.query_params || "-");
+          html += "</div></div>";
+
+          // META: 路由决策
+          html += "<div class='trace-detail-section'><h4>路由决策</h4><div class='trace-detail-grid'>";
+          html += detailItem("目标", r.target);
+          html += detailItem("Endpoint Type", r.endpoint_type);
+          html += detailItem("模型", r.model);
+          html += detailItem("选择方式", r.selection_kind);
+          html += detailItem("Key Index", r.key_index);
+          html += detailItem("Key Mask", r.key_mask);
+          html += "</div></div>";
+
+          // META: 上游
+          html += "<div class='trace-detail-section'><h4>上游响应</h4><div class='trace-detail-grid'>";
+          html += detailItem("Upstream URL", r.upstream_url);
+          html += detailItem("Upstream Request ID", r.upstream_request_id);
+          html += detailItem("Status Code", r.status_code);
+          html += detailItem("耗时", (r.duration_ms || 0) + "ms");
+          html += detailItem("Input Tokens", r.input_tokens);
+          html += detailItem("Output Tokens", r.output_tokens);
+          html += detailItem("Cached Tokens", r.cached_tokens);
+          html += "</div></div>";
+
+          // Request Body
+          html += "<div class='trace-detail-section'><h4>Request Body (" + (r.request_body ? r.request_body.length : 0) + " bytes)</h4>";
+          html += "<div class='trace-body-preview'>" + esc(formatJson(r.request_body)) + "</div></div>";
+
+          // Response Body
+          html += "<div class='trace-detail-section'><h4>Response Body (" + (r.response_body ? r.response_body.length : 0) + " bytes)</h4>";
+          html += "<div class='trace-body-preview'>" + esc(formatJson(r.response_body)) + "</div></div>";
+
+          body.innerHTML = html;
+        } catch(e) {
+          body.innerHTML = "<p>加载失败: " + esc(e.message) + "</p>";
+        }
+      }
+
+      function closeTraceDetail() {
+        document.getElementById("traceDetailModal").style.display = "none";
+      }
+
+      function detailItem(label, value) {
+        return "<div class='trace-detail-item'><span class='label'>" + esc(label) + "</span><span class='value'>" + esc(String(value || "-")) + "</span></div>";
+      }
+
+      function formatJson(str) {
+        if (!str) return "-";
+        try {
+          return JSON.stringify(JSON.parse(str), null, 2);
+        } catch(e) {
+          return str;
+        }
+      }
+
+      document.getElementById("refreshTraceBtn").addEventListener("click", function() { loadTrace(); });
+      document.getElementById("searchTraceBtn").addEventListener("click", function() { loadTrace(); });
+      document.getElementById("traceSearchId").addEventListener("keypress", function(e) { if (e.key === "Enter") loadTrace(); });
+
       /* ===== User info ===== */
       async function loadUserInfo() {
         try {
@@ -3237,6 +3594,7 @@
           case "model-costs": loadModelCosts(); break;
           case "usage": loadUsage(); break;
           case "audit": loadAudit(); break;
+          case "trace": loadTrace(); break;
           case "model-catalog": loadModelCatalog(); break;
           case "copilot-pools": loadCopilotPools(); break;
         }
@@ -3247,6 +3605,8 @@
         loadUserInfo();
         // 必须先加载 endpoint_type 元数据，下游下拉/徽章/标签都依赖它
         await loadEndpointTypes();
+        // 检查 trace store 是否启用
+        await checkTraceEnabled();
         loadPageData("overview");
         startOverviewAutoRefresh();
       })();

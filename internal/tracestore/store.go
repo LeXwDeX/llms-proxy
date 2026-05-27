@@ -107,6 +107,9 @@ type Store struct {
 	totalRecords   atomic.Int64
 	droppedRecords atomic.Int64
 	diskWrites     atomic.Int64
+
+	// 关闭保护
+	closeOnce sync.Once
 }
 
 // New 创建 TraceStore。如果 cfg.Enabled == false，返回 noop store。
@@ -279,17 +282,20 @@ func (s *Store) Stats() map[string]int64 {
 	}
 }
 
-// Close 关闭 store，等待异步落盘完成。
+// Close 关闭 store，等待异步落盘完成。可安全多次调用。
 func (s *Store) Close() error {
 	if !s.cfg.Enabled {
 		return nil
 	}
 
-	close(s.ch)
-	<-s.done
+	var err error
+	s.closeOnce.Do(func() {
+		close(s.ch)
+		<-s.done
 
-	if s.diskCloser != nil {
-		return s.diskCloser.Close()
-	}
-	return nil
+		if s.diskCloser != nil {
+			err = s.diskCloser.Close()
+		}
+	})
+	return err
 }
