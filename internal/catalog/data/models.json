@@ -1787,6 +1787,133 @@
     ]
   },
   {
+    "endpoint_type": "bailian",
+    "model": "qwen-image-2.0",
+    "display_name": "Qwen Image 2.0",
+    "capabilities": [
+      "image_generation"
+    ],
+    "model_family": "qwen-image"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen-image-2.0-pro",
+    "display_name": "Qwen Image 2.0 Pro",
+    "capabilities": [
+      "image_generation"
+    ],
+    "model_family": "qwen-image"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen-long",
+    "display_name": "Qwen Long",
+    "capabilities": [
+      "chat"
+    ],
+    "model_family": "qwen"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen-max",
+    "display_name": "Qwen Max",
+    "capabilities": [
+      "chat",
+      "function_calling",
+      "structured_output"
+    ],
+    "model_family": "qwen"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen-plus",
+    "display_name": "Qwen Plus",
+    "capabilities": [
+      "chat",
+      "function_calling",
+      "structured_output"
+    ],
+    "model_family": "qwen"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen-turbo",
+    "display_name": "Qwen Turbo",
+    "capabilities": [
+      "chat",
+      "function_calling"
+    ],
+    "model_family": "qwen"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen-vl-max",
+    "display_name": "Qwen VL Max",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "model_family": "qwen-vl"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen-vl-plus",
+    "display_name": "Qwen VL Plus",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "model_family": "qwen-vl"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen3-coder-plus",
+    "display_name": "Qwen3 Coder Plus",
+    "capabilities": [
+      "chat",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "model_family": "qwen3-coder"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen3.6-flash",
+    "display_name": "Qwen 3.6 Flash",
+    "capabilities": [
+      "chat",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "model_family": "qwen3.6"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen3.6-plus",
+    "display_name": "Qwen 3.6 Plus",
+    "capabilities": [
+      "chat",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "model_family": "qwen3.6"
+  },
+  {
+    "endpoint_type": "bailian",
+    "model": "qwen3.7-max",
+    "display_name": "Qwen 3.7 Max",
+    "capabilities": [
+      "chat",
+      "function_calling",
+      "structured_output",
+      "reasoning"
+    ],
+    "model_family": "qwen3.7"
+  },
+  {
     "endpoint_type": "claude",
     "model": "claude-3-5-haiku-20241022",
     "display_name": "Claude Haiku 3.5",
