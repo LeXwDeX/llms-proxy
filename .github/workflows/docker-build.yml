@@ -52,6 +52,13 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Image tag: ${TAG}"
 
+      - name: Update model catalog
+        run: |
+          curl -sSfL --retry 3 --connect-timeout 10 --max-time 30 \
+            https://models.dev/api.json -o /tmp/models_dev_raw.json
+          python3 scripts/update-model-catalog.py \
+            /tmp/models_dev_raw.json internal/catalog/data/models.json
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -67,6 +74,7 @@ jobs:
           push: false
           load: true
           tags: ${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          no-cache: true
           # 不启用 provenance 以保持传统 manifest 格式
           provenance: false
 

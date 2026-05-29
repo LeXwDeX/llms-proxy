@@ -85,6 +85,7 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	defer db.Close()
 
 	clientStore := nosql.NewClientStore(db)
+	targetStore := nosql.NewTargetStore(db)
 	modelCostStore := nosql.NewModelCostStore(db)
 	usageStore := nosql.NewUsageStore(db)
 	userStore := nosql.NewUserStore(db)
@@ -130,7 +131,7 @@ func TestEndToEndAdminAndProxyFlow(t *testing.T) {
 	manager := config.NewManager("testdata/config.json")
 	manager.Replace(cfg)
 
-	adminHandler := admin.NewHandler(manager, store, proxyService, auditStore, userStore, clientStore, modelCostStore, usageStore, nil, appLogger)
+	adminHandler := admin.NewHandler(manager, store, proxyService, auditStore, userStore, clientStore, targetStore, modelCostStore, usageStore, nil, nil, nil, nil, nil, appLogger)
 
 	t.Run("health endpoint", func(t *testing.T) {
 		rec := httptest.NewRecorder()

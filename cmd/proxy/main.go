@@ -98,6 +98,17 @@ func main() {
 		appLogger.Warn("json migration encountered errors", "error", err)
 	}
 
+	if migrated, err := nosql.MigrateTargetsFromConfig(db, cfg.Targets); err != nil {
+		appLogger.Error("failed to migrate targets into database", "error", err)
+		os.Exit(1)
+	} else if migrated {
+		if err := config.RemoveTargetsFromFile(*configPath); err != nil {
+			appLogger.Warn("targets migrated but failed to remove them from config file", "error", err)
+		} else {
+			appLogger.Info("migrated targets into database and removed legacy config targets")
+		}
+	}
+
 	// One-shot backfill of hourly usage aggregation (idempotent via meta marker).
 	// Must run BEFORE proxy starts accepting traffic so reads see consistent agg data.
 	backfillStart := time.Now()
@@ -109,6 +120,7 @@ func main() {
 
 	// Create all bbolt-backed stores.
 	clientStore := nosql.NewClientStore(db)
+	targetStore := nosql.NewTargetStore(db)
 	modelCostStore := nosql.NewModelCostStore(db)
 	usageStore := nosql.NewUsageStore(db)
 	userStore := nosql.NewUserStore(db)
@@ -124,6 +136,13 @@ func main() {
 		)
 		os.Exit(1)
 	}
+	targets, err := targetStore.List()
+	if err != nil {
+		appLogger.Error("failed to load targets from database", "error", err)
+		os.Exit(1)
+	}
+	cfg.Targets = targets
+	manager.Replace(cfg)
 
 	appLogger.Info("configuration loaded",
 		"config_path", *configPath,
@@ -269,7 +288,7 @@ func main() {
 
 	adminRouter := chi.NewRouter()
 	adminRouter.Use(sessionManager.Middleware)
-	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, userStore, clientStore, modelCostStore, usageStore, modelCatalog, copilotPoolStore, copilotService, copilotAcctStore, copilotQuotaMgr, appLogger))
+	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, userStore, clientStore, targetStore, modelCostStore, usageStore, modelCatalog, copilotPoolStore, copilotService, copilotAcctStore, copilotQuotaMgr, appLogger))
 	router.Mount("/admin", adminRouter)
 
 	protected := chi.NewRouter()

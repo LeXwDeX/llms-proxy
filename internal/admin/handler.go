@@ -5,14 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"log/slog"
 
 	"github.com/ycgame/llms-proxy/internal/auth"
@@ -32,6 +29,7 @@ type Handler struct {
 	auditStore       *nosql.AuditStore
 	userStore        *nosql.UserStore
 	clientStore      *nosql.ClientStore
+	targetStore      *nosql.TargetStore
 	modelCostStore   *nosql.ModelCostStore
 	usageStore       *nosql.UsageStore
 	modelCatalog     *catalog.Catalog
@@ -50,6 +48,7 @@ func NewHandler(
 	auditStore *nosql.AuditStore,
 	userStore *nosql.UserStore,
 	clientStore *nosql.ClientStore,
+	targetStore *nosql.TargetStore,
 	modelCostStore *nosql.ModelCostStore,
 	usageStore *nosql.UsageStore,
 	modelCatalog *catalog.Catalog,
@@ -66,6 +65,7 @@ func NewHandler(
 		auditStore:       auditStore,
 		userStore:        userStore,
 		clientStore:      clientStore,
+		targetStore:      targetStore,
 		modelCostStore:   modelCostStore,
 		usageStore:       usageStore,
 		modelCatalog:     modelCatalog,
@@ -186,12 +186,12 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		UptimeSeconds  float64   `json:"uptime_seconds"`
 		ActiveRequests int64     `json:"active_requests"`
 		Requests       struct {
-			Total          int64 `json:"total"`
-			Success        int64 `json:"success"`
-			Failures       int64 `json:"failures"`
-			Retries        int64 `json:"retries"`
-			KeyRetries     int64 `json:"key_retries"`
-			TargetRetries  int64 `json:"target_retries"`
+			Total         int64 `json:"total"`
+			Success       int64 `json:"success"`
+			Failures      int64 `json:"failures"`
+			Retries       int64 `json:"retries"`
+			KeyRetries    int64 `json:"key_retries"`
+			TargetRetries int64 `json:"target_retries"`
 		} `json:"requests"`
 		Targets int `json:"targets"`
 	}{
@@ -366,6 +366,10 @@ func (h *Handler) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorResponse("failed to load config"))
 		return
 	}
+	if err := h.overlayStoredTargets(cfg); err != nil {
+		h.writeInternalError(w, "failed to load targets", err)
+		return
+	}
 
 	// Use the existing clientStore (backed by bbolt, not file path).
 	tempStore := auth.NewStore()
@@ -405,6 +409,13 @@ func (h *Handler) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusInternalServerError, errorResponse("failed to update auth configuration"))
 		return
+	}
+
+	if h.targetStore != nil && len(cfg.Targets) > 0 {
+		if _, err := h.targetStore.MigrateFromConfig(cfg.Targets); err != nil {
+			h.writeInternalError(w, "failed to persist targets", err)
+			return
+		}
 	}
 
 	h.configManager.Replace(cfg)
@@ -742,17 +753,17 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name               string                   `json:"name"`
-		EndpointType       string                   `json:"endpoint_type"`
-		Endpoint           string                   `json:"endpoint"`
-		ResourcePathPrefix string                   `json:"resource_path_prefix"`
-		APIKey             string                   `json:"api_key"`
-		APIKeys            []string                 `json:"api_keys"`
-		KeyResetTime       string                   `json:"key_reset_time"`
-		AllowBearer        bool                     `json:"allow_bearer_passthrough"`
-		AuthMode           string                   `json:"auth_mode"`
-		AllowedModels      []string                 `json:"allowed_models"`
-		SSEAutoAggregate   *bool                    `json:"sse_auto_aggregate,omitempty"`
+		Name               string   `json:"name"`
+		EndpointType       string   `json:"endpoint_type"`
+		Endpoint           string   `json:"endpoint"`
+		ResourcePathPrefix string   `json:"resource_path_prefix"`
+		APIKey             string   `json:"api_key"`
+		APIKeys            []string `json:"api_keys"`
+		KeyResetTime       string   `json:"key_reset_time"`
+		AllowBearer        bool     `json:"allow_bearer_passthrough"`
+		AuthMode           string   `json:"auth_mode"`
+		AllowedModels      []string `json:"allowed_models"`
+		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -819,15 +830,11 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.saveConfig(cfg); err != nil {
-		h.logger.Error("runtime config applied but save to disk failed; changes will be lost on restart", "error", err)
-		h.recordAudit(r, "create_target", name, "partial", "runtime applied but persist failed: "+err.Error())
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok":    false,
-			"error": "config applied at runtime but failed to persist to disk; changes will be lost on restart",
-		})
+	if err := h.targetStore.Create(newTarget); err != nil {
+		h.writeInternalError(w, "failed to persist target", err)
 		return
 	}
+	h.configManager.Replace(cfg)
 
 	h.recordAudit(r, "create_target", name, "success", "")
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "name": name})
@@ -841,16 +848,16 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		EndpointType       string                    `json:"endpoint_type"`
-		Endpoint           string                    `json:"endpoint"`
-		ResourcePathPrefix string                    `json:"resource_path_prefix"`
-		APIKey             *string                   `json:"api_key"`
-		APIKeys            *[]string                 `json:"api_keys"`
-		KeyResetTime       *string                   `json:"key_reset_time"`
-		AllowBearer        bool                      `json:"allow_bearer_passthrough"`
-		AuthMode           *string                   `json:"auth_mode"`
-		AllowedModels      []string                  `json:"allowed_models"`
-		SSEAutoAggregate   *bool                     `json:"sse_auto_aggregate,omitempty"`
+		EndpointType       string    `json:"endpoint_type"`
+		Endpoint           string    `json:"endpoint"`
+		ResourcePathPrefix string    `json:"resource_path_prefix"`
+		APIKey             *string   `json:"api_key"`
+		APIKeys            *[]string `json:"api_keys"`
+		KeyResetTime       *string   `json:"key_reset_time"`
+		AllowBearer        bool      `json:"allow_bearer_passthrough"`
+		AuthMode           *string   `json:"auth_mode"`
+		AllowedModels      []string  `json:"allowed_models"`
+		SSEAutoAggregate   *bool     `json:"sse_auto_aggregate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -924,15 +931,18 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.saveConfig(cfg); err != nil {
-		h.logger.Error("runtime config applied but save to disk failed; changes will be lost on restart", "error", err)
-		h.recordAudit(r, "update_target", name, "partial", "runtime applied but persist failed: "+err.Error())
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok":    false,
-			"error": "config applied at runtime but failed to persist to disk; changes will be lost on restart",
-		})
+	var updatedTarget config.Target
+	for _, target := range cfg.Targets {
+		if strings.EqualFold(target.Name, name) {
+			updatedTarget = target
+			break
+		}
+	}
+	if err := h.targetStore.Update(name, updatedTarget); err != nil {
+		h.writeInternalError(w, "failed to persist target", err)
 		return
 	}
+	h.configManager.Replace(cfg)
 
 	h.recordAudit(r, "update_target", name, "success", "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
@@ -973,15 +983,11 @@ func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.saveConfig(cfg); err != nil {
-		h.logger.Error("runtime config applied but save to disk failed; changes will be lost on restart", "error", err)
-		h.recordAudit(r, "delete_target", name, "partial", "runtime applied but persist failed: "+err.Error())
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok":    false,
-			"error": "config applied at runtime but failed to persist to disk; changes will be lost on restart",
-		})
+	if err := h.targetStore.Delete(name); err != nil {
+		h.writeInternalError(w, "failed to persist target deletion", err)
 		return
 	}
+	h.configManager.Replace(cfg)
 
 	h.recordAudit(r, "delete_target", name, "success", "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1046,28 +1052,6 @@ func (h *Handler) handleWakeUpTargetKeys(w http.ResponseWriter, r *http.Request)
 
 	h.recordAudit(r, "wakeup_target_keys", name, "success", fmt.Sprintf("recovered=%d", recovered))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "recovered": recovered})
-}
-
-func (h *Handler) saveConfig(cfg *config.Config) error {
-	path := h.configManager.Path()
-	payload, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
-	}
-	payload = append(payload, '\n')
-
-	dir := filepath.Dir(path)
-	tmp := filepath.Join(dir, fmt.Sprintf(".config.%s.tmp", uuid.NewString()))
-	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
-		return fmt.Errorf("write temp config: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("rename config: %w", err)
-	}
-
-	h.configManager.Replace(cfg)
-	return nil
 }
 
 func (h *Handler) applyConfigRuntime(cfg *config.Config) error {
@@ -1143,7 +1127,47 @@ func (h *Handler) currentConfig() (*config.Config, error) {
 	if cfg == nil {
 		return nil, errors.New("config unavailable")
 	}
+	if err := h.applyStoredTargets(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+func (h *Handler) applyStoredTargets(cfg *config.Config) error {
+	if h.targetStore == nil {
+		return nil
+	}
+	targets, err := h.targetStore.List()
+	if err != nil {
+		return err
+	}
+	if len(targets) == 0 && len(cfg.Targets) > 0 {
+		if _, err := h.targetStore.MigrateFromConfig(cfg.Targets); err != nil {
+			return err
+		}
+		targets, err = h.targetStore.List()
+		if err != nil {
+			return err
+		}
+	}
+	if len(targets) > 0 || len(cfg.Targets) == 0 {
+		cfg.Targets = targets
+	}
+	return nil
+}
+
+func (h *Handler) overlayStoredTargets(cfg *config.Config) error {
+	if h.targetStore == nil {
+		return nil
+	}
+	targets, err := h.targetStore.List()
+	if err != nil {
+		return err
+	}
+	if len(targets) > 0 || len(cfg.Targets) == 0 {
+		cfg.Targets = targets
+	}
+	return nil
 }
 
 func (h *Handler) reloadAuthFromClientStore() error {
