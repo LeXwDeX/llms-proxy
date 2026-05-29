@@ -43,6 +43,15 @@ type keyPool struct {
 	clientAffinity map[string]int // 客户端 → 已分配的 key index（记忆绑定）
 	tokenWindow    time.Duration  // token 统计滑动窗口时长（默认 3 分钟）
 
+	// #3 并发削峰：每个 key 当前在途请求数（least-connections 调度信号，实时性优于滞后的 token 窗口）
+	inFlight []int64
+
+	// #2 绑定再平衡 / #5 绑定淘汰
+	clientAffinityAt   map[string]time.Time // 客户端 → 绑定时间戳
+	rebalanceInterval  time.Duration        // 已绑定客户端的再平衡间隔（默认 30s）
+	affinityTTL        time.Duration        // 绑定空闲淘汰 TTL（默认 10min）
+	maxAffinityEntries int                  // clientAffinity 容量上限（默认 10000）
+
 	// 唤醒模型：所有 key 不可用时，单例化探测被屏蔽的 key 是否恢复
 	wakeUpCooldown   time.Time   // 唤醒冷却时间（1分钟内不重复触发）
 	wakeUpInProgress atomic.Bool // 单例标记（防止并发惊群）
@@ -102,6 +111,12 @@ func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *s
 		targetName:     targetName,
 		clientAffinity: make(map[string]int),
 		tokenWindow:    3 * time.Minute, // 默认 3 分钟滑动窗口
+
+		inFlight:           make([]int64, len(keys)),
+		clientAffinityAt:   make(map[string]time.Time),
+		rebalanceInterval:  30 * time.Second,
+		affinityTTL:        10 * time.Minute,
+		maxAffinityEntries: 10000,
 	}
 }
 
@@ -117,11 +132,15 @@ func (p *keyPool) selectKey() (string, int) {
 	defer p.mu.Unlock()
 
 	now := time.Now()
+	n := len(p.entries)
 
-	// 第一轮：找第一个 active 的
-	for i := range p.entries {
-		if !p.entries[i].exhausted && !p.entries[i].blocked {
-			return p.entries[i].key, i
+	// 第一轮：从轮询位置开始找第一个 active 的（#4 均衡：避免重试/探测总是回到 key-0）
+	start := int(p.rrCounter) % n
+	for i := 0; i < n; i++ {
+		idx := (start + i) % n
+		if !p.entries[idx].exhausted && !p.entries[idx].blocked {
+			p.rrCounter++
+			return p.entries[idx].key, idx
 		}
 	}
 
@@ -206,42 +225,55 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 	// 1. 检查已有亲和绑定
 	if preferred, ok := p.clientAffinity[clientName]; ok && preferred >= 0 && preferred < n {
 		if !p.entries[preferred].exhausted && !p.entries[preferred].blocked {
+			// #2 再平衡：绑定存活，但若超过 rebalanceInterval 未重新评估，
+			// 且存在负载更低的 active key，则迁移绑定（least-connections + least-token）。
+			// 仅在确有更优 key 时迁移，避免无意义抖动。
+			boundAt := p.clientAffinityAt[clientName]
+			if now.Sub(boundAt) >= p.rebalanceInterval {
+				best := p.bestActiveKeyLocked(now)
+				if best >= 0 && best != preferred && p.scoreLessLocked(best, preferred, now) {
+					p.logger.Info("[keypool] affinity rebalanced",
+						"target", p.targetName,
+						"client", clientName,
+						"prev_key_index", preferred,
+						"new_key_index", best,
+					)
+					preferred = best
+				}
+				p.bindLocked(clientName, preferred, now)
+			}
 			return p.entries[preferred].key, preferred
 		}
 		// 绑定的 key 不可用，走溢出
 	}
 
-	// 2. 新客户端：优先 token 感知调度，无数据时退化为轮询
+	// 2. 新客户端：优先 least-connections + least-token 调度，无任何负载信号时退化为轮询
 	if _, ok := p.clientAffinity[clientName]; !ok {
-		// 尝试 least-token 分配
 		bestIdx := -1
-		bestTokens := int64(-1)
-		hasAnyData := false
+		hasSignal := false // 有在途请求 或 有 token 数据
 		for i := 0; i < n; i++ {
 			if p.entries[i].exhausted || p.entries[i].blocked {
 				continue
 			}
-			sum := p.tokenSumInWindow(i, now)
-			if sum > 0 {
-				hasAnyData = true
+			if p.inFlight[i] > 0 || p.tokenSumInWindow(i, now) > 0 {
+				hasSignal = true
 			}
-			if bestIdx == -1 || sum < bestTokens {
+			if bestIdx == -1 || p.scoreLessLocked(i, bestIdx, now) {
 				bestIdx = i
-				bestTokens = sum
 			}
 		}
 		if bestIdx >= 0 {
-			if hasAnyData {
-				// token 感知调度：选累计最少的
-				p.clientAffinity[clientName] = bestIdx
+			if hasSignal {
+				// 负载感知调度：选在途最少、其次累计 token 最少的
+				p.bindLocked(clientName, bestIdx, now)
 				return p.entries[bestIdx].key, bestIdx
 			}
-			// 无数据，退化为轮询
+			// 无负载信号（刚启动 / 全空闲），退化为轮询
 			for i := 0; i < n; i++ {
 				idx := int(p.rrCounter) % n
 				p.rrCounter++
 				if !p.entries[idx].exhausted && !p.entries[idx].blocked {
-					p.clientAffinity[clientName] = idx
+					p.bindLocked(clientName, idx, now)
 					return p.entries[idx].key, idx
 				}
 			}
@@ -254,7 +286,7 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 	for i := 0; i < n; i++ {
 		idx := (start + i) % n
 		if !p.entries[idx].exhausted && !p.entries[idx].blocked {
-			p.clientAffinity[clientName] = idx
+			p.bindLocked(clientName, idx, now)
 			maskKey := maskAPIKey(p.entries[idx].key)
 			p.logger.Info("[keypool] affinity overflow",
 				"target", p.targetName,
@@ -276,7 +308,7 @@ func (p *keyPool) selectKeyForClient(clientName string) (string, int) {
 			p.entries[i].exhaustedAt = time.Time{}
 			p.entries[i].exhaustReason = ""
 			p.entries[i].cooldownEnd = time.Time{}
-			p.clientAffinity[clientName] = i
+			p.bindLocked(clientName, i, now)
 			maskKey := maskAPIKey(p.entries[i].key)
 			p.logger.Info("[keypool] key recovered",
 				"target", p.targetName,
@@ -593,6 +625,121 @@ func (p *keyPool) tokenSumInWindow(keyIndex int, now time.Time) int64 {
 		sum += s.tokens
 	}
 	return sum
+}
+
+// acquireInFlight 在为一次真实转发选中 key 后调用，增加该 key 的在途计数。
+func (p *keyPool) acquireInFlight(index int) {
+	if p == nil || index < 0 {
+		return
+	}
+	p.mu.Lock()
+	if index < len(p.inFlight) {
+		p.inFlight[index]++
+	}
+	p.mu.Unlock()
+}
+
+// releaseInFlight 在一次转发结束（响应体关闭或转发出错）时调用，减少在途计数。
+// 带下限保护，避免重复释放导致计数变负而永久扭曲调度。
+func (p *keyPool) releaseInFlight(index int) {
+	if p == nil || index < 0 {
+		return
+	}
+	p.mu.Lock()
+	if index < len(p.inFlight) && p.inFlight[index] > 0 {
+		p.inFlight[index]--
+	}
+	p.mu.Unlock()
+}
+
+// activeKeyCount 返回当前处于可用状态（未冷却、未耗尽、未阻塞）的 key 数量，
+// 供目标层（target.go #1）按真实存活容量加权分配请求。
+func (p *keyPool) activeKeyCount() int {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	count := 0
+	for i := range p.entries {
+		if !p.entries[i].exhausted && !p.entries[i].blocked {
+			count++
+		}
+	}
+	return count
+}
+
+// scoreLessLocked 比较两个 key 的负载得分：先比在途请求数（least-connections），
+// 再比滑动窗口累计 token（least-token）。a 更空闲返回 true。调用方必须持有 p.mu。
+func (p *keyPool) scoreLessLocked(a, b int, now time.Time) bool {
+	if a < 0 || a >= len(p.entries) {
+		return false
+	}
+	if b < 0 || b >= len(p.entries) {
+		return true
+	}
+	infA, infB := p.inFlight[a], p.inFlight[b]
+	if infA != infB {
+		return infA < infB
+	}
+	return p.tokenSumInWindow(a, now) < p.tokenSumInWindow(b, now)
+}
+
+// bestActiveKeyLocked 返回当前负载最低（least-connections + least-token）的 active key。
+// 无 active key 返回 -1。调用方必须持有 p.mu。
+func (p *keyPool) bestActiveKeyLocked(now time.Time) int {
+	best := -1
+	for i := range p.entries {
+		if p.entries[i].exhausted || p.entries[i].blocked {
+			continue
+		}
+		if best == -1 || p.scoreLessLocked(i, best, now) {
+			best = i
+		}
+	}
+	return best
+}
+
+// bindLocked 建立/更新客户端到 key 的亲和绑定，并记录时间戳。
+// 新增绑定前按需淘汰陈旧条目，防止 map 无限增长。调用方必须持有 p.mu。
+func (p *keyPool) bindLocked(clientName string, idx int, now time.Time) {
+	if _, exists := p.clientAffinity[clientName]; !exists {
+		p.evictStaleAffinityLocked(now)
+	}
+	p.clientAffinity[clientName] = idx
+	p.clientAffinityAt[clientName] = now
+}
+
+// evictStaleAffinityLocked 在绑定表达到容量上限时淘汰条目：
+// 优先淘汰空闲超过 affinityTTL 的绑定；若仍超限，淘汰最旧的一条。
+// 调用方必须持有 p.mu。
+func (p *keyPool) evictStaleAffinityLocked(now time.Time) {
+	if len(p.clientAffinity) < p.maxAffinityEntries {
+		return
+	}
+	// 第一轮：淘汰所有空闲超过 TTL 的绑定
+	for name, ts := range p.clientAffinityAt {
+		if now.Sub(ts) >= p.affinityTTL {
+			delete(p.clientAffinity, name)
+			delete(p.clientAffinityAt, name)
+		}
+	}
+	// 第二轮：若仍达上限，淘汰最旧的一条，保证能腾出空间
+	for len(p.clientAffinity) >= p.maxAffinityEntries {
+		oldestName := ""
+		var oldestTS time.Time
+		for name, ts := range p.clientAffinityAt {
+			if oldestName == "" || ts.Before(oldestTS) {
+				oldestName = name
+				oldestTS = ts
+			}
+		}
+		if oldestName == "" {
+			break
+		}
+		delete(p.clientAffinity, oldestName)
+		delete(p.clientAffinityAt, oldestName)
+	}
 }
 
 // leastTokenActiveKeyIndex 返回滑动窗口内累计 token 最少的 active key 的索引。

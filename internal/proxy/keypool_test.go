@@ -891,3 +891,155 @@ func TestGetExhaustedKeys(t *testing.T) {
 		t.Errorf("expected second exhausted key to be key-0 (longer cooldown), got key-%d", exhausted[1])
 	}
 }
+
+// ---- #1~#5 负载优化针对性单测 ----
+
+// TestActiveKeyCount 验证 #1：activeKeyCount 只统计未耗尽/未屏蔽的 key。
+func TestActiveKeyCount(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2", "key-3"})
+	if got := pool.activeKeyCount(); got != 4 {
+		t.Fatalf("fresh pool: expected 4 active, got %d", got)
+	}
+	pool.markExhausted(0, "quota_exceeded")
+	pool.blockKey(1)
+	if got := pool.activeKeyCount(); got != 2 {
+		t.Errorf("after 1 exhausted + 1 blocked: expected 2 active, got %d", got)
+	}
+	// 冷却恢复后应回升
+	pool.mu.Lock()
+	pool.entries[0].exhausted = false
+	pool.mu.Unlock()
+	if got := pool.activeKeyCount(); got != 3 {
+		t.Errorf("after recovery: expected 3 active, got %d", got)
+	}
+	var nilPool *keyPool
+	if got := nilPool.activeKeyCount(); got != 0 {
+		t.Errorf("nil pool: expected 0, got %d", got)
+	}
+}
+
+// TestAffinityRebalance 验证 #2：绑定超过 rebalanceInterval 后，存在更优 key 时迁移绑定。
+func TestAffinityRebalance(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+	pool.rebalanceInterval = 0 // 立即允许再平衡
+
+	// 让 key-0 先被绑定（给 key-0 较高 token 使新客户端走负载感知到 key-1? 这里手动绑定）
+	now := time.Now()
+	pool.mu.Lock()
+	pool.bindLocked("alice", 0, now.Add(-time.Hour)) // 很久以前绑定到 key-0
+	pool.mu.Unlock()
+
+	// 制造 key-0 负载高于 key-1：给 key-0 记 token
+	pool.recordTokens(0, 50000)
+
+	// 再次选择：应再平衡到更空闲的 key-1
+	_, idx := pool.selectKeyForClient("alice")
+	if idx != 1 {
+		t.Errorf("expected rebalance to key-1 (less loaded), got key-%d", idx)
+	}
+
+	// 反向：没有更优 key 时不应抖动
+	pool2 := newTestKeyPool([]string{"key-0", "key-1"})
+	pool2.rebalanceInterval = 0
+	pool2.mu.Lock()
+	pool2.bindLocked("bob", 0, time.Now().Add(-time.Hour))
+	pool2.mu.Unlock()
+	pool2.recordTokens(1, 50000) // key-1 更忙，key-0 仍最优
+	_, idx2 := pool2.selectKeyForClient("bob")
+	if idx2 != 0 {
+		t.Errorf("expected to stay on key-0 (still best), got key-%d", idx2)
+	}
+}
+
+// TestAffinityNoRebalanceBeforeInterval 验证 #2：未到再平衡间隔时不迁移。
+func TestAffinityNoRebalanceBeforeInterval(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+	pool.rebalanceInterval = time.Hour // 几乎不触发
+	now := time.Now()
+	pool.mu.Lock()
+	pool.bindLocked("alice", 0, now)
+	pool.mu.Unlock()
+	pool.recordTokens(0, 50000) // key-0 更忙，但还没到再平衡时间
+	_, idx := pool.selectKeyForClient("alice")
+	if idx != 0 {
+		t.Errorf("expected to stay on bound key-0 before interval, got key-%d", idx)
+	}
+}
+
+// TestInFlightScheduling 验证 #3：在途计数纳入调度，least-connections 优先。
+func TestInFlightScheduling(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+	// key-0 有 2 个在途，key-1 有 1 个，key-2 空闲
+	pool.acquireInFlight(0)
+	pool.acquireInFlight(0)
+	pool.acquireInFlight(1)
+	// 新客户端应选 key-2（在途最少）
+	_, idx := pool.selectKeyForClient("alice")
+	if idx != 2 {
+		t.Errorf("expected key-2 (least in-flight), got key-%d", idx)
+	}
+	// 释放保护：重复释放不应使计数变负
+	pool.releaseInFlight(2)
+	pool.releaseInFlight(2)
+	pool.mu.Lock()
+	v := pool.inFlight[2]
+	pool.mu.Unlock()
+	if v < 0 {
+		t.Errorf("inFlight must not go negative, got %d", v)
+	}
+	// in-flight 优先于 token：key-2 给高 token 但 0 在途，key-0 释放到 0 在途但低 token
+	pool.releaseInFlight(0)
+	pool.releaseInFlight(0)
+	pool.releaseInFlight(1)
+	pool.recordTokens(2, 99999)
+	pool.acquireInFlight(0) // key-0 现在 1 在途
+	_, idx2 := pool.selectKeyForClient("bob")
+	if idx2 == 0 {
+		t.Errorf("key-0 has in-flight load, should not be picked first, got key-%d", idx2)
+	}
+}
+
+// TestSelectKeyRoundRobin 验证 #4：selectKey 重试路径轮询，不总是回到 key-0。
+func TestSelectKeyRoundRobin(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+	seen := make(map[int]int)
+	for i := 0; i < 6; i++ {
+		_, idx := pool.selectKey()
+		seen[idx]++
+	}
+	for i := 0; i < 3; i++ {
+		if seen[i] != 2 {
+			t.Errorf("selectKey round-robin: key-%d picked %d times, want 2 (dist=%v)", i, seen[i], seen)
+		}
+	}
+}
+
+// TestAffinityEviction 验证 #5：达到容量上限时淘汰陈旧绑定。
+func TestAffinityEviction(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+	pool.maxAffinityEntries = 3
+	pool.affinityTTL = 10 * time.Minute
+	now := time.Now()
+
+	pool.mu.Lock()
+	// 2 条陈旧（超 TTL），1 条新鲜
+	pool.bindLocked("old-1", 0, now.Add(-time.Hour))
+	pool.bindLocked("old-2", 1, now.Add(-time.Hour))
+	pool.bindLocked("fresh", 0, now)
+	// 此时 len==3 已达上限；再绑定触发淘汰，应清掉 2 条陈旧
+	pool.bindLocked("new", 1, now)
+	defer pool.mu.Unlock()
+
+	if _, ok := pool.clientAffinity["old-1"]; ok {
+		t.Error("old-1 should be evicted (stale > TTL)")
+	}
+	if _, ok := pool.clientAffinity["old-2"]; ok {
+		t.Error("old-2 should be evicted (stale > TTL)")
+	}
+	if _, ok := pool.clientAffinity["fresh"]; !ok {
+		t.Error("fresh binding should survive eviction")
+	}
+	if _, ok := pool.clientAffinity["new"]; !ok {
+		t.Error("new binding should be present")
+	}
+}

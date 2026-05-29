@@ -101,10 +101,10 @@ func (s *targetState) Stats() TargetStats {
 type selectionKind int
 
 const (
-	selectionExplicit   selectionKind = iota // 用户显式指定目标（header/query）
-	selectionAffinityHit                     // 粘连命中，目标健康可用
-	selectionRoundRobin                      // 无粘连记录，轮询选出（首次或过期后）
-	selectionFailover                        // 有粘连记录但目标不可用，failover 到其他目标
+	selectionExplicit    selectionKind = iota // 用户显式指定目标（header/query）
+	selectionAffinityHit                      // 粘连命中，目标健康可用
+	selectionRoundRobin                       // 无粘连记录，轮询选出（首次或过期后）
+	selectionFailover                         // 有粘连记录但目标不可用，failover 到其他目标
 )
 
 func (s *Service) selectTarget(
@@ -211,13 +211,17 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 		return nil, nil
 	}
 
-	// 第一步：过滤出支持该模型的 targets，并统计总 key 数量
+	// 第一步：过滤出支持该模型的 targets，并统计 key 权重
+	// #1 加权改用「当前存活 key 数」：冷却/耗尽的 key 不再吸引流量，
+	// 避免请求被分配到实际无可用 key 的 target 后再触发重试。
 	type targetWithKeys struct {
-		state   *targetState
-		keyCount int
+		state       *targetState
+		keyCount    int // 配置 key 数（兜底权重）
+		activeCount int // 当前存活 key 数（首选权重）
 	}
 	var candidates []targetWithKeys
 	totalKeys := 0
+	totalActive := 0
 
 	for _, state := range snapshot {
 		if state == nil || state.Target() == nil {
@@ -241,29 +245,45 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 			continue
 		}
 
-		// 统计该 target 的 key 数量
+		// 统计该 target 的配置 key 数量（兜底）
 		keyCount := 1 // 至少有 api_key
 		if len(state.Target().APIKeys) > 0 {
 			keyCount = len(state.Target().APIKeys)
 		}
+		// 统计当前存活 key 数量（首选权重）。
+		// 无 keyPool（单 key target）时退化为配置数，避免被多 key target 的存活权重挤占到 0。
+		activeCount := keyCount
+		if state.keyPool != nil {
+			activeCount = state.keyPool.activeKeyCount()
+		}
 
-		candidates = append(candidates, targetWithKeys{state: state, keyCount: keyCount})
+		candidates = append(candidates, targetWithKeys{state: state, keyCount: keyCount, activeCount: activeCount})
 		totalKeys += keyCount
+		totalActive += activeCount
 	}
 
 	if len(candidates) == 0 {
 		return nil, nil
 	}
 
-	// 第二步：按 key 数量做 round-robin（每个 key 有相等概率）
-	// 例如：target-A 有 4 个 key，target-B 有 1 个 key
-	// 总 key = 5，轮询 5 次为一个周期
+	// 选择权重来源：只要存在任一存活 key，就按存活数加权；
+	// 否则（全部 target 当前无存活 key）回退到配置 key 数加权，保证仍能选出 target 去探测恢复。
+	weightOf := func(c targetWithKeys) int { return c.keyCount }
+	totalWeight := totalKeys
+	if totalActive > 0 {
+		weightOf = func(c targetWithKeys) int { return c.activeCount }
+		totalWeight = totalActive
+	}
+
+	// 第二步：按 key 权重做 round-robin（每个存活 key 有相等概率）
+	// 例如：target-A 有 4 个存活 key，target-B 有 1 个
+	// 总权重 = 5，轮询 5 次为一个周期
 	// target-A 获得 4/5 = 80% 流量，target-B 获得 1/5 = 20% 流量
-	keyIndex := int(s.rrCounter.Add(1)-1) % totalKeys
+	keyIndex := int(s.rrCounter.Add(1)-1) % totalWeight
 	cumulativeKeys := 0
 
 	for _, candidate := range candidates {
-		cumulativeKeys += candidate.keyCount
+		cumulativeKeys += weightOf(candidate)
 		if keyIndex < cumulativeKeys {
 			if !candidate.state.IsMuted(now) {
 				return candidate.state, mutedCandidate

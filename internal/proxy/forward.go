@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ycgame/llms-proxy/internal/auth"
@@ -133,6 +134,24 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 			"key", maskAPIKey(selected),
 		)
 	}
+
+	// #3 在途计数：选中 key 后登记该 key 的并发请求，转发结束时释放。
+	// 释放保证：要么经由返回的 resp.Body.Close()（成功路径），要么经由下方 defer
+	// 在出错返回（无可用 resp）时兜底，二者由 sync.Once 去重，确保不漏放也不重复放。
+	var inflightRelease func()
+	if state.keyPool != nil && keyIndex >= 0 {
+		kp := state.keyPool
+		ki := keyIndex
+		kp.acquireInFlight(ki)
+		var once sync.Once
+		inflightRelease = func() { once.Do(func() { kp.releaseInFlight(ki) }) }
+	}
+	inflightHandedOff := false
+	defer func() {
+		if inflightRelease != nil && !inflightHandedOff {
+			inflightRelease()
+		}
+	}()
 
 	azureAuth := strings.TrimSpace(r.Header.Get(headerAzureAuthorization))
 	forwardURL, err := s.buildURL(target, r.URL)
@@ -423,7 +442,28 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 	}
 
+	// #3 将在途计数的释放移交给响应体：调用方关闭 resp.Body（重试循环或 writeResponse
+	// 的 defer）时释放，覆盖流式响应的完整生命周期。
+	if inflightRelease != nil && resp != nil {
+		resp.Body = &releaseOnCloseBody{ReadCloser: resp.Body, release: inflightRelease}
+		inflightHandedOff = true
+	}
+
 	return resp, cancel, keyIndex, nil
+}
+
+// releaseOnCloseBody 包裹上游响应体，在 Close 时触发一次性的资源释放回调
+// （用于 #3 在途计数释放），随后关闭底层响应体。
+type releaseOnCloseBody struct {
+	io.ReadCloser
+	release func()
+}
+
+func (b *releaseOnCloseBody) Close() error {
+	if b.release != nil {
+		b.release()
+	}
+	return b.ReadCloser.Close()
 }
 
 func (s *Service) writeResponse(
