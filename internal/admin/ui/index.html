@@ -1932,15 +1932,24 @@
             var quotaAPICount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "quota_exceeded_api"; }).length;
             var quotaCount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "quota_exceeded"; }).length;
             var rateCount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "rate_limited"; }).length;
+            // 其他失效原因：invalid_token / billing_error / account_disabled 等（5 分钟冷却自动恢复）
+            var otherExhaustedCount = t.key_statuses.filter(function(s){
+              return s.exhausted && !s.blocked
+                && s.exhaust_reason !== "quota_exceeded_subscription"
+                && s.exhaust_reason !== "quota_exceeded_api"
+                && s.exhaust_reason !== "quota_exceeded"
+                && s.exhaust_reason !== "rate_limited";
+            }).length;
             if (blockedCount > 0) keyPoolInfo += " <span style='background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:11px;'>" + blockedCount + " 屏蔽</span>";
             if (quotaSubCount > 0) keyPoolInfo += " <span style='background:#fef3c7;color:#d97706;padding:1px 6px;border-radius:4px;font-size:11px;'>" + quotaSubCount + " 超限(自动)</span>";
             if (quotaAPICount > 0) keyPoolInfo += " <span style='background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:4px;font-size:11px;'>" + quotaAPICount + " 超限(人工)</span>";
             if (quotaCount > 0) keyPoolInfo += " <span style='background:#fef3c7;color:#d97706;padding:1px 6px;border-radius:4px;font-size:11px;'>" + quotaCount + " 超限</span>";
             if (rateCount > 0) keyPoolInfo += " <span style='background:#ffedd5;color:#c2410c;padding:1px 6px;border-radius:4px;font-size:11px;'>" + rateCount + " 限流</span>";
-            // 唤醒按钮：当有超额/屏蔽的 key 时显示
-            var exhaustedCount = blockedCount + quotaSubCount + quotaAPICount + quotaCount;
+            if (otherExhaustedCount > 0) keyPoolInfo += " <span style='background:#f3e8ff;color:#7c3aed;padding:1px 6px;border-radius:4px;font-size:11px;'>" + otherExhaustedCount + " 失效</span>";
+            // 唤醒按钮：当存在任何被屏蔽/超额/失效的 key 时显示（探测成功才会恢复）
+            var exhaustedCount = blockedCount + quotaSubCount + quotaAPICount + quotaCount + rateCount + otherExhaustedCount;
             if (exhaustedCount > 0) {
-              keyPoolInfo += " <button class='btn btn-sm' data-wakeup-target='"+esc(t.name)+"' title='唤醒探测被屏蔽的Key' style='padding:1px 6px;font-size:11px;background:#10b981;color:white;border:none;border-radius:4px;cursor:pointer;'>🔄 唤醒</button>";
+              keyPoolInfo += " <button class='btn btn-sm' data-wakeup-target='"+esc(t.name)+"' title='唤醒探测被屏蔽/失效的Key' style='padding:1px 6px;font-size:11px;background:#10b981;color:white;border:none;border-radius:4px;cursor:pointer;'>🔄 唤醒</button>";
             }
           }
           keyStatus += keyPoolInfo;

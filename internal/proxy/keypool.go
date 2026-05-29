@@ -22,9 +22,9 @@ type keyEntry struct {
 	key           string
 	exhausted     bool
 	exhaustedAt   time.Time
-	exhaustReason string    // 耗尽原因
-	cooldownEnd   time.Time // 冷却结束时间
-	blocked       bool      // 手动屏蔽（永久，直到手动解除）
+	exhaustReason string        // 耗尽原因
+	cooldownEnd   time.Time     // 冷却结束时间
+	blocked       bool          // 手动屏蔽（永久，直到手动解除）
 	tokenSamples  []tokenSample // 滑动窗口内的 token 用量样本
 }
 
@@ -36,16 +36,16 @@ type keyEntry struct {
 type keyPool struct {
 	mu             sync.Mutex
 	entries        []keyEntry
-	resetTime      time.Time     // 额度重置时间点（零值表示未配置）
+	resetTime      time.Time // 额度重置时间点（零值表示未配置）
 	logger         *slog.Logger
 	targetName     string
-	rrCounter      uint32        // 轮询计数器，新客户端按此值分配 key
+	rrCounter      uint32         // 轮询计数器，新客户端按此值分配 key
 	clientAffinity map[string]int // 客户端 → 已分配的 key index（记忆绑定）
-	tokenWindow    time.Duration // token 统计滑动窗口时长（默认 3 分钟）
-	
+	tokenWindow    time.Duration  // token 统计滑动窗口时长（默认 3 分钟）
+
 	// 唤醒模型：所有 key 不可用时，单例化探测被屏蔽的 key 是否恢复
-	wakeUpCooldown   time.Time    // 唤醒冷却时间（1分钟内不重复触发）
-	wakeUpInProgress atomic.Bool  // 单例标记（防止并发惊群）
+	wakeUpCooldown   time.Time   // 唤醒冷却时间（1分钟内不重复触发）
+	wakeUpInProgress atomic.Bool // 单例标记（防止并发惊群）
 }
 
 func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *slog.Logger) *keyPool {
@@ -55,7 +55,7 @@ func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *s
 	if logger == nil {
 		logger = slog.Default()
 	}
-	
+
 	// 解析 resetTimeStr
 	var resetTime time.Time
 	cst := time.FixedZone("CST", 8*3600)
@@ -90,7 +90,7 @@ func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *s
 			)
 		}
 	}
-	
+
 	entries := make([]keyEntry, len(keys))
 	for i, k := range keys {
 		entries[i] = keyEntry{key: k}
@@ -328,7 +328,7 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 	now := time.Now()
 	p.entries[index].exhausted = true
 	p.entries[index].exhaustedAt = now
-	
+
 	// 按 errorCode 计算冷却结束时间
 	// quota_exceeded → 根据 resetTime 拆分为两种子类型：
 	//   - 有 resetTime → quota_exceeded_subscription（自动恢复）
@@ -356,7 +356,7 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 		p.entries[index].exhaustReason = errorCode
 		p.entries[index].cooldownEnd = permanentEnd
 	}
-	
+
 	maskKey := maskAPIKey(p.entries[index].key)
 	p.logger.Warn("[keypool] key exhausted",
 		"target", p.targetName,
@@ -454,14 +454,16 @@ func (p *keyPool) unblockKey(index int) {
 }
 
 // markRecovered 标记指定 key 为已恢复（绝境探测成功后调用）。
-func (p *keyPool) markRecovered(index int) {
+// 返回 true 表示状态发生了变化（key 由 exhausted 转为 active），
+// 返回 false 表示该 key 本就不是 exhausted（含纯手动 blocked），未做任何改动。
+func (p *keyPool) markRecovered(index int) bool {
 	if p == nil || index < 0 || index >= len(p.entries) {
-		return
+		return false
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.entries[index].exhausted {
-		return // 已经是 active 状态
+		return false // 已经是 active 状态（或仅手动 blocked），无需恢复
 	}
 	p.entries[index].exhausted = false
 	p.entries[index].exhaustedAt = time.Time{}
@@ -473,6 +475,7 @@ func (p *keyPool) markRecovered(index int) {
 		"key_index", index,
 		"key", maskKey,
 	)
+	return true
 }
 
 // KeyStatus 表示单个 key 的状态快照（用于 admin API）。
@@ -637,7 +640,7 @@ func (p *keyPool) tryWakeUp(now time.Time) bool {
 	if p == nil {
 		return false
 	}
-	
+
 	// 检查冷却
 	p.mu.Lock()
 	if now.Before(p.wakeUpCooldown) {
@@ -645,12 +648,12 @@ func (p *keyPool) tryWakeUp(now time.Time) bool {
 		return false
 	}
 	p.mu.Unlock()
-	
+
 	// 单例检查（原子操作）
 	if !p.wakeUpInProgress.CompareAndSwap(false, true) {
 		return false // 已有其他协程在执行唤醒
 	}
-	
+
 	p.logger.Info("[keypool] wake-up model triggered",
 		"target", p.targetName,
 	)
@@ -676,14 +679,14 @@ func (p *keyPool) getExhaustedKeys() []int {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	now := time.Now()
 	type keyWithRemaining struct {
 		index     int
 		remaining time.Duration
 	}
 	var exhausted []keyWithRemaining
-	
+
 	for i := range p.entries {
 		if p.entries[i].exhausted || p.entries[i].blocked {
 			remaining := p.entries[i].cooldownEnd.Sub(now)
@@ -693,12 +696,12 @@ func (p *keyPool) getExhaustedKeys() []int {
 			exhausted = append(exhausted, keyWithRemaining{index: i, remaining: remaining})
 		}
 	}
-	
+
 	// 按冷却剩余时间排序（短的优先）
 	sort.Slice(exhausted, func(i, j int) bool {
 		return exhausted[i].remaining < exhausted[j].remaining
 	})
-	
+
 	result := make([]int, len(exhausted))
 	for i, e := range exhausted {
 		result[i] = e.index

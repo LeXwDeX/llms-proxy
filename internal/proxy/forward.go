@@ -268,24 +268,24 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	traceStart := time.Now()
 	traceEnabled := reqBodySize > 100*1024
 	var (
-		dnsStart, dnsDone       time.Time
-		connStart, connDone     time.Time
-		tlsStart, tlsDone       time.Time
-		gotConn                 time.Time
-		wroteHeaders            time.Time
-		wroteRequest            time.Time
-		gotFirstResponseByte    time.Time
-		connReused              bool
-		connRemoteAddr          string
-		tlsVersion              string
-		httpProto               string
+		dnsStart, dnsDone    time.Time
+		connStart, connDone  time.Time
+		tlsStart, tlsDone    time.Time
+		gotConn              time.Time
+		wroteHeaders         time.Time
+		wroteRequest         time.Time
+		gotFirstResponseByte time.Time
+		connReused           bool
+		connRemoteAddr       string
+		tlsVersion           string
+		httpProto            string
 	)
 	if traceEnabled {
 		trace := &httptrace.ClientTrace{
-			DNSStart:  func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
-			DNSDone:   func(_ httptrace.DNSDoneInfo) { dnsDone = time.Now() },
-			ConnectStart: func(_, _ string) { connStart = time.Now() },
-			ConnectDone:  func(_, _ string, _ error) { connDone = time.Now() },
+			DNSStart:          func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
+			DNSDone:           func(_ httptrace.DNSDoneInfo) { dnsDone = time.Now() },
+			ConnectStart:      func(_, _ string) { connStart = time.Now() },
+			ConnectDone:       func(_, _ string, _ error) { connDone = time.Now() },
 			TLSHandshakeStart: func() { tlsStart = time.Now() },
 			TLSHandshakeDone: func(state tls.ConnectionState, _ error) {
 				tlsDone = time.Now()
@@ -306,8 +306,8 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 					connRemoteAddr = info.Conn.RemoteAddr().String()
 				}
 			},
-			WroteHeaders: func() { wroteHeaders = time.Now() },
-			WroteRequest: func(_ httptrace.WroteRequestInfo) { wroteRequest = time.Now() },
+			WroteHeaders:         func() { wroteHeaders = time.Now() },
+			WroteRequest:         func(_ httptrace.WroteRequestInfo) { wroteRequest = time.Now() },
 			GotFirstResponseByte: func() { gotFirstResponseByte = time.Now() },
 		}
 		req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
@@ -1062,26 +1062,26 @@ func (s *Service) wakeUpProbe(r *http.Request, state *targetState) int {
 	if state.keyPool == nil {
 		return -1
 	}
-	
+
 	target := state.Target()
 	if target == nil {
 		return -1
 	}
-	
+
 	exhaustedKeys := state.keyPool.getExhaustedKeys()
 	if len(exhaustedKeys) == 0 {
 		return -1
 	}
-	
+
 	s.logger.Info("[keypool] wake-up probe started",
 		"request_id", appmiddleware.RequestIDFromContext(r.Context()),
 		"target", target.Name,
 		"exhausted_keys", len(exhaustedKeys),
 	)
-	
+
 	// 对每个被屏蔽的 key 发送探测请求
 	for _, idx := range exhaustedKeys {
-		if s.probeKey(r, state, idx) {
+		if s.probeKey(r.Context(), state, idx) {
 			state.keyPool.markRecovered(idx)
 			s.logger.Info("[keypool] wake-up probe succeeded",
 				"request_id", appmiddleware.RequestIDFromContext(r.Context()),
@@ -1091,7 +1091,7 @@ func (s *Service) wakeUpProbe(r *http.Request, state *targetState) int {
 			return idx
 		}
 	}
-	
+
 	s.logger.Warn("[keypool] wake-up probe failed, all keys still exhausted",
 		"request_id", appmiddleware.RequestIDFromContext(r.Context()),
 		"target", target.Name,
@@ -1101,29 +1101,29 @@ func (s *Service) wakeUpProbe(r *http.Request, state *targetState) int {
 
 // probeKey 对指定 key 发送轻量探测请求，验证 key 是否有效。
 // 返回 true 表示 key 有效（探测成功），false 表示 key 仍无效。
-func (s *Service) probeKey(r *http.Request, state *targetState, keyIndex int) bool {
+func (s *Service) probeKey(ctx context.Context, state *targetState, keyIndex int) bool {
 	target := state.Target()
 	if target == nil || keyIndex < 0 || keyIndex >= len(state.keyPool.entries) {
 		return false
 	}
-	
+
 	apiKey := state.keyPool.entries[keyIndex].key
-	
+
 	// 构建探测请求 URL（GET /models 或 HEAD）
 	probeURL := s.buildProbeURL(target)
 	if probeURL == "" {
 		return false
 	}
-	
+
 	// 创建探测请求（短超时 5 秒）
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	
-	probeReq, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+
+	probeReq, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, nil)
 	if err != nil {
 		return false
 	}
-	
+
 	// 注入上游凭证
 	switch target.EndpointType {
 	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
@@ -1141,14 +1141,14 @@ func (s *Service) probeKey(r *http.Request, state *targetState, keyIndex int) bo
 	default:
 		probeReq.Header.Set("Authorization", "Bearer "+apiKey)
 	}
-	
+
 	// 发送探测请求
 	resp, err := s.httpClient.Do(probeReq)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
-	
+
 	// 判断探测结果：2xx 或 4xx（非 401/403）表示 key 有效
 	// 401/403 表示 key 仍无效
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -1167,7 +1167,7 @@ func (s *Service) buildProbeURL(target *Target) string {
 	if target == nil || target.Endpoint == nil {
 		return ""
 	}
-	
+
 	base := target.Endpoint.String()
 	switch target.EndpointType {
 	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:

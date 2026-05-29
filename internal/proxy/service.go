@@ -70,12 +70,12 @@ type Target struct {
 }
 
 type requestMetrics struct {
-	totalRequests       atomic.Int64
-	totalSuccess        atomic.Int64
-	totalFailures       atomic.Int64
-	totalKeyRetries     atomic.Int64 // key pool 内换 key 重试
-	totalTargetRetries  atomic.Int64 // target 级 failover 重试
-	activeRequests      atomic.Int64
+	totalRequests      atomic.Int64
+	totalSuccess       atomic.Int64
+	totalFailures      atomic.Int64
+	totalKeyRetries    atomic.Int64 // key pool 内换 key 重试
+	totalTargetRetries atomic.Int64 // target 级 failover 重试
+	activeRequests     atomic.Int64
 }
 
 // ServiceMetrics captures aggregate request statistics.
@@ -104,12 +104,13 @@ type TargetStatus struct {
 	TotalSuccessRequests int64
 	TotalFailedRequests  int64
 	// Key pool status (only populated if target has multiple keys)
-	TotalKeys                  int
-	ActiveKeys                 int
-	ExhaustedSubscriptionKeys  int // quota_exceeded_subscription (自动恢复)
-	ExhaustedAPIKeys           int // quota_exceeded_api (人工恢复)
-	RateLimitedKeys            int
-	BlockedKeys                int
+	TotalKeys                 int
+	ActiveKeys                int
+	ExhaustedSubscriptionKeys int // quota_exceeded_subscription (自动恢复)
+	ExhaustedAPIKeys          int // quota_exceeded_api (人工恢复)
+	RateLimitedKeys           int
+	BlockedKeys               int
+	OtherExhaustedKeys        int // 其他失效原因 (invalid_token/billing_error/account_disabled/旧版 quota_exceeded)，5 分钟冷却自动恢复
 }
 
 // NewService creates a proxy service from configuration.
@@ -643,9 +644,9 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 		if target.Endpoint != nil {
 			endpoint = target.Endpoint.String()
 		}
-		
+
 		// 统计 key pool 状态
-		var totalKeys, activeKeys, exhaustedSubKeys, exhaustedAPIKeys, rateLimitedKeys, blockedKeys int
+		var totalKeys, activeKeys, exhaustedSubKeys, exhaustedAPIKeys, rateLimitedKeys, blockedKeys, otherExhaustedKeys int
 		if state.keyPool != nil {
 			keyStatuses := state.keyPool.status()
 			totalKeys = len(keyStatuses)
@@ -653,14 +654,19 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 				switch {
 				case ks.Blocked:
 					blockedKeys++
+				case !ks.Exhausted:
+					activeKeys++
 				case ks.ExhaustReason == "quota_exceeded_subscription":
 					exhaustedSubKeys++
 				case ks.ExhaustReason == "quota_exceeded_api":
 					exhaustedAPIKeys++
 				case ks.ExhaustReason == "rate_limited":
 					rateLimitedKeys++
-				case !ks.Exhausted:
-					activeKeys++
+				default:
+					// 其他失效原因：invalid_token / billing_error /
+					// account_disabled / 旧版 quota_exceeded 等，均计入此处
+					// 以保证各分类之和等于 totalKeys。
+					otherExhaustedKeys++
 				}
 			}
 		} else if target.APIKey != "" {
@@ -668,25 +674,26 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 			totalKeys = 1
 			activeKeys = 1
 		}
-		
+
 		statuses = append(statuses, TargetStatus{
-			Name:                       target.Name,
-			EndpointType:               target.EndpointType,
-			Endpoint:                   endpoint,
-			ResourcePathPrefix:         target.ResourcePathPrefix,
-			Muted:                      state.IsMuted(now),
-			MutedUntil:                 stats.MutedUntil,
-			LastSuccess:                stats.LastSuccess,
-			LastFailure:                stats.LastFailure,
-			ConsecutiveFailures:        stats.ConsecutiveFailure,
-			TotalSuccessRequests:       stats.TotalSuccess,
-			TotalFailedRequests:        stats.TotalFailure,
-			TotalKeys:                  totalKeys,
-			ActiveKeys:                 activeKeys,
-			ExhaustedSubscriptionKeys:  exhaustedSubKeys,
-			ExhaustedAPIKeys:           exhaustedAPIKeys,
-			RateLimitedKeys:            rateLimitedKeys,
-			BlockedKeys:                blockedKeys,
+			Name:                      target.Name,
+			EndpointType:              target.EndpointType,
+			Endpoint:                  endpoint,
+			ResourcePathPrefix:        target.ResourcePathPrefix,
+			Muted:                     state.IsMuted(now),
+			MutedUntil:                stats.MutedUntil,
+			LastSuccess:               stats.LastSuccess,
+			LastFailure:               stats.LastFailure,
+			ConsecutiveFailures:       stats.ConsecutiveFailure,
+			TotalSuccessRequests:      stats.TotalSuccess,
+			TotalFailedRequests:       stats.TotalFailure,
+			TotalKeys:                 totalKeys,
+			ActiveKeys:                activeKeys,
+			ExhaustedSubscriptionKeys: exhaustedSubKeys,
+			ExhaustedAPIKeys:          exhaustedAPIKeys,
+			RateLimitedKeys:           rateLimitedKeys,
+			BlockedKeys:               blockedKeys,
+			OtherExhaustedKeys:        otherExhaustedKeys,
 		})
 	}
 	return statuses
@@ -747,20 +754,26 @@ func (s *Service) WakeUpKeys(targetName string) (recovered int, err error) {
 	if !ok || state == nil || state.keyPool == nil {
 		return 0, fmt.Errorf("target %q not found or has no key pool", targetName)
 	}
-	
+
 	now := time.Now()
 	if !state.keyPool.tryWakeUp(now) {
 		return 0, fmt.Errorf("wake-up already in progress or in cooldown")
 	}
 	defer state.keyPool.wakeUpComplete()
-	
+
+	// 对每个 exhausted/blocked 的 key 发送轻量探测请求，仅在探测成功
+	// 且确实由 exhausted 转回 active 时才计入恢复数，避免计数虚高。
+	ctx := context.Background()
 	exhaustedKeys := state.keyPool.getExhaustedKeys()
 	for _, idx := range exhaustedKeys {
-		// 简单恢复：直接标记为 recovered（实际探测需要 HTTP 请求，这里简化处理）
-		state.keyPool.markRecovered(idx)
-		recovered++
+		if !s.probeKey(ctx, state, idx) {
+			continue // 探测失败，key 仍无效，保持 exhausted
+		}
+		if state.keyPool.markRecovered(idx) {
+			recovered++
+		}
 	}
-	
+
 	return recovered, nil
 }
 

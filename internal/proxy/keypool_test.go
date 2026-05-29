@@ -447,7 +447,9 @@ func TestMarkRecovered(t *testing.T) {
 	}
 
 	// 标记为已恢复
-	pool.markRecovered(0)
+	if !pool.markRecovered(0) {
+		t.Error("expected markRecovered to return true when recovering an exhausted key")
+	}
 	if pool.entries[0].exhausted {
 		t.Error("expected key-0 to be recovered")
 	}
@@ -455,10 +457,21 @@ func TestMarkRecovered(t *testing.T) {
 		t.Errorf("expected exhaustReason to be cleared, got %q", pool.entries[0].exhaustReason)
 	}
 
-	// 对已经 active 的 key 调用 markRecovered 应该是 no-op
-	pool.markRecovered(0)
+	// 对已经 active 的 key 调用 markRecovered 应该是 no-op 且返回 false
+	if pool.markRecovered(0) {
+		t.Error("expected markRecovered to return false for an already-active key")
+	}
 	if pool.entries[0].exhausted {
 		t.Error("expected key-0 to remain active")
+	}
+
+	// 对仅手动 blocked（未 exhausted）的 key 调用应返回 false，且不清除 blocked 标记
+	pool.blockKey(0)
+	if pool.markRecovered(0) {
+		t.Error("expected markRecovered to return false for a manually-blocked key")
+	}
+	if !pool.entries[0].blocked {
+		t.Error("expected manual block to be preserved after markRecovered")
 	}
 }
 
