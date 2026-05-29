@@ -52,6 +52,9 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Image tag: ${TAG}"
 
+      - name: Update model catalog
+        run: make catalog
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -67,6 +70,7 @@ jobs:
           push: false
           load: true
           tags: ${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          no-cache: true
           # 不启用 provenance 以保持传统 manifest 格式
           provenance: false
 
