@@ -30,6 +30,7 @@ type testStores struct {
 	usageStore       *nosql.UsageStore
 	userStore        *nosql.UserStore
 	auditStore       *nosql.AuditStore
+	targetStore      *nosql.TargetStore
 	copilotPoolStore *nosql.CopilotPoolStore
 }
 
@@ -47,6 +48,7 @@ func setupTestStores(t *testing.T, tempDir string) testStores {
 		usageStore:       nosql.NewUsageStore(db),
 		userStore:        nosql.NewUserStore(db),
 		auditStore:       nosql.NewAuditStore(db),
+		targetStore:      nosql.NewTargetStore(db),
 		copilotPoolStore: nosql.NewCopilotPoolStore(db),
 	}
 }
@@ -81,7 +83,7 @@ func TestHandlerUIEntry(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 
 	for _, route := range []string{"/", "/ui"} {
 		t.Run(route, func(t *testing.T) {
@@ -126,7 +128,7 @@ func TestHandlerUIEntryWhenMountedUnderAuth(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	adminHandler := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	adminHandler := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 	protected := chi.NewRouter()
 	protected.Use(auth.Middleware(store, logger))
 	protected.Mount("/admin", adminHandler)
@@ -167,7 +169,7 @@ func TestHandlerHealthz(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/healthz", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -216,7 +218,7 @@ func TestHandlerMetrics(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/metrics", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -262,7 +264,7 @@ func TestHandlerReloadConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 
 	// Update config with 2 targets and new client.
 	// Also update the bbolt client store to have k2 instead of k1.
@@ -337,7 +339,7 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 
 	invalid := testConfig(tempDir, 1, []string{"k2"})
 	invalid.Targets[0].Endpoint = "not-a-valid-url"
@@ -386,7 +388,7 @@ func TestHandlerDataClientsCRUD(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/data/clients", nil))
@@ -452,7 +454,7 @@ func TestHandlerUsageSummary(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 
 	body := bytes.NewBufferString(`{"input_per_1m_tokens":10,"output_per_1m_tokens":20,"cached_input_per_1m_tokens":0}`)
 	rec := httptest.NewRecorder()
@@ -614,7 +616,7 @@ func TestHandlerEndpointTypesEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init proxy service: %v", err)
 	}
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/data/endpoint-types", nil)
 	rec := httptest.NewRecorder()
@@ -625,8 +627,8 @@ func TestHandlerEndpointTypesEndpoint(t *testing.T) {
 	}
 
 	var resp struct {
-		Count         int                        `json:"count"`
-		EndpointTypes []config.EndpointTypeMeta  `json:"endpoint_types"`
+		Count         int                       `json:"count"`
+		EndpointTypes []config.EndpointTypeMeta `json:"endpoint_types"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)

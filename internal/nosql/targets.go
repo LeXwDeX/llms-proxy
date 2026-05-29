@@ -24,6 +24,11 @@ func NewTargetStore(db *bolt.DB) *TargetStore {
 	return &TargetStore{db: db}
 }
 
+// MigrateFromConfig copies legacy config targets into this store when empty.
+func (s *TargetStore) MigrateFromConfig(targets []config.Target) (bool, error) {
+	return MigrateTargetsFromConfig(s.db, targets)
+}
+
 // List returns all targets in configured order.
 func (s *TargetStore) List() ([]config.Target, error) {
 	targetsByKey := make(map[string]config.Target)

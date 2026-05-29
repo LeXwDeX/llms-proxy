@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	EndpointTypeAzureOpenAI  = "azure_openai"
-	EndpointTypeOpenAI       = "openai"
-	EndpointTypeClaude       = "claude"
-	EndpointTypeGemini       = "gemini"
+	EndpointTypeAzureOpenAI           = "azure_openai"
+	EndpointTypeOpenAI                = "openai"
+	EndpointTypeClaude                = "claude"
+	EndpointTypeGemini                = "gemini"
 	EndpointTypeWangsuOpenAI          = "wangsu_openai"
 	EndpointTypeWangsuClaude          = "wangsu_claude"
 	EndpointTypeWangsuGemini          = "wangsu_gemini"
@@ -23,7 +23,7 @@ const (
 	EndpointTypeWangsuOpenAIImageEdit = "wangsu_openai_image_edit" // 网宿图编辑（独立终态 URL）
 	EndpointTypeCopilot               = "copilot"
 	EndpointTypeDeepSeek              = "deepseek" // DeepSeek 官方（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
-	EndpointTypeBailian               = "bailian"           // 百炼 Token Plan（OpenAI + Anthropic 双协议，按路径自动识别）
+	EndpointTypeBailian               = "bailian"  // 百炼 Token Plan（OpenAI + Anthropic 双协议，按路径自动识别）
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
@@ -118,18 +118,18 @@ type ServerConfig struct {
 
 // Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
 type Target struct {
-	Name               string             `json:"name"`
-	EndpointType       string             `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot; default azure_openai
-	Endpoint           string             `json:"endpoint"`
-	ResourcePathPrefix string             `json:"resource_path_prefix"`
-	APIKey             string             `json:"api_key"`
-	APIKeys            []string           `json:"api_keys,omitempty"`             // 额外 key 池（与 api_key 合并为有序池）
-	KeyResetTime       string             `json:"key_reset_time,omitempty"`       // 额度重置时间点（CST），格式 "2006-01-02" 或 "2006-01-02 15:04" 或 "monthly:23"（每月23号）
-	ProviderClass      string             `json:"provider_class,omitempty"`       // subscription | pay_as_you_go; 影响限流/超额/额度耗尽的处理策略
-	AllowBearer        bool               `json:"allow_bearer_passthrough"`
-	AuthMode           string             `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
-	AllowedModels      []string           `json:"allowed_models"`
-	SSEAutoAggregate   *bool              `json:"sse_auto_aggregate,omitempty"`   // nil defaults to true
+	Name               string   `json:"name"`
+	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot; default azure_openai
+	Endpoint           string   `json:"endpoint"`
+	ResourcePathPrefix string   `json:"resource_path_prefix"`
+	APIKey             string   `json:"api_key"`
+	APIKeys            []string `json:"api_keys,omitempty"`       // 额外 key 池（与 api_key 合并为有序池）
+	KeyResetTime       string   `json:"key_reset_time,omitempty"` // 额度重置时间点（CST），格式 "2006-01-02" 或 "2006-01-02 15:04" 或 "monthly:23"（每月23号）
+	ProviderClass      string   `json:"provider_class,omitempty"` // subscription | pay_as_you_go; 影响限流/超额/额度耗尽的处理策略
+	AllowBearer        bool     `json:"allow_bearer_passthrough"`
+	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
+	AllowedModels      []string `json:"allowed_models"`
+	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
 }
 
 // Client describes a consumer and its access rights.
@@ -310,6 +310,37 @@ func LoadOrCreate(path string) (*Config, bool, error) {
 
 	resolveDataFilePaths(cfg, filepath.Dir(path))
 	return cfg, true, nil
+}
+
+// RemoveTargetsFromFile removes legacy target definitions from a config file
+// after they have been migrated into the datastore.
+func RemoveTargetsFromFile(path string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("config: read %s: %w", path, err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(content, &raw); err != nil {
+		return fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	if _, ok := raw["targets"]; !ok {
+		return nil
+	}
+	delete(raw, "targets")
+	payload, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return fmt.Errorf("config: marshal %s: %w", path, err)
+	}
+	payload = append(payload, '\n')
+	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
+	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
+		return fmt.Errorf("config: write temp %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("config: replace %s: %w", path, err)
+	}
+	return nil
 }
 
 func parse(data []byte) (*Config, error) {
