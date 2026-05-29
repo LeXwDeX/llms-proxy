@@ -24,6 +24,8 @@ PROVIDER_MAP = {
     "azure": "azure_openai",
     "anthropic": "claude",
     "google": "gemini",
+    "alibaba": "bailian",
+    "dashscope": "bailian",
 }
 
 
@@ -341,6 +343,35 @@ def _supplementary_models() -> list[dict]:
     ]
     extras.extend(deepseek_models)
 
+    # --- 百炼 Token Plan / 通义千问 ---
+    # models.dev 的 provider 命名可能随上游调整；这里保留常用 Qwen 条目，
+    # 确保模型目录在上游缺失或下载失败时仍能用于选择百炼模型。
+    qwen_chat_caps = ["chat", "function_calling", "structured_output", "reasoning"]
+    qwen_models = [
+        ("qwen3.7-max", "Qwen 3.7 Max", qwen_chat_caps, "qwen3.7"),
+        ("qwen3.6-plus", "Qwen 3.6 Plus", qwen_chat_caps, "qwen3.6"),
+        ("qwen3.6-flash", "Qwen 3.6 Flash", qwen_chat_caps, "qwen3.6"),
+        ("qwen3-coder-plus", "Qwen3 Coder Plus", qwen_chat_caps, "qwen3-coder"),
+        ("qwen-max", "Qwen Max", ["chat", "function_calling", "structured_output"], "qwen"),
+        ("qwen-plus", "Qwen Plus", ["chat", "function_calling", "structured_output"], "qwen"),
+        ("qwen-turbo", "Qwen Turbo", ["chat", "function_calling"], "qwen"),
+        ("qwen-long", "Qwen Long", ["chat"], "qwen"),
+        ("qwen-vl-max", "Qwen VL Max", ["chat", "vision"], "qwen-vl"),
+        ("qwen-vl-plus", "Qwen VL Plus", ["chat", "vision"], "qwen-vl"),
+        ("qwen-image-2.0", "Qwen Image 2.0", ["image_generation"], "qwen-image"),
+        ("qwen-image-2.0-pro", "Qwen Image 2.0 Pro", ["image_generation"], "qwen-image"),
+    ]
+    for model_id, name, caps, family in qwen_models:
+        extras.append(
+            {
+                "endpoint_type": "bailian",
+                "model": model_id,
+                "display_name": name,
+                "capabilities": list(caps),
+                "model_family": family,
+            }
+        )
+
     return extras
 
 
@@ -381,6 +412,7 @@ def main():
         raw = json.load(f)
 
     entries = []
+    seen_keys = set()
 
     for provider_id, endpoint_type in PROVIDER_MAP.items():
         provider = raw.get(provider_id)
@@ -397,7 +429,11 @@ def main():
         for model_id, model_data in models.items():
             entry = transform_model(provider_id, model_id, model_data)
             if entry:
+                key = (entry["endpoint_type"], entry["model"])
+                if key in seen_keys:
+                    continue
                 entries.append(entry)
+                seen_keys.add(key)
                 count += 1
 
         print(f"  {provider_id} ({endpoint_type}): {count} 个模型")
