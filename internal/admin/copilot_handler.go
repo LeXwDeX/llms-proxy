@@ -810,6 +810,12 @@ func (h *Handler) handleRefreshCopilotToken(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// 检查 OAuthToken 是否存在
+	if account.OAuthToken == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("账户缺少 OAuth token，请先完成授权"))
+		return
+	}
+
 	// 清空旧 Token，强制 EnsureValidToken 重新向 GitHub 获取
 	account.CopilotToken = ""
 	account.CopilotTokenExpiresAt = 0
@@ -818,8 +824,9 @@ func (h *Handler) handleRefreshCopilotToken(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 立即触发一次刷新，拿到新 token 和最新的 api_base_url
-	if _, err := h.copilotService.GetToken(r.Context(), id); err != nil {
+	// 立即触发一次刷新，绕过状态检查直接使用 TokenManager
+	// 允许 token_expired/disabled 状态的账户也能刷新 Token 并恢复为 active
+	if _, err := h.copilotService.ForceRefreshToken(r.Context(), id); err != nil {
 		writeJSON(w, http.StatusBadGateway, errorResponse("token refresh failed: "+err.Error()))
 		return
 	}

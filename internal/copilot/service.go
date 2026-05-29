@@ -222,6 +222,35 @@ func (s *CopilotService) GetToken(ctx context.Context, accountID string) (string
 	return s.tokenManager.EnsureValidToken(ctx, account, s.accountStore)
 }
 
+// ForceRefreshToken 强制刷新账户的 Copilot Token，不检查账户状态。
+// 刷新成功后自动将状态设为 active。
+// 用于手动修复 token_expired 或 disabled 状态的账户。
+func (s *CopilotService) ForceRefreshToken(ctx context.Context, accountID string) (string, error) {
+	account, err := s.accountStore.Get(accountID)
+	if err != nil {
+		return "", fmt.Errorf("获取账户 %q: %w", accountID, err)
+	}
+
+	if account.OAuthToken == "" {
+		return "", fmt.Errorf("账户 %q 缺少 OAuth token", accountID)
+	}
+
+	token, err := s.tokenManager.EnsureValidToken(ctx, account, s.accountStore)
+	if err != nil {
+		return "", err
+	}
+
+	// 刷新成功，将状态设为 active
+	if account.Status != nosql.AccountStatusActive {
+		account.Status = nosql.AccountStatusActive
+		if err := s.accountStore.Update(accountID, *account); err != nil {
+			s.logger.Warn("刷新 Token 后更新状态失败", "account_id", accountID, "error", err)
+		}
+	}
+
+	return token, nil
+}
+
 // GetAccountStore 返回 account store（供 admin 层注入）。
 func (s *CopilotService) GetAccountStore() *nosql.CopilotAccountStore {
 	return s.accountStore
