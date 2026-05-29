@@ -438,7 +438,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 
 		if exhausted, code := isKeyExhausted(resp.StatusCode, exhaustionBody); exhausted {
-			state.keyPool.markExhausted(keyIndex, code)
+			state.keyPool.markExhaustedWithError(keyIndex, code, string(exhaustionBody))
 		}
 	}
 
@@ -1108,8 +1108,10 @@ func (s *Service) wakeUpProbe(r *http.Request, state *targetState) int {
 		return -1
 	}
 
-	exhaustedKeys := state.keyPool.getExhaustedKeys()
+	exhaustedKeys := state.keyPool.getProbeableExhaustedKeys()
 	if len(exhaustedKeys) == 0 {
+		// 没有可廉价探测的 key（全部为硬失败：无效/欠费/封禁/总额度耗尽）。
+		// 这类 key 只能由冷却定时器被动恢复或真实请求成功确认，避免假阳性复活。
 		return -1
 	}
 
@@ -1189,17 +1191,12 @@ func (s *Service) probeKey(ctx context.Context, state *targetState, keyIndex int
 	}
 	defer resp.Body.Close()
 
-	// 判断探测结果：2xx 或 4xx（非 401/403）表示 key 有效
-	// 401/403 表示 key 仍无效
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return true
-	}
-	if resp.StatusCode == 404 || resp.StatusCode == 405 {
-		// 404/405 表示端点不存在但 key 有效（认证通过）
-		return true
-	}
-	// 401/403/429 表示 key 仍无效
-	return false
+	// 判断探测结果：只有 HTTP 200 才算 key 真实有效。
+	// 为什么不接受 404/405/2xx 以外：某些上游（如百炼 compatible-mode 的 /v1/models）
+	// 对任意 key 都返回 200，或路径不匹配返回 404——这些都无法证明 key 有效，
+	// 接受它们会导致"探测假阳性 → 复活无效 key → 真实请求立刻又失败"的死循环。
+	// 因此探测从严：非 200 一律视为未恢复，硬失败 key 交由冷却定时器被动恢复。
+	return resp.StatusCode == http.StatusOK
 }
 
 // buildProbeURL 根据 endpoint_type 构建探测请求 URL。

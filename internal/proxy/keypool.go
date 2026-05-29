@@ -26,6 +26,8 @@ type keyEntry struct {
 	cooldownEnd   time.Time     // 冷却结束时间
 	blocked       bool          // 手动屏蔽（永久，直到手动解除）
 	tokenSamples  []tokenSample // 滑动窗口内的 token 用量样本
+	lastError     string        // 最近一次触发耗尽的上游错误响应体（截断），用于诊断
+	lastErrorAt   time.Time     // 最近一次错误时间
 }
 
 // keyPool 管理一个 target 的多个 API key。
@@ -347,6 +349,11 @@ func hashClientKey(clientName, targetName string) uint32 {
 
 // markExhausted 标记指定 index 的 key 为耗尽。
 func (p *keyPool) markExhausted(index int, errorCode string) {
+	p.markExhaustedWithError(index, errorCode, "")
+}
+
+// markExhaustedWithError 标记 key 耗尽，并记录触发该耗尽的上游错误响应体（截断），用于诊断。
+func (p *keyPool) markExhaustedWithError(index int, errorCode, errBody string) {
 	if p == nil || index < 0 || index >= len(p.entries) {
 		return
 	}
@@ -360,6 +367,10 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 	now := time.Now()
 	p.entries[index].exhausted = true
 	p.entries[index].exhaustedAt = now
+	if errBody != "" {
+		p.entries[index].lastError = truncateErrBody(errBody)
+		p.entries[index].lastErrorAt = now
+	}
 
 	// 按 errorCode 计算冷却结束时间
 	// quota_exceeded → 根据 resetTime 拆分为两种子类型：
@@ -396,7 +407,18 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 		"key", maskKey,
 		"error_code", errorCode,
 		"cooldown_end", p.entries[index].cooldownEnd,
+		"upstream_error", p.entries[index].lastError,
 	)
+}
+
+// truncateErrBody 截断上游错误响应体，避免日志/状态膨胀。
+func truncateErrBody(s string) string {
+	const maxLen = 512
+	s = strings.TrimSpace(s)
+	if len(s) > maxLen {
+		return s[:maxLen] + "...(truncated)"
+	}
+	return s
 }
 
 // markRateLimited 标记指定 key 为限流状态（5 秒冷却）。
@@ -519,7 +541,9 @@ type KeyStatus struct {
 	ExhaustedAt   time.Time `json:"exhausted_at,omitempty"`
 	CooldownEnd   time.Time `json:"cooldown_end,omitempty"`
 	Blocked       bool      `json:"blocked"`
-	Status        string    `json:"status"` // 已屏蔽 / 额度超限 / 限流中 / 使用中 / 等待中 / 使用过
+	LastError     string    `json:"last_error,omitempty"`    // 最近一次触发耗尽的上游错误响应体（截断）
+	LastErrorAt   time.Time `json:"last_error_at,omitempty"` // 最近一次错误时间
+	Status        string    `json:"status"`                  // 已屏蔽 / 额度超限 / 限流中 / 使用中 / 等待中 / 使用过
 }
 
 func (p *keyPool) status() []KeyStatus {
@@ -552,6 +576,10 @@ func (p *keyPool) status() []KeyStatus {
 			ks.ExhaustReason = e.exhaustReason
 			ks.ExhaustedAt = e.exhaustedAt
 			ks.CooldownEnd = e.cooldownEnd
+		}
+		if e.lastError != "" {
+			ks.LastError = e.lastError
+			ks.LastErrorAt = e.lastErrorAt
 		}
 
 		// 计算显示状态
@@ -854,4 +882,77 @@ func (p *keyPool) getExhaustedKeys() []int {
 		result[i] = e.index
 	}
 	return result
+}
+
+// isAccountLevelExhaustion 判定耗尽原因是否为"账户级"失败——即同一账户下所有 key 大概率
+// 共享的失效（无效凭证、欠费、封禁、总额度永久耗尽）。这类失败换 key 重试无望，应停止
+// 逐 key 重试并把真实上游响应透传给客户端。
+//
+// 注意：与 isHardFailureReason 不同，这里**不包含** rate_limited（瞬时限流，换 key 或短
+// 冷却后重试通常可恢复）与 quota_exceeded_subscription（到 resetTime 自动恢复，按订阅周期
+// 计而非账户失效）。
+func isAccountLevelExhaustion(reason string) bool {
+	switch reason {
+	case "invalid_token",
+		"account_disabled",
+		"billing_error",
+		"quota_exceeded_api",
+		"Arrearage",
+		"free_tier_exhausted",
+		"AccessDenied.Unpurchased":
+		return true
+	default:
+		return false
+	}
+}
+
+// isHardFailureReason 判定某个耗尽原因是否为"硬失败"——即 key/账户本身的问题
+// （无效、欠费、封禁、总额度耗尽），只能通过真实请求成功或冷却定时器到期来确认恢复，
+// 廉价的 GET /models 探测无法可靠验证（部分上游对任意 key 都放行 /models，会造成假阳性）。
+func isHardFailureReason(reason string) bool {
+	switch reason {
+	case "invalid_token",
+		"account_disabled",
+		"billing_error",
+		"rate_limited",
+		"quota_exceeded_api",
+		"quota_exceeded_subscription",
+		"Arrearage",
+		"free_tier_exhausted",
+		"AccessDenied.Unpurchased":
+		return true
+	default:
+		return false
+	}
+}
+
+// exhaustReasonAt 返回指定 key 当前的耗尽原因（未耗尽返回 ""）。供重试收敛逻辑读取。
+func (p *keyPool) exhaustReasonAt(index int) string {
+	if p == nil || index < 0 {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if index >= len(p.entries) || !p.entries[index].exhausted {
+		return ""
+	}
+	return p.entries[index].exhaustReason
+}
+
+// getProbeableExhaustedKeys 返回适合廉价 GET 探测的耗尽 key（剔除硬失败）。
+// 硬失败 key 不参与廉价探测，只靠冷却定时器被动恢复，避免假阳性死循环。
+func (p *keyPool) getProbeableExhaustedKeys() []int {
+	all := p.getExhaustedKeys()
+	if len(all) == 0 {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []int
+	for _, idx := range all {
+		if idx >= 0 && idx < len(p.entries) && !isHardFailureReason(p.entries[idx].exhaustReason) {
+			out = append(out, idx)
+		}
+	}
+	return out
 }

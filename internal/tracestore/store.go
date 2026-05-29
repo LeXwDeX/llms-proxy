@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -171,7 +170,7 @@ func (s *Store) initDiskWriter() {
 		MaxSize:    s.cfg.DiskMaxSizeMB,
 		MaxBackups: s.cfg.DiskMaxBackups,
 		MaxAge:     max(s.cfg.DiskTTLHours/24, 1), // 至少保留 1 天，避免 <24h 时 MaxAge=0 导致不按时间轮转
-		Compress:   false,                          // 不压缩，保留明文 NDJSON 方便 grep/jq 查询历史数据
+		Compress:   false,                         // 不压缩，保留明文 NDJSON 方便 grep/jq 查询历史数据
 	}
 
 	s.diskWriter = rolling
@@ -280,23 +279,36 @@ func (s *Store) getFromDisk(traceID string) *TraceRecord {
 
 // traceFileEntry 用于排序备份文件。
 type traceFileEntry struct {
-	path  string
-	index int // 0 = 当前文件，1 = .1 备份，2 = .2 备份...
+	path    string
+	current bool      // 是否为当前活跃文件（永远排最前）
+	ts      time.Time // lumberjack 备份文件名中编码的轮转时间戳
 }
 
-// getTraceFiles 返回所有 trace 文件路径（当前文件 + 备份文件，按编号排序）。
+// lumberjackBackupTimeFormat 是 lumberjack 备份文件名中使用的时间戳格式。
+// 备份文件名形如 trace-2026-05-28T08-38-19.357.log。
+const lumberjackBackupTimeFormat = "2006-01-02T15-04-05.000"
+
+// getTraceFiles 返回所有 trace 文件路径（当前文件 + 备份文件，按时间倒序：越新越先）。
+//
+// 注意：lumberjack 的备份文件名格式是 <prefix>-<timestamp><ext>
+// （如 trace-2026-05-28T08-38-19.357.log），而非 trace.log.1 这类数字后缀。
+// 早期实现按数字后缀匹配，导致永远找不到任何备份文件，磁盘回退查询只能搜到当前
+// trace.log，凡是已轮转进备份的 trace_id 全部 "读不到硬盘"。此处按 lumberjack
+// 实际命名解析。
 func (s *Store) getTraceFiles() []string {
 	dir := filepath.Dir(s.cfg.DiskPath)
 	base := filepath.Base(s.cfg.DiskPath)
+	ext := filepath.Ext(base)           // ".log"
+	prefix := base[:len(base)-len(ext)] // "trace"
+	backupPrefix := prefix + "-"        // "trace-"
 
 	var entries []traceFileEntry
 
-	// 当前文件（index=0，最新）
+	// 当前文件（永远最新）
 	if _, err := os.Stat(s.cfg.DiskPath); err == nil {
-		entries = append(entries, traceFileEntry{path: s.cfg.DiskPath, index: 0})
+		entries = append(entries, traceFileEntry{path: s.cfg.DiskPath, current: true})
 	}
 
-	// 备份文件（trace.log.1, trace.log.2, ...）
 	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
 		if s.logger != nil {
@@ -312,24 +324,27 @@ func (s *Store) getTraceFiles() []string {
 
 	for _, de := range dirEntries {
 		name := de.Name()
-		if name == base || !strings.HasPrefix(name, base+".") {
+		if name == base || !strings.HasPrefix(name, backupPrefix) || !strings.HasSuffix(name, ext) {
 			continue
 		}
-		// 解析编号：trace.log.1 → 1, trace.log.2 → 2
-		suffix := strings.TrimPrefix(name, base+".")
-		idx, err := strconv.Atoi(suffix)
+		// 提取中间的时间戳：trace-<timestamp>.log → <timestamp>
+		tsStr := name[len(backupPrefix) : len(name)-len(ext)]
+		ts, err := time.Parse(lumberjackBackupTimeFormat, tsStr)
 		if err != nil {
-			continue // 跳过非数字后缀（如 .gz）
+			continue // 跳过无法解析时间戳的文件（如 .gz 压缩备份）
 		}
 		entries = append(entries, traceFileEntry{
-			path:  filepath.Join(dir, name),
-			index: idx,
+			path: filepath.Join(dir, name),
+			ts:   ts,
 		})
 	}
 
-	// 按编号排序：0（当前）→ 1 → 2 → ...（越新越先）
+	// 排序：当前文件最先，其余按时间戳倒序（越新越先）
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].index < entries[j].index
+		if entries[i].current != entries[j].current {
+			return entries[i].current
+		}
+		return entries[i].ts.After(entries[j].ts)
 	})
 
 	files := make([]string, len(entries))

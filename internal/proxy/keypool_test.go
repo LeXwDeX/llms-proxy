@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1041,5 +1042,113 @@ func TestAffinityEviction(t *testing.T) {
 	}
 	if _, ok := pool.clientAffinity["new"]; !ok {
 		t.Error("new binding should be present")
+	}
+}
+
+// --- fix-B/C/D 针对性单测 ---
+
+// TestIsHardFailureReason 验证硬失败分类（决定是否参与廉价探测）。
+func TestIsHardFailureReason(t *testing.T) {
+	hard := []string{"invalid_token", "account_disabled", "billing_error", "rate_limited",
+		"quota_exceeded_api", "quota_exceeded_subscription", "Arrearage", "free_tier_exhausted",
+		"AccessDenied.Unpurchased"}
+	for _, r := range hard {
+		if !isHardFailureReason(r) {
+			t.Errorf("%q should be a hard failure", r)
+		}
+	}
+	for _, r := range []string{"", "unknown", "some_default_code"} {
+		if isHardFailureReason(r) {
+			t.Errorf("%q should NOT be a hard failure", r)
+		}
+	}
+}
+
+// TestIsAccountLevelExhaustion 验证账户级失败分类（决定 fix-C 是否收敛透传）。
+// 关键：rate_limited 与 quota_exceeded_subscription 是瞬时/可自动恢复的，不应收敛。
+func TestIsAccountLevelExhaustion(t *testing.T) {
+	account := []string{"invalid_token", "account_disabled", "billing_error",
+		"quota_exceeded_api", "Arrearage", "free_tier_exhausted", "AccessDenied.Unpurchased"}
+	for _, r := range account {
+		if !isAccountLevelExhaustion(r) {
+			t.Errorf("%q should be account-level", r)
+		}
+	}
+	for _, r := range []string{"rate_limited", "quota_exceeded_subscription", "", "unknown"} {
+		if isAccountLevelExhaustion(r) {
+			t.Errorf("%q should NOT be account-level", r)
+		}
+	}
+}
+
+// TestGetProbeableExhaustedKeys 验证 fix-B：硬失败 key 不参与廉价 GET 探测。
+func TestGetProbeableExhaustedKeys(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+	pool.markExhausted(0, "invalid_token") // 硬失败 → 不可探测
+	pool.markExhausted(1, "some_unknown")  // default 永久 → 可探测
+	// key-2 保持 active
+
+	probeable := pool.getProbeableExhaustedKeys()
+	for _, idx := range probeable {
+		if idx == 0 {
+			t.Error("hard-failure key-0 must NOT be probeable")
+		}
+	}
+	found := false
+	for _, idx := range probeable {
+		if idx == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("unknown-reason key-1 should be probeable, got %v", probeable)
+	}
+
+	// getExhaustedKeys 仍应包含两者（不过滤）
+	all := pool.getExhaustedKeys()
+	if len(all) != 2 {
+		t.Errorf("getExhaustedKeys should return both exhausted keys, got %v", all)
+	}
+}
+
+// TestExhaustReasonAt 验证 fix-C 读取耗尽原因的 helper。
+func TestExhaustReasonAt(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+	if r := pool.exhaustReasonAt(0); r != "" {
+		t.Errorf("active key should return empty reason, got %q", r)
+	}
+	pool.markExhausted(0, "invalid_token")
+	if r := pool.exhaustReasonAt(0); r != "invalid_token" {
+		t.Errorf("exhausted key reason: got %q want invalid_token", r)
+	}
+	if r := pool.exhaustReasonAt(99); r != "" {
+		t.Errorf("out-of-range index should return empty, got %q", r)
+	}
+}
+
+// TestMarkExhaustedWithError 验证 fix-D：记录截断的上游错误 body 并经 status() 暴露。
+func TestMarkExhaustedWithError(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+	body := `{"code":"invalid_api_key","message":"Incorrect API key provided"}`
+	pool.markExhaustedWithError(0, "invalid_token", body)
+
+	st := pool.status()
+	if st[0].LastError != body {
+		t.Errorf("LastError not recorded: got %q", st[0].LastError)
+	}
+	if st[0].LastErrorAt.IsZero() {
+		t.Error("LastErrorAt should be set")
+	}
+	if st[1].LastError != "" {
+		t.Error("untouched key should have empty LastError")
+	}
+
+	// 超长 body 截断
+	pool2 := newTestKeyPool([]string{"key-0"})
+	long := strings.Repeat("x", 1000)
+	pool2.markExhaustedWithError(0, "billing_error", long)
+	got := pool2.status()[0].LastError
+	if len(got) >= 1000 || !strings.HasSuffix(got, "...(truncated)") {
+		t.Errorf("long body should be truncated, len=%d", len(got))
 	}
 }

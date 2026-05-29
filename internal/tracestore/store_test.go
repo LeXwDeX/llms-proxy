@@ -544,7 +544,9 @@ func TestStoreGetFromDiskWithBackups(t *testing.T) {
 	if err := os.WriteFile(diskPath, []byte(currentContent), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(diskPath+".1", []byte(backup1Content), 0644); err != nil {
+	// lumberjack 备份文件命名格式：<prefix>-<timestamp><ext>
+	backupPath := filepath.Join(tmpDir, "trace-2026-05-27T09-00-00.000.log")
+	if err := os.WriteFile(backupPath, []byte(backup1Content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -635,7 +637,7 @@ func TestReadLastNFromFileRingBuffer(t *testing.T) {
 	}
 }
 
-// TestGetTraceFilesSorted 验证备份文件按编号正确排序
+// TestGetTraceFilesSorted 验证备份文件按 lumberjack 时间戳正确排序（越新越先）
 func TestGetTraceFilesSorted(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "tracestore-sort-test-*")
 	if err != nil {
@@ -643,8 +645,13 @@ func TestGetTraceFilesSorted(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// 创建当前文件和多个备份文件（乱序创建）
-	files := []string{"trace.log", "trace.log.3", "trace.log.1", "trace.log.2"}
+	// 创建当前文件和多个 lumberjack 备份文件（乱序创建）
+	files := []string{
+		"trace.log",
+		"trace-2026-05-27T08-00-00.000.log",
+		"trace-2026-05-27T10-00-00.000.log",
+		"trace-2026-05-27T09-00-00.000.log",
+	}
 	for _, name := range files {
 		f, err := os.Create(filepath.Join(tmpDir, name))
 		if err != nil {
@@ -668,8 +675,13 @@ func TestGetTraceFilesSorted(t *testing.T) {
 
 	sortedFiles := store.getTraceFiles()
 
-	// 验证顺序：trace.log → trace.log.1 → trace.log.2 → trace.log.3
-	expected := []string{"trace.log", "trace.log.1", "trace.log.2", "trace.log.3"}
+	// 验证顺序：当前文件最先，其余备份按时间戳倒序（越新越先）
+	expected := []string{
+		"trace.log",
+		"trace-2026-05-27T10-00-00.000.log",
+		"trace-2026-05-27T09-00-00.000.log",
+		"trace-2026-05-27T08-00-00.000.log",
+	}
 	if len(sortedFiles) != len(expected) {
 		t.Fatalf("expected %d files, got %d", len(expected), len(sortedFiles))
 	}

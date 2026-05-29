@@ -415,6 +415,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// - 绝境探测：所有 key 都 exhausted 时，选冷却最短的 key 做探测，成功则恢复，失败则延长冷却
 		rateLimitRetries := 0
 		const maxRateLimitRetries = 2
+		convergeCode := ""  // fix-C: 同一请求内连续相同的账户级硬失败码
+		convergeStreak := 0 // fix-C: 该码连续命中的不同 key 数
 		for {
 			resp, cancel, keyIndex, fErr = s.forwardRequest(r, state, forwardBody)
 			if fErr != nil {
@@ -487,6 +489,27 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if state.keyPool == nil || keyIndex < 0 {
 				break
+			}
+			// fix-C 收敛：同一请求内，若连续 ≥2 个不同 key 返回相同的"账户级硬失败"码
+			// （invalid_token / billing_error / account_disabled / 总额度耗尽等），说明换 key
+			// 无望（同账户共享失效），停止逐 key 重试，直接把真实上游响应透传给客户端——
+			// 既避免把整个池全部标记耗尽 + 触发唤醒风暴，也让客户端看到真实的 401 而非笼统 503。
+			if reason := state.keyPool.exhaustReasonAt(keyIndex); isAccountLevelExhaustion(reason) {
+				if reason == convergeCode {
+					convergeStreak++
+				} else {
+					convergeCode = reason
+					convergeStreak = 1
+				}
+				if convergeStreak >= 2 {
+					s.logger.Warn("[keypool] convergence: multiple keys returned same account-level failure, passing through upstream response",
+						"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+						"target", target.Name,
+						"reason", reason,
+						"keys_tried", convergeStreak,
+					)
+					break // 保持 resp 打开 → 交由 writeResponse 透传真实上游响应
+				}
 			}
 			// 检查是否有下一个可用 key（当前 key 已在 forwardRequest 中被标记耗尽）
 			nextKey, nextIdx := state.keyPool.selectKey()
