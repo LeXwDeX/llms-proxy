@@ -2899,6 +2899,7 @@
           btns += "<button class='btn btn-sm' data-acct-refresh-token='" + esc(id) + "' title='强制重新获取 Copilot Token，可修复 Individual/Business 端点错误'>刷新 Token</button>";
           btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
         } else if (s === "token_expired") {
+          btns += "<button class='btn btn-sm' data-acct-refresh-token='" + esc(id) + "' title='强制重新获取 Copilot Token 并恢复为 active 状态'>刷新 Token</button>";
           btns += "<button class='btn btn-sm' data-acct-revoke='" + esc(id) + "'>注销</button>";
           btns += "<button class='btn btn-danger btn-sm' data-acct-delete='" + esc(id) + "'>删除</button>";
         } else if (s === "quota_exceeded") {
