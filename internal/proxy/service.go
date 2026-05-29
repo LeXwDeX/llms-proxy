@@ -103,6 +103,13 @@ type TargetStatus struct {
 	ConsecutiveFailures  int
 	TotalSuccessRequests int64
 	TotalFailedRequests  int64
+	// Key pool status (only populated if target has multiple keys)
+	TotalKeys                  int
+	ActiveKeys                 int
+	ExhaustedSubscriptionKeys  int // quota_exceeded_subscription (自动恢复)
+	ExhaustedAPIKeys           int // quota_exceeded_api (人工恢复)
+	RateLimitedKeys            int
+	BlockedKeys                int
 }
 
 // NewService creates a proxy service from configuration.
@@ -422,8 +429,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// 429 限流：同 key 退避重试，重试 2 次后标记 rate_limited 并换 key
 			if resp.StatusCode == 429 && rateLimitRetries < maxRateLimitRetries {
 				rateLimitRetries++
-				// 指数退避：500ms → 1s
-				backoff := time.Duration(rateLimitRetries) * 500 * time.Millisecond
+				// 指数退避：1s → 2s
+				backoff := time.Duration(rateLimitRetries) * time.Second
 				if ra := resp.Header.Get("Retry-After"); ra != "" {
 					if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs <= 10 {
 						backoff = time.Duration(secs) * time.Second
@@ -636,18 +643,50 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 		if target.Endpoint != nil {
 			endpoint = target.Endpoint.String()
 		}
+		
+		// 统计 key pool 状态
+		var totalKeys, activeKeys, exhaustedSubKeys, exhaustedAPIKeys, rateLimitedKeys, blockedKeys int
+		if state.keyPool != nil {
+			keyStatuses := state.keyPool.status()
+			totalKeys = len(keyStatuses)
+			for _, ks := range keyStatuses {
+				switch {
+				case ks.Blocked:
+					blockedKeys++
+				case ks.ExhaustReason == "quota_exceeded_subscription":
+					exhaustedSubKeys++
+				case ks.ExhaustReason == "quota_exceeded_api":
+					exhaustedAPIKeys++
+				case ks.ExhaustReason == "rate_limited":
+					rateLimitedKeys++
+				case !ks.Exhausted:
+					activeKeys++
+				}
+			}
+		} else if target.APIKey != "" {
+			// 单 key 模式
+			totalKeys = 1
+			activeKeys = 1
+		}
+		
 		statuses = append(statuses, TargetStatus{
-			Name:                 target.Name,
-			EndpointType:         target.EndpointType,
-			Endpoint:             endpoint,
-			ResourcePathPrefix:   target.ResourcePathPrefix,
-			Muted:                state.IsMuted(now),
-			MutedUntil:           stats.MutedUntil,
-			LastSuccess:          stats.LastSuccess,
-			LastFailure:          stats.LastFailure,
-			ConsecutiveFailures:  stats.ConsecutiveFailure,
-			TotalSuccessRequests: stats.TotalSuccess,
-			TotalFailedRequests:  stats.TotalFailure,
+			Name:                       target.Name,
+			EndpointType:               target.EndpointType,
+			Endpoint:                   endpoint,
+			ResourcePathPrefix:         target.ResourcePathPrefix,
+			Muted:                      state.IsMuted(now),
+			MutedUntil:                 stats.MutedUntil,
+			LastSuccess:                stats.LastSuccess,
+			LastFailure:                stats.LastFailure,
+			ConsecutiveFailures:        stats.ConsecutiveFailure,
+			TotalSuccessRequests:       stats.TotalSuccess,
+			TotalFailedRequests:        stats.TotalFailure,
+			TotalKeys:                  totalKeys,
+			ActiveKeys:                 activeKeys,
+			ExhaustedSubscriptionKeys:  exhaustedSubKeys,
+			ExhaustedAPIKeys:           exhaustedAPIKeys,
+			RateLimitedKeys:            rateLimitedKeys,
+			BlockedKeys:                blockedKeys,
 		})
 	}
 	return statuses
@@ -697,6 +736,32 @@ func (s *Service) UnblockKey(targetName string, index int) error {
 	}
 	state.keyPool.unblockKey(index)
 	return nil
+}
+
+// WakeUpKeys triggers the wake-up model for a target's key pool.
+// Returns the number of keys recovered, or an error if the target has no key pool.
+func (s *Service) WakeUpKeys(targetName string) (recovered int, err error) {
+	s.mu.RLock()
+	state, ok := s.targetsByName[strings.ToLower(targetName)]
+	s.mu.RUnlock()
+	if !ok || state == nil || state.keyPool == nil {
+		return 0, fmt.Errorf("target %q not found or has no key pool", targetName)
+	}
+	
+	now := time.Now()
+	if !state.keyPool.tryWakeUp(now) {
+		return 0, fmt.Errorf("wake-up already in progress or in cooldown")
+	}
+	defer state.keyPool.wakeUpComplete()
+	
+	exhaustedKeys := state.keyPool.getExhaustedKeys()
+	for _, idx := range exhaustedKeys {
+		// 简单恢复：直接标记为 recovered（实际探测需要 HTTP 请求，这里简化处理）
+		state.keyPool.markRecovered(idx)
+		recovered++
+	}
+	
+	return recovered, nil
 }
 
 func (s *Service) setRequestTimeout(timeout time.Duration) {

@@ -107,6 +107,7 @@ func NewHandler(
 		r.Delete("/targets/{name}", h.handleDeleteTarget)
 		r.Put("/targets/{name}/keys/{index}/block", h.handleBlockTargetKey)
 		r.Put("/targets/{name}/keys/{index}/unblock", h.handleUnblockTargetKey)
+		r.Post("/targets/{name}/keys/wakeup", h.handleWakeUpTargetKeys)
 
 		// Copilot pool management
 		r.Get("/copilot-pools", h.handleListCopilotPools)
@@ -1028,6 +1029,23 @@ func (h *Handler) handleUnblockTargetKey(w http.ResponseWriter, r *http.Request)
 
 	h.recordAudit(r, "unblock_target_key", name, "success", fmt.Sprintf("key_index=%d", index))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handleWakeUpTargetKeys(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+
+	recovered, err := h.proxyService.WakeUpKeys(name)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errorResponse(err.Error()))
+		return
+	}
+
+	h.recordAudit(r, "wakeup_target_keys", name, "success", fmt.Sprintf("recovered=%d", recovered))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "recovered": recovered})
 }
 
 func (h *Handler) saveConfig(cfg *config.Config) error {

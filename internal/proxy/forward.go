@@ -86,6 +86,30 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		affinityID := clientIP(r) + "|" + clientKey
 		selected, idx := state.keyPool.selectKeyForClient(affinityID)
 		if selected == "" {
+			// 所有 key 不可用，尝试触发唤醒模型
+			if state.keyPool.tryWakeUp(time.Now()) {
+				s.logger.Warn("[keypool] all keys exhausted, triggering wake-up model",
+					"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+					"target", target.Name,
+				)
+				// 执行唤醒探测
+				recoveredIdx := s.wakeUpProbe(r, state)
+				state.keyPool.wakeUpComplete()
+				if recoveredIdx >= 0 {
+					// 唤醒成功，重新选择 key
+					selected, idx = state.keyPool.selectKeyForClient(affinityID)
+					if selected != "" {
+						s.logger.Info("[keypool] wake-up successful, key recovered",
+							"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+							"target", target.Name,
+							"key_index", idx,
+						)
+						apiKey = selected
+						keyIndex = idx
+						goto keySelected
+					}
+				}
+			}
 			return nil, nil, -1, &forwardAttemptError{
 				status:    http.StatusServiceUnavailable,
 				retryable: false,
@@ -95,6 +119,7 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 		}
 		apiKey = selected
 		keyIndex = idx
+	keySelected:
 		clientName := ""
 		if principal, ok := auth.PrincipalFromContext(r.Context()); ok && principal != nil {
 			clientName = principal.Name
@@ -1029,4 +1054,132 @@ func isKeyExhausted(statusCode int, body []byte) (bool, string) {
 	// OpenAI "Rate limit reached" / Claude rate_limit_error / DeepSeek "Rate Limit Reached"
 
 	return false, ""
+}
+
+// wakeUpProbe 执行唤醒探测，遍历所有被屏蔽的 key 并尝试恢复。
+// 返回第一个成功恢复的 key 索引，如果全部失败返回 -1。
+func (s *Service) wakeUpProbe(r *http.Request, state *targetState) int {
+	if state.keyPool == nil {
+		return -1
+	}
+	
+	target := state.Target()
+	if target == nil {
+		return -1
+	}
+	
+	exhaustedKeys := state.keyPool.getExhaustedKeys()
+	if len(exhaustedKeys) == 0 {
+		return -1
+	}
+	
+	s.logger.Info("[keypool] wake-up probe started",
+		"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+		"target", target.Name,
+		"exhausted_keys", len(exhaustedKeys),
+	)
+	
+	// 对每个被屏蔽的 key 发送探测请求
+	for _, idx := range exhaustedKeys {
+		if s.probeKey(r, state, idx) {
+			state.keyPool.markRecovered(idx)
+			s.logger.Info("[keypool] wake-up probe succeeded",
+				"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+				"target", target.Name,
+				"key_index", idx,
+			)
+			return idx
+		}
+	}
+	
+	s.logger.Warn("[keypool] wake-up probe failed, all keys still exhausted",
+		"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+		"target", target.Name,
+	)
+	return -1
+}
+
+// probeKey 对指定 key 发送轻量探测请求，验证 key 是否有效。
+// 返回 true 表示 key 有效（探测成功），false 表示 key 仍无效。
+func (s *Service) probeKey(r *http.Request, state *targetState, keyIndex int) bool {
+	target := state.Target()
+	if target == nil || keyIndex < 0 || keyIndex >= len(state.keyPool.entries) {
+		return false
+	}
+	
+	apiKey := state.keyPool.entries[keyIndex].key
+	
+	// 构建探测请求 URL（GET /models 或 HEAD）
+	probeURL := s.buildProbeURL(target)
+	if probeURL == "" {
+		return false
+	}
+	
+	// 创建探测请求（短超时 5 秒）
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	
+	probeReq, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+	if err != nil {
+		return false
+	}
+	
+	// 注入上游凭证
+	switch target.EndpointType {
+	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
+		probeReq.Header.Set("Authorization", "Bearer "+apiKey)
+	case config.EndpointTypeClaude:
+		if target.AuthMode == "bearer" {
+			probeReq.Header.Set("Authorization", "Bearer "+apiKey)
+		} else {
+			probeReq.Header.Set("x-api-key", apiKey)
+		}
+	case config.EndpointTypeGemini:
+		probeReq.Header.Set("x-goog-api-key", apiKey)
+	case config.EndpointTypeAzureOpenAI:
+		probeReq.Header.Set("api-key", apiKey)
+	default:
+		probeReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	
+	// 发送探测请求
+	resp, err := s.httpClient.Do(probeReq)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	
+	// 判断探测结果：2xx 或 4xx（非 401/403）表示 key 有效
+	// 401/403 表示 key 仍无效
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return true
+	}
+	if resp.StatusCode == 404 || resp.StatusCode == 405 {
+		// 404/405 表示端点不存在但 key 有效（认证通过）
+		return true
+	}
+	// 401/403/429 表示 key 仍无效
+	return false
+}
+
+// buildProbeURL 根据 endpoint_type 构建探测请求 URL。
+func (s *Service) buildProbeURL(target *Target) string {
+	if target == nil || target.Endpoint == nil {
+		return ""
+	}
+	
+	base := target.Endpoint.String()
+	switch target.EndpointType {
+	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
+		return base + "/v1/models"
+	case config.EndpointTypeClaude:
+		return base + "/v1/models"
+	case config.EndpointTypeGemini:
+		return base + "/v1beta/models"
+	case config.EndpointTypeAzureOpenAI:
+		// Azure 没有 /models 端点，用 HEAD 请求到根路径
+		return base
+	default:
+		return base + "/v1/models"
+	}
 }

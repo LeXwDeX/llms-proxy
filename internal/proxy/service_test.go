@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2889,4 +2891,1120 @@ func TestSelectTargetExplicitPathIncompatible(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for path-incompatible explicit target, got %d", rr.Code)
 	}
+}
+
+func TestServiceStartTime(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	before := time.Now()
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	after := time.Now()
+
+	startTime := service.StartTime()
+	if startTime.Before(before) || startTime.After(after) {
+		t.Errorf("StartTime %v not between %v and %v", startTime, before, after)
+	}
+}
+
+func TestServiceKeyPoolStatus(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "with-pool",
+				Endpoint:      "http://example.com",
+				APIKey:        "key1",
+				APIKeys:       []string{"key2", "key3"},
+				AllowedModels: []string{"gpt-4"},
+			},
+			{
+				Name:          "no-pool",
+				Endpoint:      "http://example.com",
+				APIKey:        "single-key",
+				AllowedModels: []string{"gpt-4"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Target with key pool
+	status := service.KeyPoolStatus("with-pool")
+	if status == nil {
+		t.Fatal("expected key pool status for 'with-pool'")
+	}
+	if len(status) != 3 {
+		t.Errorf("expected 3 keys, got %d", len(status))
+	}
+
+	// Target without key pool (single key)
+	status = service.KeyPoolStatus("no-pool")
+	if status != nil {
+		t.Errorf("expected nil for single-key target, got %v", status)
+	}
+
+	// Non-existent target
+	status = service.KeyPoolStatus("nonexistent")
+	if status != nil {
+		t.Errorf("expected nil for nonexistent target, got %v", status)
+	}
+}
+
+func TestServiceBlockUnblockKey(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "target1",
+				Endpoint:      "http://example.com",
+				APIKey:        "key1",
+				APIKeys:       []string{"key2", "key3"},
+				AllowedModels: []string{"gpt-4"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Block key
+	err = service.BlockKey("target1", 0)
+	if err != nil {
+		t.Errorf("BlockKey failed: %v", err)
+	}
+
+	// Verify blocked
+	status := service.KeyPoolStatus("target1")
+	if !status[0].Blocked {
+		t.Error("expected key 0 to be blocked")
+	}
+
+	// Unblock key
+	err = service.UnblockKey("target1", 0)
+	if err != nil {
+		t.Errorf("UnblockKey failed: %v", err)
+	}
+
+	// Verify unblocked
+	status = service.KeyPoolStatus("target1")
+	if status[0].Blocked {
+		t.Error("expected key 0 to be unblocked")
+	}
+
+	// Error cases
+	err = service.BlockKey("nonexistent", 0)
+	if err == nil {
+		t.Error("expected error for nonexistent target")
+	}
+
+	err = service.BlockKey("target1", -1)
+	if err == nil {
+		t.Error("expected error for negative index")
+	}
+
+	err = service.BlockKey("target1", 100)
+	if err == nil {
+		t.Error("expected error for out-of-range index")
+	}
+
+	err = service.UnblockKey("nonexistent", 0)
+	if err == nil {
+		t.Error("expected error for nonexistent target")
+	}
+
+	err = service.UnblockKey("target1", -1)
+	if err == nil {
+		t.Error("expected error for negative index")
+	}
+
+	err = service.UnblockKey("target1", 100)
+	if err == nil {
+		t.Error("expected error for out-of-range index")
+	}
+}
+
+func TestServiceTraceMethods(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Without trace store enabled, methods should return empty/nil results
+	record := service.GetTrace("any-id")
+	if record != nil {
+		t.Error("expected nil when trace store disabled")
+	}
+
+	records := service.ListTrace(10)
+	if len(records) != 0 {
+		t.Errorf("expected empty list when trace store disabled, got %d records", len(records))
+	}
+
+	stats := service.TraceStats()
+	if stats != nil {
+		// Stats may return non-nil but with zero values when disabled
+		if stats["total_records"] != 0 {
+			t.Errorf("expected 0 total_records when disabled, got %d", stats["total_records"])
+		}
+	}
+}
+
+func TestServiceUpdateTargets(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "target1",
+				Endpoint:      "http://example1.com",
+				APIKey:        "key1",
+				AllowedModels: []string{"gpt-4"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Update with new targets
+	newTargets := []config.Target{
+		{
+			Name:          "target2",
+			Endpoint:      "http://example2.com",
+			APIKey:        "key2",
+			AllowedModels: []string{"gpt-3.5"},
+		},
+		{
+			Name:          "target3",
+			Endpoint:      "http://example3.com",
+			APIKey:        "key3",
+			AllowedModels: []string{"gpt-4"},
+		},
+	}
+
+	err = service.UpdateTargets(newTargets)
+	if err != nil {
+		t.Errorf("UpdateTargets failed: %v", err)
+	}
+
+	// Verify old target is gone
+	status := service.KeyPoolStatus("target1")
+	if status != nil {
+		t.Error("expected target1 to be removed")
+	}
+
+	// Verify new targets exist
+	statuses := service.TargetStatuses(time.Now())
+	if len(statuses) != 2 {
+		t.Errorf("expected 2 targets, got %d", len(statuses))
+	}
+}
+
+func TestForwardAttemptError(t *testing.T) {
+	// Test Error method
+	err := &forwardAttemptError{
+		status:    http.StatusBadGateway,
+		retryable: true,
+		err:       fmt.Errorf("connection refused"),
+		startedAt: time.Now(),
+	}
+
+	if err.Error() != "connection refused" {
+		t.Errorf("expected 'connection refused', got %q", err.Error())
+	}
+
+	// Test nil error
+	var nilErr *forwardAttemptError
+	if nilErr.Error() != "" {
+		t.Errorf("expected empty string for nil error, got %q", nilErr.Error())
+	}
+
+	// Test nil inner error
+	err2 := &forwardAttemptError{
+		status:    http.StatusBadGateway,
+		retryable: false,
+		err:       nil,
+		startedAt: time.Now(),
+	}
+	if err2.Error() != "" {
+		t.Errorf("expected empty string for nil inner error, got %q", err2.Error())
+	}
+
+	// Test Unwrap method
+	innerErr := fmt.Errorf("inner error")
+	err3 := &forwardAttemptError{
+		status:    http.StatusBadGateway,
+		retryable: true,
+		err:       innerErr,
+		startedAt: time.Now(),
+	}
+	if err3.Unwrap() != innerErr {
+		t.Error("Unwrap should return inner error")
+	}
+
+	// Test Unwrap with nil receiver
+	var nilErr2 *forwardAttemptError
+	if nilErr2.Unwrap() != nil {
+		t.Error("Unwrap on nil receiver should return nil")
+	}
+
+	// Test Unwrap with nil inner error
+	err4 := &forwardAttemptError{
+		status:    http.StatusBadGateway,
+		retryable: false,
+		err:       nil,
+		startedAt: time.Now(),
+	}
+	if err4.Unwrap() != nil {
+		t.Error("Unwrap with nil inner error should return nil")
+	}
+}
+
+func TestSelectionError(t *testing.T) {
+	err := &selectionError{
+		Status:  http.StatusForbidden,
+		Message: "target not allowed",
+	}
+
+	if err.Error() != "target not allowed" {
+		t.Errorf("expected 'target not allowed', got %q", err.Error())
+	}
+}
+
+func TestServiceSetCopilotService(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Initially nil
+	if service.copilotService != nil {
+		t.Error("expected copilotService to be nil initially")
+	}
+
+	// Set to nil (should not panic)
+	service.SetCopilotService(nil)
+	if service.copilotService != nil {
+		t.Error("expected copilotService to remain nil")
+	}
+}
+
+func TestFindAvailableTarget(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:     "target1",
+				Endpoint: "http://example1.com",
+				APIKey:   "key1",
+				// No AllowedModels - accepts any model
+			},
+			{
+				Name:     "target2",
+				Endpoint: "http://example2.com",
+				APIKey:   "key2",
+				// No AllowedModels - accepts any model
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Test with no filters
+	state, muted := service.findAvailableTarget(nil, nil, time.Now())
+	if state == nil {
+		t.Error("expected to find available target")
+	}
+	if muted != nil {
+		t.Error("expected no muted candidate")
+	}
+
+	// Test with allowed filter
+	allowed := map[string]struct{}{"target2": {}}
+	state, muted = service.findAvailableTarget(allowed, nil, time.Now())
+	if state == nil {
+		t.Error("expected to find target2")
+	}
+	if state.Target().Name != "target2" {
+		t.Errorf("expected target2, got %s", state.Target().Name)
+	}
+
+	// Test with attempted filter (all targets attempted)
+	attempted := map[string]struct{}{"target1": {}, "target2": {}}
+	state, muted = service.findAvailableTarget(nil, attempted, time.Now())
+	if state != nil {
+		t.Error("expected no available target when all attempted")
+	}
+}
+
+func TestHandleCopilotQuotaSummary_NoService(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	// Test without copilot service configured
+	req := httptest.NewRequest(http.MethodGet, "/copilot/quota", nil)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.HandleCopilotQuotaSummary(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("expected 502 when copilot service not configured, got %d", rr.Code)
+	}
+
+	// Test without authentication
+	req2 := httptest.NewRequest(http.MethodGet, "/copilot/quota", nil)
+	rr2 := httptest.NewRecorder()
+	service.HandleCopilotQuotaSummary(rr2, req2)
+
+	if rr2.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without authentication, got %d", rr2.Code)
+	}
+}
+
+func TestClientIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		xff        string
+		expected   string
+	}{
+		{
+			name:       "nil request",
+			remoteAddr: "",
+			xff:        "",
+			expected:   "",
+		},
+		{
+			name:       "remote addr with port",
+			remoteAddr: "192.168.1.1:8080",
+			xff:        "",
+			expected:   "192.168.1.1",
+		},
+		{
+			name:       "remote addr without port",
+			remoteAddr: "192.168.1.1",
+			xff:        "",
+			expected:   "192.168.1.1",
+		},
+		{
+			name:       "X-Forwarded-For single IP",
+			remoteAddr: "192.168.1.1:8080",
+			xff:        "10.0.0.1",
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "X-Forwarded-For multiple IPs",
+			remoteAddr: "192.168.1.1:8080",
+			xff:        "10.0.0.1, 10.0.0.2, 10.0.0.3",
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "X-Forwarded-For with spaces",
+			remoteAddr: "192.168.1.1:8080",
+			xff:        "  10.0.0.1  ",
+			expected:   "10.0.0.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req *http.Request
+			if tt.remoteAddr != "" || tt.xff != "" {
+				req = httptest.NewRequest(http.MethodGet, "/", nil)
+				req.RemoteAddr = tt.remoteAddr
+				if tt.xff != "" {
+					req.Header.Set("X-Forwarded-For", tt.xff)
+				}
+			}
+
+			result := clientIP(req)
+			if result != tt.expected {
+				t.Errorf("clientIP() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCopyHeaders(t *testing.T) {
+	src := http.Header{}
+	src.Set("Content-Type", "application/json")
+	src.Set("X-Custom-Header", "value1")
+	src.Add("X-Custom-Header", "value2")
+	src.Set("Connection", "keep-alive") // hop header, should be skipped
+
+	dst := http.Header{}
+	copyHeaders(dst, src)
+
+	// Check that non-hop headers are copied
+	if dst.Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type not copied correctly")
+	}
+
+	// Check that multiple values are preserved
+	values := dst.Values("X-Custom-Header")
+	if len(values) != 2 {
+		t.Errorf("expected 2 values for X-Custom-Header, got %d", len(values))
+	}
+
+	// Check that hop headers are skipped
+	if dst.Get("Connection") != "" {
+		t.Errorf("Connection header should be skipped")
+	}
+}
+
+func TestTargetName(t *testing.T) {
+	// Test with nil target
+	if targetName(nil) != "" {
+		t.Errorf("expected empty string for nil target")
+	}
+
+	// Test with valid target
+	target := &Target{Name: "test-target"}
+	if targetName(target) != "test-target" {
+		t.Errorf("expected 'test-target', got %q", targetName(target))
+	}
+}
+
+func TestTargetEndpointType(t *testing.T) {
+	// Test with nil target
+	if targetEndpointType(nil) != "" {
+		t.Errorf("expected empty string for nil target")
+	}
+
+	// Test with valid target
+	target := &Target{EndpointType: "openai"}
+	if targetEndpointType(target) != "openai" {
+		t.Errorf("expected 'openai', got %q", targetEndpointType(target))
+	}
+}
+
+func TestStripURLQuery(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"http://example.com/path", "http://example.com/path"},
+		{"http://example.com/path?query=value", "http://example.com/path"},
+		{"http://example.com/path?query=value&foo=bar", "http://example.com/path"},
+		{"http://example.com/path?", "http://example.com/path"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		result := stripURLQuery(tt.input)
+		if result != tt.expected {
+			t.Errorf("stripURLQuery(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestClassifyTransportError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected int
+	}{
+		{
+			name:     "context deadline exceeded",
+			err:      context.DeadlineExceeded,
+			expected: http.StatusGatewayTimeout,
+		},
+		{
+			name:     "context canceled",
+			err:      context.Canceled,
+			expected: http.StatusGatewayTimeout,
+		},
+		{
+			name:     "generic error",
+			err:      fmt.Errorf("connection refused"),
+			expected: http.StatusBadGateway,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := classifyTransportError(tt.err)
+			if result != tt.expected {
+				t.Errorf("classifyTransportError() = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHandleForwardError(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:     "target1",
+				Endpoint: "http://example1.com",
+				APIKey:   "key1",
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Get target state
+	service.mu.RLock()
+	state := service.targetsByName["target1"]
+	service.mu.RUnlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	// Test with status 0 (should default to 502)
+	service.handleForwardError(req, state, fmt.Errorf("connection refused"), 0)
+
+	// Verify target is marked as failed
+	stats := state.Stats()
+	if stats.ConsecutiveFailure == 0 {
+		t.Error("expected target to be marked as failed")
+	}
+
+	// Test with explicit status
+	service.handleForwardError(req, state, fmt.Errorf("timeout"), http.StatusGatewayTimeout)
+}
+
+func TestWriteForwardErrorLog(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:     "target1",
+				Endpoint: "http://example1.com",
+				APIKey:   "key1",
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Get target state
+	service.mu.RLock()
+	state := service.targetsByName["target1"]
+	service.mu.RUnlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	// Test with nil error (should not panic)
+	writeForwardErrorLog(req, state, nil)
+
+	// Test with valid error
+	fe := &forwardAttemptError{
+		status:          http.StatusBadGateway,
+		retryable:       true,
+		err:             fmt.Errorf("connection refused"),
+		startedAt:       time.Now().Add(-100 * time.Millisecond),
+		upstreamURL:     "http://example.com/v1/chat",
+		upstreamFullURL: "http://example.com/v1/chat?api-version=2024-01-01",
+	}
+	writeForwardErrorLog(req, state, fe)
+}
+
+func TestWriteUpstreamErrorLog(t *testing.T) {
+	target := &Target{
+		Name:         "target1",
+		EndpointType: "openai",
+		Endpoint:     mustParseURL("http://example.com"),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	// Test with 4xx response
+	resp4xx := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{},
+	}
+	writeUpstreamErrorLog(req, target, resp4xx, []byte("error message"), time.Now().Add(-100*time.Millisecond))
+
+	// Test with 5xx response
+	resp5xx := &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Header:     http.Header{},
+	}
+	writeUpstreamErrorLog(req, target, resp5xx, []byte("server error"), time.Now().Add(-100*time.Millisecond))
+
+	// Test with nil target
+	writeUpstreamErrorLog(req, nil, resp4xx, []byte("error"), time.Now())
+
+	// Test with large body (should truncate)
+	largeBody := make([]byte, 2000)
+	for i := range largeBody {
+		largeBody[i] = 'x'
+	}
+	writeUpstreamErrorLog(req, target, resp4xx, largeBody, time.Now())
+
+	// Test with gzip compressed body
+	var compressedBody bytes.Buffer
+	gw := gzip.NewWriter(&compressedBody)
+	gw.Write([]byte("compressed error message"))
+	gw.Close()
+	
+	respGzip := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Encoding": []string{"gzip"}},
+	}
+	writeUpstreamErrorLog(req, target, respGzip, compressedBody.Bytes(), time.Now())
+}
+
+func mustParseURL(raw string) *url.URL {
+	u, err := url.Parse(raw)
+	if err != nil {
+		panic(err)
+	}
+	return u
+}
+
+func TestRecordUsageEvent(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:     "target1",
+				Endpoint: "http://example1.com",
+				APIKey:   "key1",
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Test with nil recorder (should not panic)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	service.recordUsageEvent(req, nil, 200, "gpt-4", "application/json", nil, nil, -1)
+
+	// Test with nil request (should not panic)
+	service.recordUsageEvent(nil, nil, 200, "gpt-4", "application/json", nil, nil, -1)
+
+	// Test with valid request but no principal
+	service.recordUsageEvent(req, nil, 200, "gpt-4", "application/json", []byte(`{"usage":{"prompt_tokens":10,"completion_tokens":5}}`), nil, -1)
+}
+
+func TestRecordTrace(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:     "target1",
+				Endpoint: "http://example1.com",
+				APIKey:   "key1",
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Test with nil traceStore (should not panic)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	target := &Target{Name: "target1", EndpointType: "openai"}
+	resp := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+	}
+	service.recordTrace(req, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with nil target
+	service.recordTrace(req, nil, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), -1, "gpt-4")
+
+	// Test with gzip compressed response body
+	var compressedBody bytes.Buffer
+	gw := gzip.NewWriter(&compressedBody)
+	gw.Write([]byte(`{"id":"compressed-test"}`))
+	gw.Close()
+	
+	respGzip := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Encoding": []string{"gzip"}},
+	}
+	service.recordTrace(req, target, respGzip, []byte(`{"model":"gpt-4"}`), compressedBody.Bytes(), time.Now(), 0, "gpt-4")
+
+	// Test with target that has APIKeys
+	targetWithKeys := &Target{
+		Name:         "target-with-keys",
+		EndpointType: "openai",
+		APIKey:       "main-key",
+		APIKeys:      []string{"key1", "key2", "key3"},
+	}
+	service.recordTrace(req, targetWithKeys, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 1, "gpt-4")
+
+	// Test with target that has only APIKey (no APIKeys)
+	targetSingleKey := &Target{
+		Name:         "target-single-key",
+		EndpointType: "openai",
+		APIKey:       "single-key",
+	}
+	service.recordTrace(req, targetSingleKey, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has sensitive headers
+	reqWithHeaders := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	reqWithHeaders.Header.Set("Authorization", "Bearer secret-token")
+	reqWithHeaders.Header.Set("X-API-Key", "secret-api-key")
+	reqWithHeaders.Header.Set("X-Goog-API-Key", "secret-goog-key")
+	reqWithHeaders.Header.Set("Cookie", "session=secret-session")
+	reqWithHeaders.Header.Set("Content-Type", "application/json")
+	service.recordTrace(reqWithHeaders, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has sensitive headers
+	respWithHeaders := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Authorization": []string{"Bearer upstream-token"},
+			"X-Api-Key":     []string{"upstream-api-key"},
+			"X-Goog-Api-Key": []string{"upstream-goog-key"},
+			"Set-Cookie":    []string{"session=upstream-session"},
+			"Content-Type":  []string{"application/json"},
+		},
+	}
+	service.recordTrace(req, target, respWithHeaders, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with sensitive query params
+	reqForURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?api-key=secret&apikey=secret2&key=secret3&api_key=secret4&other=safe", nil)
+	respWithReq := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqForURL,
+	}
+	service.recordTrace(req, target, respWithReq, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with target that has empty APIKeys and empty APIKey
+	targetNoKeys := &Target{
+		Name:         "target-no-keys",
+		EndpointType: "openai",
+	}
+	service.recordTrace(req, targetNoKeys, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with keyIndex out of range
+	service.recordTrace(req, targetWithKeys, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 999, "gpt-4")
+
+	// Test with response that has request URL with no query params
+	reqNoQuery := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	respNoQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqNoQuery,
+	}
+	service.recordTrace(req, target, respNoQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with safe query params only
+	reqSafeQuery := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?model=gpt-4&temperature=0.7", nil)
+	respSafeQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqSafeQuery,
+	}
+	service.recordTrace(req, target, respSafeQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has nil request
+	respNilReq := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    nil,
+	}
+	service.recordTrace(req, target, respNilReq, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with nil URL
+	reqNilURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	reqNilURL.URL = nil
+	respNilURL := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqNilURL,
+	}
+	service.recordTrace(req, target, respNilURL, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has empty response body
+	service.recordTrace(req, target, resp, []byte(`{"model":"gpt-4"}`), []byte{}, time.Now(), 0, "gpt-4")
+
+	// Test with response that has nil response body
+	service.recordTrace(req, target, resp, []byte(`{"model":"gpt-4"}`), nil, time.Now(), 0, "gpt-4")
+
+	// Test with response that has gzip header but empty body
+	respGzipEmpty := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Encoding": []string{"gzip"}},
+	}
+	service.recordTrace(req, target, respGzipEmpty, []byte(`{"model":"gpt-4"}`), []byte{}, time.Now(), 0, "gpt-4")
+
+	// Test with response that has gzip header but invalid gzip body
+	respGzipInvalid := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Encoding": []string{"gzip"}},
+	}
+	service.recordTrace(req, target, respGzipInvalid, []byte(`{"model":"gpt-4"}`), []byte("not-gzip-data"), time.Now(), 0, "gpt-4")
+
+	// Test with request that has no headers
+	reqNoHeaders := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	reqNoHeaders.Header = http.Header{}
+	service.recordTrace(reqNoHeaders, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has no headers
+	respNoHeaders := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+	}
+	service.recordTrace(req, target, respNoHeaders, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with target that has APIKey but empty APIKeys slice
+	targetAPIKeyOnly := &Target{
+		Name:         "target-apikey-only",
+		EndpointType: "openai",
+		APIKey:       "only-key",
+		APIKeys:      []string{},
+	}
+	service.recordTrace(req, targetAPIKeyOnly, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with negative keyIndex
+	service.recordTrace(req, targetWithKeys, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), -1, "gpt-4")
+
+	// Test with request that has query params
+	reqWithQuery := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?foo=bar&baz=qux", nil)
+	service.recordTrace(reqWithQuery, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with mixed sensitive and safe query params
+	reqMixedQuery := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?api-key=secret&model=gpt-4&temperature=0.7", nil)
+	respMixedQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqMixedQuery,
+	}
+	service.recordTrace(req, target, respMixedQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has empty query params
+	reqEmptyQuery := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?", nil)
+	service.recordTrace(reqEmptyQuery, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with empty query params
+	reqEmptyQueryURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?", nil)
+	respEmptyQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqEmptyQueryURL,
+	}
+	service.recordTrace(req, target, respEmptyQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has multiple headers with same key
+	reqMultiHeaders := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	reqMultiHeaders.Header.Add("X-Custom", "value1")
+	reqMultiHeaders.Header.Add("X-Custom", "value2")
+	service.recordTrace(reqMultiHeaders, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has multiple headers with same key
+	respMultiHeaders := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"X-Custom": []string{"value1", "value2"},
+		},
+	}
+	service.recordTrace(req, target, respMultiHeaders, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has path with query params
+	reqPathQuery := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?stream=true", nil)
+	service.recordTrace(reqPathQuery, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with path and query params
+	reqPathQueryURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?stream=true&model=gpt-4", nil)
+	respPathQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqPathQueryURL,
+	}
+	service.recordTrace(req, target, respPathQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has path with special characters
+	reqSpecialPath := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?model=gpt-4&prompt=hello%20world", nil)
+	service.recordTrace(reqSpecialPath, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with special characters in query
+	reqSpecialQueryURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?prompt=hello%20world&model=gpt-4", nil)
+	respSpecialQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqSpecialQueryURL,
+	}
+	service.recordTrace(req, target, respSpecialQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has path with unicode characters
+	reqUnicodePath := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?prompt=你好世界", nil)
+	service.recordTrace(reqUnicodePath, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with unicode characters in query
+	reqUnicodeQueryURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?prompt=你好世界&model=gpt-4", nil)
+	respUnicodeQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqUnicodeQueryURL,
+	}
+	service.recordTrace(req, target, respUnicodeQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has path with fragment
+	reqFragmentPath := httptest.NewRequest(http.MethodPost, "/v1/chat/completions#section", nil)
+	service.recordTrace(reqFragmentPath, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with fragment
+	reqFragmentURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions#section", nil)
+	respFragment := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqFragmentURL,
+	}
+	service.recordTrace(req, target, respFragment, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with request that has path with multiple query params
+	reqMultiQuery := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?a=1&b=2&c=3", nil)
+	service.recordTrace(reqMultiQuery, target, resp, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+
+	// Test with response that has request URL with multiple query params
+	reqMultiQueryURL := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?a=1&b=2&c=3", nil)
+	respMultiQuery := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{},
+		Request:    reqMultiQueryURL,
+	}
+	service.recordTrace(req, target, respMultiQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
 }

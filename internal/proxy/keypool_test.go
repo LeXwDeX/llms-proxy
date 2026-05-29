@@ -282,11 +282,11 @@ func TestMarkRateLimited(t *testing.T) {
 		t.Errorf("expected exhaustReason 'rate_limited', got %q", pool.entries[0].exhaustReason)
 	}
 
-	// 冷却时间应该是 30 秒后
-	expectedCooldown := time.Now().Add(30 * time.Second)
+	// 冷却时间应该是 5 秒后
+	expectedCooldown := time.Now().Add(5 * time.Second)
 	diff := pool.entries[0].cooldownEnd.Sub(expectedCooldown)
 	if diff < -time.Second || diff > time.Second {
-		t.Errorf("expected cooldown around 30s, got %v", pool.entries[0].cooldownEnd.Sub(time.Now()))
+		t.Errorf("expected cooldown around 5s, got %v", pool.entries[0].cooldownEnd.Sub(time.Now()))
 	}
 
 	// selectKeyForClient 应该返回 key-1（key-0 被限流）
@@ -462,6 +462,107 @@ func TestMarkRecovered(t *testing.T) {
 	}
 }
 
+func TestBlockKey(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+
+	// 屏蔽 key-0
+	pool.blockKey(0)
+	if !pool.entries[0].blocked {
+		t.Error("expected key-0 to be blocked")
+	}
+
+	// selectKeyForClient 应该跳过 blocked key
+	key, idx := pool.selectKeyForClient("client1")
+	if idx == 0 {
+		t.Error("expected to skip blocked key-0")
+	}
+	if key != "key-1" {
+		t.Errorf("expected key-1, got %s", key)
+	}
+
+	// 边界条件：nil pool
+	var nilPool *keyPool
+	nilPool.blockKey(0) // should not panic
+
+	// 边界条件：越界索引
+	pool.blockKey(-1)
+	pool.blockKey(100)
+}
+
+func TestUnblockKey(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0"})
+
+	// 先屏蔽
+	pool.blockKey(0)
+	if !pool.entries[0].blocked {
+		t.Error("expected key-0 to be blocked")
+	}
+
+	// 解除屏蔽
+	pool.unblockKey(0)
+	if pool.entries[0].blocked {
+		t.Error("expected key-0 to be unblocked")
+	}
+	if pool.entries[0].exhausted {
+		t.Error("expected exhausted to be cleared")
+	}
+
+	// 边界条件：nil pool
+	var nilPool *keyPool
+	nilPool.unblockKey(0) // should not panic
+
+	// 边界条件：越界索引
+	pool.unblockKey(-1)
+	pool.unblockKey(100)
+}
+
+func TestKeyPoolStatus(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 初始状态
+	statuses := pool.status()
+	if len(statuses) != 3 {
+		t.Fatalf("expected 3 statuses, got %d", len(statuses))
+	}
+
+	// 第一个 key 应该是"使用中"
+	if statuses[0].Status != "使用中" {
+		t.Errorf("expected first key status to be '使用中', got %q", statuses[0].Status)
+	}
+
+	// 其他 key 应该是"等待中"
+	if statuses[1].Status != "等待中" {
+		t.Errorf("expected second key status to be '等待中', got %q", statuses[1].Status)
+	}
+
+	// 屏蔽一个 key
+	pool.blockKey(1)
+	statuses = pool.status()
+	if statuses[1].Status != "已屏蔽" {
+		t.Errorf("expected blocked key status to be '已屏蔽', got %q", statuses[1].Status)
+	}
+
+	// 标记一个 key 为额度超限（无 resetTime → quota_exceeded_api → 人工恢复）
+	pool.markExhausted(2, "quota_exceeded")
+	statuses = pool.status()
+	if statuses[2].Status != "额度超限(人工恢复)" {
+		t.Errorf("expected exhausted key status to be '额度超限(人工恢复)', got %q", statuses[2].Status)
+	}
+
+	// 标记一个 key 为限流中
+	pool.markRateLimited(0)
+	statuses = pool.status()
+	if statuses[0].Status != "限流中" {
+		t.Errorf("expected rate limited key status to be '限流中', got %q", statuses[0].Status)
+	}
+
+	// 边界条件：nil pool
+	var nilPool *keyPool
+	if nilPool.status() != nil {
+		t.Error("expected nil pool to return nil status")
+	}
+}
+
 func TestMarkExhausted_QuotaExceeded_WithResetTime(t *testing.T) {
 	// 设置一个未来的 resetTime
 	cst := time.FixedZone("CST", 8*3600)
@@ -475,6 +576,10 @@ func TestMarkExhausted_QuotaExceeded_WithResetTime(t *testing.T) {
 	if !pool.entries[0].cooldownEnd.Equal(pool.resetTime) {
 		t.Errorf("quota_exceeded with future resetTime should use resetTime, got %v want %v", pool.entries[0].cooldownEnd, pool.resetTime)
 	}
+	// exhaustReason 应该是 quota_exceeded_subscription
+	if pool.entries[0].exhaustReason != "quota_exceeded_subscription" {
+		t.Errorf("expected exhaustReason 'quota_exceeded_subscription', got %q", pool.entries[0].exhaustReason)
+	}
 }
 
 func TestMarkExhausted_QuotaExceeded_NoResetTime(t *testing.T) {
@@ -484,6 +589,35 @@ func TestMarkExhausted_QuotaExceeded_NoResetTime(t *testing.T) {
 	// 没有 resetTime，应该永久屏蔽（cooldownEnd 在远未来）
 	if pool.entries[0].cooldownEnd.Year() < 9000 {
 		t.Errorf("quota_exceeded without resetTime should be permanent, got %v", pool.entries[0].cooldownEnd)
+	}
+	// exhaustReason 应该是 quota_exceeded_api
+	if pool.entries[0].exhaustReason != "quota_exceeded_api" {
+		t.Errorf("expected exhaustReason 'quota_exceeded_api', got %q", pool.entries[0].exhaustReason)
+	}
+}
+
+// TestQuotaExceeded_StatusDisplay 验证两种超额子类型的状态显示。
+func TestQuotaExceeded_StatusDisplay(t *testing.T) {
+	cst := time.FixedZone("CST", 8*3600)
+	futureReset := time.Now().In(cst).AddDate(0, 0, 7)
+	resetStr := futureReset.Format("2006-01-02 15:04")
+
+	pool := newKeyPool("test", []string{"key-sub", "key-api"}, resetStr, slog.Default())
+
+	// key-0: 有 resetTime → quota_exceeded_subscription → "额度超限(自动恢复)"
+	pool.markExhausted(0, "quota_exceeded")
+	// key-1: 手动设置为无 resetTime 的情况（模拟 API 额度耗尽）
+	pool.entries[1].exhausted = true
+	pool.entries[1].exhaustReason = "quota_exceeded_api"
+	pool.entries[1].cooldownEnd = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	statuses := pool.status()
+
+	if statuses[0].Status != "额度超限(自动恢复)" {
+		t.Errorf("expected key-0 status '额度超限(自动恢复)', got %q", statuses[0].Status)
+	}
+	if statuses[1].Status != "额度超限(人工恢复)" {
+		t.Errorf("expected key-1 status '额度超限(人工恢复)', got %q", statuses[1].Status)
 	}
 }
 
@@ -615,5 +749,132 @@ func TestIsKeyExhausted(t *testing.T) {
 				t.Errorf("isKeyExhausted() code = %q, want %q", gotCode, tt.wantCode)
 			}
 		})
+	}
+}
+
+// TestInvalidToken_5MinuteCooldown 验证 invalid_token 冷却时间为5分钟（非永久屏蔽）。
+func TestInvalidToken_5MinuteCooldown(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+
+	// 标记 key-0 为 invalid_token
+	pool.markExhausted(0, "invalid_token")
+
+	// key-0 应该被标记为 exhausted
+	if !pool.entries[0].exhausted {
+		t.Error("expected key-0 to be marked exhausted")
+	}
+	if pool.entries[0].exhaustReason != "invalid_token" {
+		t.Errorf("expected exhaustReason 'invalid_token', got %q", pool.entries[0].exhaustReason)
+	}
+
+	// 冷却时间应该是 5 分钟后（非永久）
+	expectedCooldown := time.Now().Add(5 * time.Minute)
+	diff := pool.entries[0].cooldownEnd.Sub(expectedCooldown)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("expected cooldown around 5 minutes, got %v", pool.entries[0].cooldownEnd.Sub(time.Now()))
+	}
+
+	// 冷却时间不应该是永久（9999年）
+	permanentEnd := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+	if pool.entries[0].cooldownEnd.Equal(permanentEnd) {
+		t.Error("invalid_token should not use permanent cooldown")
+	}
+}
+
+// TestBillingError_5MinuteCooldown 验证 billing_error 冷却时间为5分钟。
+func TestBillingError_5MinuteCooldown(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0"})
+
+	pool.markExhausted(0, "billing_error")
+
+	expectedCooldown := time.Now().Add(5 * time.Minute)
+	diff := pool.entries[0].cooldownEnd.Sub(expectedCooldown)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("expected cooldown around 5 minutes, got %v", pool.entries[0].cooldownEnd.Sub(time.Now()))
+	}
+}
+
+// TestWakeUp_Singleton 验证唤醒模型单例化（并发调用只执行一次）。
+func TestWakeUp_Singleton(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1"})
+
+	// 标记所有 key 为 exhausted
+	pool.markExhausted(0, "invalid_token")
+	pool.markExhausted(1, "invalid_token")
+
+	now := time.Now()
+
+	// 第一次调用应该成功
+	if !pool.tryWakeUp(now) {
+		t.Error("first tryWakeUp should succeed")
+	}
+
+	// 第二次调用应该失败（已有协程在执行）
+	if pool.tryWakeUp(now) {
+		t.Error("second tryWakeUp should fail (singleton)")
+	}
+
+	// 完成唤醒
+	pool.wakeUpComplete()
+
+	// 冷却期内再次调用应该失败
+	if pool.tryWakeUp(now.Add(30 * time.Second)) {
+		t.Error("tryWakeUp within cooldown should fail")
+	}
+
+	// 冷却期后再次调用应该成功
+	if !pool.tryWakeUp(now.Add(2 * time.Minute)) {
+		t.Error("tryWakeUp after cooldown should succeed")
+	}
+	pool.wakeUpComplete()
+}
+
+// TestWakeUp_Cooldown 验证唤醒冷却（1分钟内不重复触发）。
+func TestWakeUp_Cooldown(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0"})
+
+	now := time.Now()
+
+	// 第一次调用应该成功
+	if !pool.tryWakeUp(now) {
+		t.Error("first tryWakeUp should succeed")
+	}
+	pool.wakeUpComplete()
+
+	// 冷却期内（30秒后）应该失败
+	if pool.tryWakeUp(now.Add(30 * time.Second)) {
+		t.Error("tryWakeUp within 1 minute cooldown should fail")
+	}
+
+	// 冷却期后（2分钟后）应该成功
+	if !pool.tryWakeUp(now.Add(2 * time.Minute)) {
+		t.Error("tryWakeUp after 1 minute cooldown should succeed")
+	}
+	pool.wakeUpComplete()
+}
+
+// TestGetExhaustedKeys 验证获取被屏蔽的 key 列表（按冷却时间排序）。
+func TestGetExhaustedKeys(t *testing.T) {
+	pool := newTestKeyPool([]string{"key-0", "key-1", "key-2"})
+
+	// 标记 key-0 为 invalid_token（5分钟冷却）
+	pool.markExhausted(0, "invalid_token")
+	// 标记 key-1 为 rate_limited（5秒冷却）
+	pool.markRateLimited(1)
+	// key-2 保持 active
+
+	exhausted := pool.getExhaustedKeys()
+
+	// 应该返回 2 个 key（key-0 和 key-1）
+	if len(exhausted) != 2 {
+		t.Errorf("expected 2 exhausted keys, got %d", len(exhausted))
+	}
+
+	// 应该按冷却时间排序：key-1（5秒）在前，key-0（5分钟）在后
+	if exhausted[0] != 1 {
+		t.Errorf("expected first exhausted key to be key-1 (shorter cooldown), got key-%d", exhausted[0])
+	}
+	if exhausted[1] != 0 {
+		t.Errorf("expected second exhausted key to be key-0 (longer cooldown), got key-%d", exhausted[1])
 	}
 }

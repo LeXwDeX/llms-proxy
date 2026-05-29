@@ -3,9 +3,11 @@ package proxy
 
 import (
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,6 +31,7 @@ type keyEntry struct {
 // keyPool 管理一个 target 的多个 API key。
 // 支持轮询分配 + 客户端亲和（首次分配后记忆绑定）、耗尽检测、冷却恢复。
 // 支持 token 感知调度：新客户端优先分配到滑动窗口内累计 token 最少的 key。
+// 支持唤醒模型：所有 key 不可用时，单例化探测被屏蔽的 key 是否恢复。
 // 适用于所有 provider 类型。
 type keyPool struct {
 	mu             sync.Mutex
@@ -39,6 +42,10 @@ type keyPool struct {
 	rrCounter      uint32        // 轮询计数器，新客户端按此值分配 key
 	clientAffinity map[string]int // 客户端 → 已分配的 key index（记忆绑定）
 	tokenWindow    time.Duration // token 统计滑动窗口时长（默认 3 分钟）
+	
+	// 唤醒模型：所有 key 不可用时，单例化探测被屏蔽的 key 是否恢复
+	wakeUpCooldown   time.Time    // 唤醒冷却时间（1分钟内不重复触发）
+	wakeUpInProgress atomic.Bool  // 单例标记（防止并发惊群）
 }
 
 func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *slog.Logger) *keyPool {
@@ -321,23 +328,32 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 	now := time.Now()
 	p.entries[index].exhausted = true
 	p.entries[index].exhaustedAt = now
-	p.entries[index].exhaustReason = errorCode
 	
 	// 按 errorCode 计算冷却结束时间
-	// quota_exceeded → resetTime（如已配置且在未来），否则永久屏蔽
-	// rate_limited → 30 秒冷却（限流是临时的，同账号共享配额，换 key 也会被限）
+	// quota_exceeded → 根据 resetTime 拆分为两种子类型：
+	//   - 有 resetTime → quota_exceeded_subscription（自动恢复）
+	//   - 无 resetTime → quota_exceeded_api（人工恢复，永久屏蔽）
+	// rate_limited → 5 秒冷却（限流是临时的，短冷却后重试）
+	// invalid_token / billing_error / account_disabled → 5 分钟冷却（防止误判导致永久屏蔽，支持唤醒恢复）
 	// 其他错误 → 永久屏蔽（需手动解除）
 	permanentEnd := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	switch errorCode {
 	case "quota_exceeded":
 		if !p.resetTime.IsZero() && p.resetTime.After(now) {
+			p.entries[index].exhaustReason = "quota_exceeded_subscription"
 			p.entries[index].cooldownEnd = p.resetTime
 		} else {
+			p.entries[index].exhaustReason = "quota_exceeded_api"
 			p.entries[index].cooldownEnd = permanentEnd
 		}
 	case "rate_limited":
-		p.entries[index].cooldownEnd = now.Add(30 * time.Second)
+		p.entries[index].exhaustReason = errorCode
+		p.entries[index].cooldownEnd = now.Add(5 * time.Second)
+	case "invalid_token", "billing_error", "account_disabled":
+		p.entries[index].exhaustReason = errorCode
+		p.entries[index].cooldownEnd = now.Add(5 * time.Minute)
 	default:
+		p.entries[index].exhaustReason = errorCode
 		p.entries[index].cooldownEnd = permanentEnd
 	}
 	
@@ -351,7 +367,7 @@ func (p *keyPool) markExhausted(index int, errorCode string) {
 	)
 }
 
-// markRateLimited 标记指定 key 为限流状态（30 秒冷却）。
+// markRateLimited 标记指定 key 为限流状态（5 秒冷却）。
 // 与 markExhausted 不同，限流是临时的，冷却后自动恢复。
 func (p *keyPool) markRateLimited(index int) {
 	p.markExhausted(index, "rate_limited")
@@ -507,7 +523,12 @@ func (p *keyPool) status() []KeyStatus {
 		switch {
 		case e.blocked:
 			ks.Status = "已屏蔽"
+		case e.exhausted && e.exhaustReason == "quota_exceeded_subscription":
+			ks.Status = "额度超限(自动恢复)"
+		case e.exhausted && e.exhaustReason == "quota_exceeded_api":
+			ks.Status = "额度超限(人工恢复)"
 		case e.exhausted && e.exhaustReason == "quota_exceeded":
+			// 向后兼容：旧的 quota_exceeded 状态
 			ks.Status = "额度超限"
 		case e.exhausted && e.exhaustReason == "rate_limited" && now.Before(e.cooldownEnd):
 			ks.Status = "限流中"
@@ -607,4 +628,80 @@ func (p *keyPool) leastTokenActiveKeyIndex() int {
 		return -2 // 有 active key 但无数据，退化为轮询
 	}
 	return bestIdx
+}
+
+// tryWakeUp 尝试触发唤醒模型。
+// 返回 true 表示成功获取唤醒锁（调用方应执行探测逻辑），返回 false 表示唤醒冷却中或已有其他协程在执行。
+// 调用方必须在探测完成后调用 wakeUpComplete()。
+func (p *keyPool) tryWakeUp(now time.Time) bool {
+	if p == nil {
+		return false
+	}
+	
+	// 检查冷却
+	p.mu.Lock()
+	if now.Before(p.wakeUpCooldown) {
+		p.mu.Unlock()
+		return false
+	}
+	p.mu.Unlock()
+	
+	// 单例检查（原子操作）
+	if !p.wakeUpInProgress.CompareAndSwap(false, true) {
+		return false // 已有其他协程在执行唤醒
+	}
+	
+	p.logger.Info("[keypool] wake-up model triggered",
+		"target", p.targetName,
+	)
+	return true
+}
+
+// wakeUpComplete 唤醒探测完成后调用，设置冷却并重置单例标记。
+func (p *keyPool) wakeUpComplete() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.wakeUpCooldown = time.Now().Add(1 * time.Minute)
+	p.mu.Unlock()
+	p.wakeUpInProgress.Store(false)
+}
+
+// getExhaustedKeys 返回所有被屏蔽或超额的 key 索引（用于唤醒探测）。
+// 按冷却剩余时间从短到长排序，优先探测即将恢复的 key。
+func (p *keyPool) getExhaustedKeys() []int {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	now := time.Now()
+	type keyWithRemaining struct {
+		index     int
+		remaining time.Duration
+	}
+	var exhausted []keyWithRemaining
+	
+	for i := range p.entries {
+		if p.entries[i].exhausted || p.entries[i].blocked {
+			remaining := p.entries[i].cooldownEnd.Sub(now)
+			if remaining < 0 {
+				remaining = 0
+			}
+			exhausted = append(exhausted, keyWithRemaining{index: i, remaining: remaining})
+		}
+	}
+	
+	// 按冷却剩余时间排序（短的优先）
+	sort.Slice(exhausted, func(i, j int) bool {
+		return exhausted[i].remaining < exhausted[j].remaining
+	})
+	
+	result := make([]int, len(exhausted))
+	for i, e := range exhausted {
+		result[i] = e.index
+	}
+	return result
 }

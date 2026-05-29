@@ -1928,11 +1928,20 @@
           var keyPoolInfo = "";
           if (Array.isArray(t.key_statuses) && t.key_statuses.length > 0) {
             var blockedCount = t.key_statuses.filter(function(s){ return s.blocked; }).length;
+            var quotaSubCount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "quota_exceeded_subscription"; }).length;
+            var quotaAPICount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "quota_exceeded_api"; }).length;
             var quotaCount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "quota_exceeded"; }).length;
             var rateCount = t.key_statuses.filter(function(s){ return s.exhausted && s.exhaust_reason === "rate_limited"; }).length;
             if (blockedCount > 0) keyPoolInfo += " <span style='background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:11px;'>" + blockedCount + " 屏蔽</span>";
+            if (quotaSubCount > 0) keyPoolInfo += " <span style='background:#fef3c7;color:#d97706;padding:1px 6px;border-radius:4px;font-size:11px;'>" + quotaSubCount + " 超限(自动)</span>";
+            if (quotaAPICount > 0) keyPoolInfo += " <span style='background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:4px;font-size:11px;'>" + quotaAPICount + " 超限(人工)</span>";
             if (quotaCount > 0) keyPoolInfo += " <span style='background:#fef3c7;color:#d97706;padding:1px 6px;border-radius:4px;font-size:11px;'>" + quotaCount + " 超限</span>";
             if (rateCount > 0) keyPoolInfo += " <span style='background:#ffedd5;color:#c2410c;padding:1px 6px;border-radius:4px;font-size:11px;'>" + rateCount + " 限流</span>";
+            // 唤醒按钮：当有超额/屏蔽的 key 时显示
+            var exhaustedCount = blockedCount + quotaSubCount + quotaAPICount + quotaCount;
+            if (exhaustedCount > 0) {
+              keyPoolInfo += " <button class='btn btn-sm' data-wakeup-target='"+esc(t.name)+"' title='唤醒探测被屏蔽的Key' style='padding:1px 6px;font-size:11px;background:#10b981;color:white;border:none;border-radius:4px;cursor:pointer;'>🔄 唤醒</button>";
+            }
           }
           keyStatus += keyPoolInfo;
           var sseAgg = (t.sse_auto_aggregate !== false)
@@ -1966,6 +1975,18 @@
               toast("已删除目标: "+name, "success");
               await loadTargets();
             } catch(e) { toast("删除失败: "+e.message, "error"); }
+          });
+        }
+        // 唤醒按钮处理
+        if (t.dataset.wakeupTarget) {
+          var name = t.dataset.wakeupTarget;
+          showConfirm("确认对目标「"+name+"」执行唤醒探测？\n将尝试恢复所有被屏蔽/超额的 Key。", async function() {
+            try {
+              var result = await api("/admin/data/targets/"+encodeURIComponent(name)+"/keys/wakeup", {method:"POST"});
+              var recovered = result.recovered || 0;
+              toast("唤醒完成: 恢复了 " + recovered + " 个 Key", "success");
+              await loadTargets();
+            } catch(e) { toast("唤醒失败: "+e.message, "error"); }
           });
         }
 
