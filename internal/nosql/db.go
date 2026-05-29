@@ -17,13 +17,14 @@ const (
 	BucketMeta            = "meta"
 	BucketCopilotPools    = "copilot_pools"
 	BucketCopilotAccounts = "copilot_accounts"
+	BucketTargets         = "targets"
 )
 
 var allBuckets = []string{
 	BucketClients, BucketModelCosts, BucketUsageEvents,
 	BucketAdminUsers, BucketAdminAudit, BucketMeta,
 	BucketCopilotPools, BucketCopilotAccounts,
-	BucketUsageAggHourly,
+	BucketUsageAggHourly, BucketTargets,
 }
 
 // OpenDB opens a bbolt database and creates all required buckets.
