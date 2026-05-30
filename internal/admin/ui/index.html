@@ -1297,6 +1297,19 @@
           </select>
         </div>
         <div class="form-group">
+          <label>models.dev 匹配模式</label>
+          <select class="form-control" id="mcCatalogMatchMode">
+            <option value="auto">自动：按当前类型匹配</option>
+            <option value="manual">手动：选择参考 Provider</option>
+          </select>
+          <small style="color:var(--text-muted)">自动沿用当前类型；手动可从其他 Provider 的模型目录检索并带入参考价格。</small>
+        </div>
+        <div class="form-group" id="mcCatalogProviderGroup" style="display:none;">
+          <label>参考 Provider</label>
+          <select class="form-control endpoint-type-select" id="mcCatalogProvider">
+          </select>
+        </div>
+        <div class="form-group">
           <label>模型名称</label>
           <input class="form-control" id="mcModel" placeholder="例如：gpt-4o" required>
           <div id="mcModelSuggestions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;max-height:120px;overflow-y:auto;"></div>
@@ -1388,8 +1401,8 @@
         </div>
         <div class="form-group" id="tgtKeyResetTimeGroup">
           <label>Key 额度重置时间</label>
-          <input class="form-control" id="tgtKeyResetTime" type="text" placeholder="2026-07-01 或 2026-07-01 08:00">
-          <small style="color:var(--text-muted)">额度耗尽的 Key 将在此时间点自动恢复（CST/UTC+8，留空则使用默认冷却期）</small>
+          <input class="form-control" id="tgtKeyResetTime" type="text" placeholder="23（每月23号）或 2026-07-01 08:00">
+          <small style="color:var(--text-muted)">额度耗尽的 Key 将在此时间点自动恢复（CST/UTC+8；可填每月几号如 23，留空则使用默认冷却期）</small>
         </div>
         <div class="form-group">
           <label style="display:flex;align-items:center;gap:8px;">
@@ -2358,6 +2371,21 @@
         }
         return null;
       }
+      function mcCatalogEpType() {
+        var modeEl = document.getElementById("mcCatalogMatchMode");
+        var mode = modeEl ? modeEl.value : "auto";
+        if (mode === "manual") {
+          return document.getElementById("mcCatalogProvider").value || document.getElementById("mcEndpointType").value;
+        }
+        return document.getElementById("mcEndpointType").value;
+      }
+      function updateMcCatalogMatchMode() {
+        var mode = document.getElementById("mcCatalogMatchMode").value;
+        var group = document.getElementById("mcCatalogProviderGroup");
+        group.style.display = mode === "manual" ? "" : "none";
+        var provider = document.getElementById("mcCatalogProvider");
+        if (!provider.value) provider.value = document.getElementById("mcEndpointType").value;
+      }
       function applyMcCatalogCost(cost) {
         if (!cost) {
           document.getElementById("mcInputHint").textContent = "";
@@ -2399,7 +2427,7 @@
         }
       }
       async function mcTryFillCost() {
-        var epType = document.getElementById("mcEndpointType").value;
+        var epType = mcCatalogEpType();
         var modelName = document.getElementById("mcModel").value.trim();
         if (!modelName) { applyMcCatalogCost(null); return; }
         var models = await loadCatalog(epType);
@@ -2411,6 +2439,9 @@
         state.editingModelCostEp = endpointType || "azure_openai";
         document.getElementById("modelCostModalTitle").textContent = modelName ? "编辑模型费用" : "新增模型费用";
         document.getElementById("mcEndpointType").value = endpointType || "azure_openai";
+        document.getElementById("mcCatalogMatchMode").value = "auto";
+        document.getElementById("mcCatalogProvider").value = endpointType || "azure_openai";
+        updateMcCatalogMatchMode();
         document.getElementById("mcModel").value = modelName || "";
         document.getElementById("mcModel").readOnly = !!modelName;
         document.getElementById("mcInputHint").textContent = "";
@@ -2426,7 +2457,7 @@
           document.getElementById("mcOutputPrice").value = existing ? (existing.output_per_1m_tokens != null ? existing.output_per_1m_tokens : "") : "";
           document.getElementById("mcCachedPrice").value = existing ? (existing.cached_input_per_1m_tokens != null ? existing.cached_input_per_1m_tokens : "") : "";
           // 异步加载 catalog 参考值（仅更新 hint，不覆盖输入框）
-          loadCatalog(epType).then(function(models) {
+          loadCatalog(mcCatalogEpType()).then(function(models) {
             var cost = findCatalogCost(models, modelName);
             if (cost) {
               document.getElementById("mcInputHint").textContent = cost.input_per_1m_tokens != null ? "(参考: "+cost.input_per_1m_tokens+")" : "";
@@ -2444,9 +2475,23 @@
         openModal("modelCostModal");
       }
       document.getElementById("mcEndpointType").addEventListener("change", function() {
-        var epType = this.value;
+        if (document.getElementById("mcCatalogMatchMode").value === "auto") {
+          document.getElementById("mcCatalogProvider").value = this.value;
+        }
+        var epType = mcCatalogEpType();
         var filterText = document.getElementById("mcModel").value;
         renderMcModelSuggestions(epType, filterText);
+        mcTryFillCost();
+      });
+      document.getElementById("mcCatalogMatchMode").addEventListener("change", function() {
+        updateMcCatalogMatchMode();
+        var filterText = document.getElementById("mcModel").value;
+        renderMcModelSuggestions(mcCatalogEpType(), filterText);
+        mcTryFillCost();
+      });
+      document.getElementById("mcCatalogProvider").addEventListener("change", function() {
+        var filterText = document.getElementById("mcModel").value;
+        renderMcModelSuggestions(mcCatalogEpType(), filterText);
         mcTryFillCost();
       });
       var mcModelDebounce = null;
@@ -2456,7 +2501,7 @@
         mcModelDebounce = setTimeout(function() {
           mcTryFillCost();
           if (!self.readOnly) {
-            var epType = document.getElementById("mcEndpointType").value;
+            var epType = mcCatalogEpType();
             renderMcModelSuggestions(epType, self.value);
           }
         }, 300);

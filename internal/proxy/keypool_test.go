@@ -348,7 +348,7 @@ func TestSelectNextActiveKey(t *testing.T) {
 	}
 }
 
-// TestPeriodicResetTime 验证周期性 resetTime（monthly:23）。
+// TestPeriodicResetTime 验证周期性 resetTime（monthly:23 / 23）。
 func TestPeriodicResetTime(t *testing.T) {
 	// 测试 monthly:23 格式
 	pool := newKeyPool("test", []string{"key-a"}, "monthly:23", slog.Default())
@@ -358,6 +358,13 @@ func TestPeriodicResetTime(t *testing.T) {
 	// 验证日期是 23 号
 	if pool.resetTime.Day() != 23 {
 		t.Errorf("expected day 23, got %d", pool.resetTime.Day())
+	}
+	poolDayOnly := newKeyPool("test", []string{"key-a"}, "23", slog.Default())
+	if poolDayOnly.resetTime.IsZero() {
+		t.Error("expected resetTime to be set for day-only 23")
+	}
+	if poolDayOnly.resetTime.Day() != 23 {
+		t.Errorf("expected day 23 for day-only input, got %d", poolDayOnly.resetTime.Day())
 	}
 
 	// 测试无效格式
@@ -369,6 +376,16 @@ func TestPeriodicResetTime(t *testing.T) {
 	pool3 := newKeyPool("test", []string{"key-a"}, "monthly:abc", slog.Default())
 	if !pool3.resetTime.IsZero() {
 		t.Error("expected resetTime to be zero for invalid monthly:abc")
+	}
+}
+
+func TestMonthlyResetTimeRecomputesNextCycle(t *testing.T) {
+	cst := time.FixedZone("CST", 8*3600)
+	now := time.Date(2026, time.May, 30, 4, 0, 0, 0, cst)
+	next := parseResetTimeSpec("test", "23", slog.Default(), now)
+	want := time.Date(2026, time.June, 23, 0, 0, 0, 0, cst)
+	if !next.Equal(want) {
+		t.Fatalf("expected next monthly reset %v, got %v", want, next)
 	}
 }
 
