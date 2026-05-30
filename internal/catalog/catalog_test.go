@@ -23,7 +23,7 @@ func TestNew(t *testing.T) {
 	for _, e := range all {
 		types[e.EndpointType] = true
 	}
-	for _, et := range []string{config.EndpointTypeOpenAI, config.EndpointTypeAzureOpenAI, config.EndpointTypeClaude, config.EndpointTypeBailian} {
+	for _, et := range []string{config.EndpointTypeOpenAI, config.EndpointTypeAzureOpenAI, config.EndpointTypeClaude} {
 		if !types[et] {
 			t.Errorf("missing endpoint_type %q in catalog", et)
 		}
@@ -46,8 +46,6 @@ func TestLookup(t *testing.T) {
 		{"case insensitive", "OPENAI", "GPT-4O", false},
 		{"claude sonnet 4", "claude", "claude-sonnet-4-20250514", false},
 		{"azure openai gpt-4o", "azure_openai", "gpt-4o", false},
-		{"bailian qwen", "bailian", "qwen3.7-max", false},
-		{"bailian qwen case insensitive", "BAILIAN", "QWEN3.7-MAX", false},
 		{"nonexistent", "openai", "nonexistent-model", true},
 	}
 
@@ -126,21 +124,6 @@ func TestListByEndpointType(t *testing.T) {
 	azureModels := c.ListByEndpointType("azure_openai")
 	if len(azureModels) == 0 {
 		t.Error("no azure_openai models found")
-	}
-
-	bailianModels := c.ListByEndpointType("bailian")
-	if len(bailianModels) == 0 {
-		t.Error("no bailian models found")
-	}
-	foundQwen := false
-	for _, m := range bailianModels {
-		if m.Model == "qwen3.7-max" {
-			foundQwen = true
-			break
-		}
-	}
-	if !foundQwen {
-		t.Error("bailian catalog should include qwen3.7-max")
 	}
 
 	// ListByEndpointType should be case insensitive

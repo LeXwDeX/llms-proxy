@@ -18,7 +18,8 @@ import sys
 from typing import Any, Optional
 
 
-# models.dev provider id -> 本项目 endpoint_type 的映射
+# models.dev provider id -> 本项目 endpoint_type 的兼容映射。
+# 未列出的 provider 不再丢弃，直接使用 models.dev 的 provider id 作为 endpoint_type。
 PROVIDER_MAP = {
     "openai": "openai",
     "azure": "azure_openai",
@@ -27,6 +28,11 @@ PROVIDER_MAP = {
     "alibaba": "bailian",
     "dashscope": "bailian",
 }
+
+
+def endpoint_type_for_provider(provider_id: str) -> str:
+    """返回 provider 对应的 endpoint_type；未知 provider 保持原始 id。"""
+    return PROVIDER_MAP.get(provider_id, provider_id)
 
 
 def convert_cost(cost_obj: dict) -> Optional[dict]:
@@ -76,9 +82,7 @@ def extract_capabilities(m: dict) -> list[str]:
 
 def transform_model(provider_id: str, model_id: str, m: dict) -> Optional[dict]:
     """将外部模型数据转换为项目内部格式。"""
-    endpoint_type = PROVIDER_MAP.get(provider_id)
-    if not endpoint_type:
-        return None
+    endpoint_type = endpoint_type_for_provider(provider_id)
 
     entry: dict[str, Any] = {
         "endpoint_type": endpoint_type,
@@ -343,35 +347,6 @@ def _supplementary_models() -> list[dict]:
     ]
     extras.extend(deepseek_models)
 
-    # --- 百炼 Token Plan / 通义千问 ---
-    # models.dev 的 provider 命名可能随上游调整；这里保留常用 Qwen 条目，
-    # 确保模型目录在上游缺失或下载失败时仍能用于选择百炼模型。
-    qwen_chat_caps = ["chat", "function_calling", "structured_output", "reasoning"]
-    qwen_models = [
-        ("qwen3.7-max", "Qwen 3.7 Max", qwen_chat_caps, "qwen3.7"),
-        ("qwen3.6-plus", "Qwen 3.6 Plus", qwen_chat_caps, "qwen3.6"),
-        ("qwen3.6-flash", "Qwen 3.6 Flash", qwen_chat_caps, "qwen3.6"),
-        ("qwen3-coder-plus", "Qwen3 Coder Plus", qwen_chat_caps, "qwen3-coder"),
-        ("qwen-max", "Qwen Max", ["chat", "function_calling", "structured_output"], "qwen"),
-        ("qwen-plus", "Qwen Plus", ["chat", "function_calling", "structured_output"], "qwen"),
-        ("qwen-turbo", "Qwen Turbo", ["chat", "function_calling"], "qwen"),
-        ("qwen-long", "Qwen Long", ["chat"], "qwen"),
-        ("qwen-vl-max", "Qwen VL Max", ["chat", "vision"], "qwen-vl"),
-        ("qwen-vl-plus", "Qwen VL Plus", ["chat", "vision"], "qwen-vl"),
-        ("qwen-image-2.0", "Qwen Image 2.0", ["image_generation"], "qwen-image"),
-        ("qwen-image-2.0-pro", "Qwen Image 2.0 Pro", ["image_generation"], "qwen-image"),
-    ]
-    for model_id, name, caps, family in qwen_models:
-        extras.append(
-            {
-                "endpoint_type": "bailian",
-                "model": model_id,
-                "display_name": name,
-                "capabilities": list(caps),
-                "model_family": family,
-            }
-        )
-
     return extras
 
 
@@ -414,11 +389,12 @@ def main():
     entries = []
     seen_keys = set()
 
-    for provider_id, endpoint_type in PROVIDER_MAP.items():
-        provider = raw.get(provider_id)
-        if not provider:
-            print(f"警告: 数据中未找到 provider '{provider_id}'，跳过")
+    for provider_id, provider in raw.items():
+        if not isinstance(provider, dict):
+            print(f"警告: provider '{provider_id}' 不是对象，跳过")
             continue
+
+        endpoint_type = endpoint_type_for_provider(provider_id)
 
         models = provider.get("models", {})
         if not isinstance(models, dict):
@@ -427,6 +403,9 @@ def main():
 
         count = 0
         for model_id, model_data in models.items():
+            if not isinstance(model_data, dict):
+                print(f"警告: provider '{provider_id}' 的模型 '{model_id}' 不是对象，跳过")
+                continue
             entry = transform_model(provider_id, model_id, model_data)
             if entry:
                 key = (entry["endpoint_type"], entry["model"])

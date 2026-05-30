@@ -4,7 +4,7 @@
 
 ## 功能特性
 - **多类型上游端点**：支持四种上游类型 —— `azure_openai`、`openai`、`claude`、`gemini`，每个 target 通过 `endpoint_type` 字段区分。
-- **内嵌模型目录**：内置模型元数据的本地数据库（`internal/catalog`），涵盖 Azure OpenAI、OpenAI、Claude 和 Gemini 的模型，提供默认费用参考和别名解析，无需外部网络请求。
+- **内嵌模型目录**：内置模型元数据的本地数据库（`internal/catalog`），构建时从 models.dev 更新并保留上游 provider，提供默认费用参考和别名解析，无需运行时外部网络请求。
 - **endpoint_type + model 双维度费用与消费统计**：模型费用与消费事件均按上游类型维度追踪，支持精细化成本分析。
 - **后台目标管理（Target CRUD）**：通过管理接口和 Web UI 动态添加、修改、删除上游目标，无需重启服务。
 - 基于 JSON 的配置文件，并支持管理接口触发热加载。
@@ -21,7 +21,7 @@
 cmd/proxy/           # 应用入口
 config/              # 配置样例与模板
 internal/            # 核心模块（auth、catalog、config、proxy、middleware、logging、admin）
-internal/catalog/    # 嵌入式模型元数据目录（187 条模型数据）
+internal/catalog/    # 嵌入式模型元数据目录
 logs/                # 默认日志目录（已预留轮转能力）
 scripts/             # 辅助脚本
 test/integration/    # 集成测试（使用 -tags integration 运行）
@@ -135,7 +135,7 @@ curl -X POST -b "llms_proxy_admin_session=<session-cookie>" \
 | `/admin/data/*`       | GET/POST/PUT/DELETE | 客户端、模型费用、消费统计 JSON API |
 | `/admin/data/targets` | GET/POST | 目标列表 / 创建目标                |
 | `/admin/data/targets/{name}` | PUT/DELETE | 更新 / 删除指定目标          |
-| `/admin/data/catalog` | GET  | 模型目录查询（内嵌 187 条模型数据） |
+| `/admin/data/catalog` | GET  | 模型目录查询（内嵌模型数据） |
 | `/admin/data/catalog/{endpoint_type}` | GET | 按上游类型筛选模型目录 |
 
 ## 测试

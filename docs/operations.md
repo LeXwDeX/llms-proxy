@@ -112,7 +112,7 @@ curl -sS \
 
 ## Model Catalog Operations
 
-The project ships an **embedded model catalog** (`internal/catalog/data/models.json`) containing ~187 model entries across all four endpoint types (`azure_openai`, `openai`, `claude`, `gemini`). The catalog provides default cost data, display names, capability tags, and model aliases.
+The project ships an **embedded model catalog** (`internal/catalog/data/models.json`) generated from models.dev. Known providers are mapped to existing endpoint types, and unknown upstream providers are kept with their provider id as `endpoint_type` so newly added providers are not dropped during build-time refreshes. The catalog provides default cost data, display names, capability tags, and model aliases.
 
 ### How the catalog is used
 - The catalog is compiled into the binary via `go:embed` — no external network calls are needed at runtime.
@@ -129,7 +129,7 @@ The project ships an **embedded model catalog** (`internal/catalog/data/models.j
    ```sh
    python3 scripts/update-model-catalog.py /tmp/models_dev_raw.json internal/catalog/data/models.json
    ```
-   The script converts prices from $/million tokens to $/thousand tokens, maps providers to `endpoint_type` values (`openai` → `openai`, `azure` → `azure_openai`, `anthropic` → `claude`, `google` → `gemini`), and supplements common models that may be missing from the upstream data.
+   The script converts prices from $/million tokens, maps known providers to existing `endpoint_type` values (`openai` → `openai`, `azure` → `azure_openai`, `anthropic` → `claude`, `google` → `gemini`), keeps unknown providers instead of trimming them, and supplements only project-specific compatibility entries that may be missing from the upstream data.
 3. Rebuild the binary (the JSON is embedded at compile time):
    ```sh
    make build
