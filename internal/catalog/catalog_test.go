@@ -133,6 +133,29 @@ func TestListByEndpointType(t *testing.T) {
 	}
 }
 
+func TestWangsuOpenAIUsesCanonicalCatalog(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	entry := c.Lookup(config.EndpointTypeWangsuOpenAI, "gpt-5.5")
+	if entry == nil {
+		t.Fatal("Lookup(wangsu_openai, gpt-5.5) returned nil")
+	}
+	if entry.EndpointType != config.EndpointTypeOpenAI {
+		t.Errorf("expected canonical endpoint_type %q, got %q", config.EndpointTypeOpenAI, entry.EndpointType)
+	}
+
+	for _, e := range c.ListAll() {
+		if e.EndpointType == config.EndpointTypeWangsuOpenAI ||
+			e.EndpointType == config.EndpointTypeWangsuClaude ||
+			e.EndpointType == config.EndpointTypeWangsuGemini {
+			t.Errorf("wangsu provider entry %q should not be stored directly in catalog", e.EndpointType)
+		}
+	}
+}
+
 func TestResolveAlias(t *testing.T) {
 	c, err := New()
 	if err != nil {

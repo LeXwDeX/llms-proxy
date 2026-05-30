@@ -3872,23 +3872,6 @@
     ]
   },
   {
-    "endpoint_type": "wangsu_openai",
-    "model": "gpt-5.5",
-    "display_name": "GPT-5.5 (Preview)",
-    "default_cost": {
-      "input_per_1m_tokens": 2.5,
-      "output_per_1m_tokens": 15,
-      "cached_input_per_1m_tokens": 0.25
-    },
-    "capabilities": [
-      "vision",
-      "function_calling",
-      "structured_output",
-      "reasoning"
-    ],
-    "model_family": "gpt-5"
-  },
-  {
     "endpoint_type": "wangsu_openai_image",
     "model": "gpt-image-1.5",
     "display_name": "GPT Image 1.5 (Wangsu - Generations)",

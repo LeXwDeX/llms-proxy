@@ -25,8 +25,8 @@ PROVIDER_MAP = {
     "azure": "azure_openai",
     "anthropic": "claude",
     "google": "gemini",
+    "github-copilot": "copilot",
     "alibaba": "bailian",
-    "dashscope": "bailian",
 }
 
 
@@ -203,7 +203,7 @@ def _supplementary_models() -> list[dict]:
         "cached_input_per_1m_tokens": 0.25,
     }
     gpt55_caps = ["vision", "function_calling", "structured_output", "reasoning"]
-    for ep in ("azure_openai", "openai", "wangsu_openai"):
+    for ep in ("azure_openai", "openai"):
         extras.append(
             {
                 "endpoint_type": ep,
