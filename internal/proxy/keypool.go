@@ -39,6 +39,7 @@ type keyPool struct {
 	mu             sync.Mutex
 	entries        []keyEntry
 	resetTime      time.Time // 额度重置时间点（零值表示未配置）
+	resetTimeSpec  string    // 原始配置；monthly/日号格式需要按当前时间重新计算下一次重置
 	logger         *slog.Logger
 	targetName     string
 	rrCounter      uint32         // 轮询计数器，新客户端按此值分配 key
@@ -67,40 +68,8 @@ func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *s
 		logger = slog.Default()
 	}
 
-	// 解析 resetTimeStr
-	var resetTime time.Time
-	cst := time.FixedZone("CST", 8*3600)
-	if resetTimeStr != "" {
-		// 支持周期性格式：monthly:23（每月23号）
-		if strings.HasPrefix(resetTimeStr, "monthly:") {
-			dayStr := strings.TrimPrefix(resetTimeStr, "monthly:")
-			if day, err := strconv.Atoi(dayStr); err == nil && day >= 1 && day <= 31 {
-				// 计算下一个重置日期
-				now := time.Now().In(cst)
-				next := time.Date(now.Year(), now.Month(), day, 0, 0, 0, 0, cst)
-				if !next.After(now) {
-					// 如果本月已过，推到下月
-					next = next.AddDate(0, 1, 0)
-				}
-				resetTime = next
-			} else {
-				logger.Warn("[keypool] invalid monthly reset_time format, ignoring",
-					"target", targetName,
-					"reset_time", resetTimeStr,
-				)
-			}
-		} else if t, err := time.ParseInLocation("2006-01-02", resetTimeStr, cst); err == nil {
-			resetTime = t
-		} else if t, err := time.ParseInLocation("2006-01-02 15:04", resetTimeStr, cst); err == nil {
-			resetTime = t
-		} else {
-			logger.Warn("[keypool] invalid reset_time format, ignoring",
-				"target", targetName,
-				"reset_time", resetTimeStr,
-				"error", err,
-			)
-		}
-	}
+	resetTimeStr = strings.TrimSpace(resetTimeStr)
+	resetTime := parseResetTimeSpec(targetName, resetTimeStr, logger, time.Now())
 
 	entries := make([]keyEntry, len(keys))
 	for i, k := range keys {
@@ -109,6 +78,7 @@ func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *s
 	return &keyPool{
 		entries:        entries,
 		resetTime:      resetTime,
+		resetTimeSpec:  resetTimeStr,
 		logger:         logger,
 		targetName:     targetName,
 		clientAffinity: make(map[string]int),
@@ -120,6 +90,68 @@ func newKeyPool(targetName string, keys []string, resetTimeStr string, logger *s
 		affinityTTL:        10 * time.Minute,
 		maxAffinityEntries: 10000,
 	}
+}
+
+func parseResetTimeSpec(targetName, resetTimeStr string, logger *slog.Logger, now time.Time) time.Time {
+	resetTimeStr = strings.TrimSpace(resetTimeStr)
+	if resetTimeStr == "" {
+		return time.Time{}
+	}
+	cst := time.FixedZone("CST", 8*3600)
+	now = now.In(cst)
+
+	dayStr := resetTimeStr
+	if strings.HasPrefix(strings.ToLower(resetTimeStr), "monthly:") {
+		dayStr = strings.TrimSpace(resetTimeStr[len("monthly:"):])
+	}
+	if day, ok := parseMonthlyResetDay(dayStr); ok {
+		return nextMonthlyReset(now, day, cst)
+	}
+	if strings.HasPrefix(strings.ToLower(resetTimeStr), "monthly:") {
+		logger.Warn("[keypool] invalid monthly reset_time format, ignoring",
+			"target", targetName,
+			"reset_time", resetTimeStr,
+		)
+		return time.Time{}
+	}
+	if t, err := time.ParseInLocation("2006-01-02", resetTimeStr, cst); err == nil {
+		return t
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04", resetTimeStr, cst); err == nil {
+		return t
+	}
+	logger.Warn("[keypool] invalid reset_time format, ignoring",
+		"target", targetName,
+		"reset_time", resetTimeStr,
+	)
+	return time.Time{}
+}
+
+func parseMonthlyResetDay(dayStr string) (int, bool) {
+	dayStr = strings.TrimSpace(dayStr)
+	if dayStr == "" {
+		return 0, false
+	}
+	day, err := strconv.Atoi(dayStr)
+	return day, err == nil && day >= 1 && day <= 31
+}
+
+func nextMonthlyReset(now time.Time, day int, loc *time.Location) time.Time {
+	next := monthlyResetInMonth(now.Year(), now.Month(), day, loc)
+	if !next.After(now) {
+		year, month, _ := now.Date()
+		nextMonth := time.Date(year, month, 1, 0, 0, 0, 0, loc).AddDate(0, 1, 0)
+		next = monthlyResetInMonth(nextMonth.Year(), nextMonth.Month(), day, loc)
+	}
+	return next
+}
+
+func monthlyResetInMonth(year int, month time.Month, day int, loc *time.Location) time.Time {
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(year, month, day, 0, 0, 0, 0, loc)
 }
 
 // selectKey 按顺序返回第一个可用的 key。
@@ -382,9 +414,14 @@ func (p *keyPool) markExhaustedWithError(index int, errorCode, errBody string) {
 	permanentEnd := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	switch errorCode {
 	case "quota_exceeded":
-		if !p.resetTime.IsZero() && p.resetTime.After(now) {
+		resetTime := p.resetTime
+		if p.resetTimeSpec != "" {
+			resetTime = parseResetTimeSpec(p.targetName, p.resetTimeSpec, p.logger, now)
+			p.resetTime = resetTime
+		}
+		if !resetTime.IsZero() && resetTime.After(now) {
 			p.entries[index].exhaustReason = "quota_exceeded_subscription"
-			p.entries[index].cooldownEnd = p.resetTime
+			p.entries[index].cooldownEnd = resetTime
 		} else {
 			p.entries[index].exhaustReason = "quota_exceeded_api"
 			p.entries[index].cooldownEnd = permanentEnd
