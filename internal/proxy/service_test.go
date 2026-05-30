@@ -20,6 +20,7 @@ import (
 
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/copilot"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
@@ -1585,6 +1586,116 @@ func TestServiceListsModelsLocally(t *testing.T) {
 		if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-4o" {
 			t.Fatalf("%s unexpected data: %+v", p, resp.Data)
 		}
+	}
+}
+
+func TestServiceLocalModelsDoNotExposeCopilotModels(t *testing.T) {
+	var copilotModelRequests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("unexpected copilot upstream path: %s", r.URL.Path)
+		}
+		copilotModelRequests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "gpt-5.1",
+				"vendor": "openai",
+				"model_picker_enabled": true,
+				"capabilities": {"type": "chat"}
+			}]
+		}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:               "t1",
+				Endpoint:           "http://example.com",
+				ResourcePathPrefix: "/openai",
+				APIKey:             "key1",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "copilot.db")
+	db, err := nosql.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	poolStore := nosql.NewCopilotPoolStore(db)
+	accountStore := nosql.NewCopilotAccountStore(db, poolStore)
+	if err := poolStore.Create(nosql.CopilotPool{
+		Name:        "test-pool",
+		ClientName:  "tester",
+		MaxAccounts: 1,
+	}); err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	if err := accountStore.Create(nosql.CopilotAccount{
+		PoolName:              "test-pool",
+		GitHubUsername:        "test-user",
+		Status:                nosql.AccountStatusActive,
+		OAuthToken:            "oauth-token",
+		CopilotToken:          "copilot-token",
+		CopilotTokenExpiresAt: time.Now().Add(time.Hour).Unix(),
+		APIBaseURL:            upstream.URL,
+	}); err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	service.SetCopilotService(copilot.NewCopilotService(accountStore, poolStore, upstream.Client(), newTestLogger()))
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-4o" {
+		t.Fatalf("unexpected local models: %+v", resp.Data)
+	}
+	for _, item := range resp.Data {
+		if strings.HasPrefix(item.ID, "Copilot ") {
+			t.Fatalf("root model list exposed copilot model %q", item.ID)
+		}
+	}
+	if got := copilotModelRequests.Load(); got != 0 {
+		t.Fatalf("root model list should not query copilot models, got %d requests", got)
 	}
 }
 
