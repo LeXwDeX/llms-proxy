@@ -23,7 +23,7 @@ func TestNew(t *testing.T) {
 	for _, e := range all {
 		types[e.EndpointType] = true
 	}
-	for _, et := range []string{config.EndpointTypeOpenAI, config.EndpointTypeAzureOpenAI, config.EndpointTypeClaude, config.EndpointTypeBailian} {
+	for _, et := range []string{config.EndpointTypeOpenAI, config.EndpointTypeAzureOpenAI, config.EndpointTypeClaude} {
 		if !types[et] {
 			t.Errorf("missing endpoint_type %q in catalog", et)
 		}
@@ -46,8 +46,6 @@ func TestLookup(t *testing.T) {
 		{"case insensitive", "OPENAI", "GPT-4O", false},
 		{"claude sonnet 4", "claude", "claude-sonnet-4-20250514", false},
 		{"azure openai gpt-4o", "azure_openai", "gpt-4o", false},
-		{"bailian qwen", "bailian", "qwen3.7-max", false},
-		{"bailian qwen case insensitive", "BAILIAN", "QWEN3.7-MAX", false},
 		{"nonexistent", "openai", "nonexistent-model", true},
 	}
 
@@ -128,25 +126,33 @@ func TestListByEndpointType(t *testing.T) {
 		t.Error("no azure_openai models found")
 	}
 
-	bailianModels := c.ListByEndpointType("bailian")
-	if len(bailianModels) == 0 {
-		t.Error("no bailian models found")
-	}
-	foundQwen := false
-	for _, m := range bailianModels {
-		if m.Model == "qwen3.7-max" {
-			foundQwen = true
-			break
-		}
-	}
-	if !foundQwen {
-		t.Error("bailian catalog should include qwen3.7-max")
-	}
-
 	// ListByEndpointType should be case insensitive
 	upper := c.ListByEndpointType("OPENAI")
 	if len(upper) != len(openaiModels) {
 		t.Errorf("case insensitive ListByEndpointType mismatch: %d vs %d", len(upper), len(openaiModels))
+	}
+}
+
+func TestWangsuOpenAIUsesCanonicalCatalog(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	entry := c.Lookup(config.EndpointTypeWangsuOpenAI, "gpt-5.5")
+	if entry == nil {
+		t.Fatal("Lookup(wangsu_openai, gpt-5.5) returned nil")
+	}
+	if entry.EndpointType != config.EndpointTypeOpenAI {
+		t.Errorf("expected canonical endpoint_type %q, got %q", config.EndpointTypeOpenAI, entry.EndpointType)
+	}
+
+	for _, e := range c.ListAll() {
+		if e.EndpointType == config.EndpointTypeWangsuOpenAI ||
+			e.EndpointType == config.EndpointTypeWangsuClaude ||
+			e.EndpointType == config.EndpointTypeWangsuGemini {
+			t.Errorf("wangsu provider entry %q should not be stored directly in catalog", e.EndpointType)
+		}
 	}
 }
 
