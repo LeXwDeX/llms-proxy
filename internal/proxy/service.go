@@ -48,6 +48,8 @@ type Service struct {
 	// Trace store for DEBUG mode (nil = disabled)
 	traceStore *tracestore.Store
 
+	providerRegistry *ProviderRegistry // endpoint_type → ProviderProfile 映射
+
 	metrics   requestMetrics
 	startTime time.Time
 	rrCounter atomic.Uint64
@@ -137,6 +139,7 @@ func NewService(cfg *config.Config, logger *slog.Logger) (*Service, error) {
 		startTime:     time.Now(),
 	}
 	service.setRequestTimeout(time.Duration(cfg.Server.RequestTimeoutSeconds) * time.Second)
+	service.providerRegistry = DefaultProviderRegistry()
 
 	// Initialize trace store (DEBUG mode only)
 	traceCfg := tracestore.Config{
@@ -357,11 +360,15 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		attempted[targetKey] = struct{}{}
 
-		// Use sanitized body only for Azure OpenAI targets; others get the original.
+		// 查找 provider profile（用于 body 预处理策略）。
+		profile := s.providerRegistry.Lookup(target.EndpointType)
+
+		// Body sanitize: 按 provider 的 BodyPolicy.SanitizeFunc 净化请求体。
+		// 目前仅 Azure 使用：白名单过滤不兼容字段。
 		forwardBody := bodyBytes
-		if target.EndpointType == config.EndpointTypeAzureOpenAI {
+		if profile != nil && profile.Body.SanitizeFunc != nil {
 			if !sanitizedComputed {
-				sanitizedBody, strippedFields = sanitizeRequestBodyForAzure(r, bodyBytes)
+				sanitizedBody, strippedFields = profile.Body.SanitizeFunc(r, bodyBytes)
 				sanitizedComputed = true
 				if len(strippedFields) > 0 {
 					s.logger.Debug("stripped unsupported request fields",
@@ -374,15 +381,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			forwardBody = sanitizedBody
 		}
 
-		// 对非 Azure target 的 multipart 请求，自动转换为 JSON。
+		// 对不支持 multipart 的 target，自动将 multipart/form-data 转换为 JSON。
 		// 部分上游网关（如 aigateway）只接受 application/json，不支持 multipart/form-data。
-		// 例外：网宿图像编辑端点（wangsu_openai_image_edit）原生要求 multipart/form-data，
-		// 必须保留原样透传；wangsu_openai_image 也原生支持 multipart，同样保留。
-		// Azure 端点保持原样透传 multipart（原生支持）。
+		// PreserveMultipart 为 true 的 provider（Azure、网宿图像端点）原生支持 multipart，保留原样。
 		var origContentType string
-		preserveMultipart := target.EndpointType == config.EndpointTypeAzureOpenAI ||
-			target.EndpointType == config.EndpointTypeWangsuOpenAIImage ||
-			target.EndpointType == config.EndpointTypeWangsuOpenAIImageEdit
+		preserveMultipart := profile != nil && profile.Body.PreserveMultipart
 		if !preserveMultipart && needsMultipartConvert(r) {
 			if converted, newCT, convErr := convertMultipartToJSON(r, bodyBytes); convErr == nil {
 				forwardBody = converted
@@ -397,11 +400,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// 百炼 Anthropic 格式自动注入 cache_control（仅 3 轮及以上对话）。
-		// OpenAI 兼容格式不能注入 Anthropic 专用字段。
-		if (target.EndpointType == config.EndpointTypeBailian || target.EndpointType == config.EndpointTypeBailianAPI) &&
-			isAnthropicStylePath(r.URL.Path) {
-			forwardBody = injectBailianCacheControl(forwardBody)
+		// Cache control injection: 按 provider 的 BodyPolicy.InjectCacheControl 注入。
+		// 目前仅百炼 Anthropic 路径使用（OpenAI 兼容路径不注入）。
+		if profile != nil && profile.Body.InjectCacheControl != nil {
+			forwardBody = profile.Body.InjectCacheControl(forwardBody, r.URL.Path)
 		}
 
 		startedAt := time.Now()

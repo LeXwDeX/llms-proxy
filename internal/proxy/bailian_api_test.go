@@ -20,7 +20,7 @@ func TestBuildURLBailianAPIProtocolRouting(t *testing.T) {
 		EndpointType: config.EndpointTypeBailianAPI,
 		Endpoint:     endpoint,
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	cases := []struct {
 		clientPath string
@@ -77,7 +77,7 @@ func TestBuildURLBailianAPIStripsDocumentedBasePath(t *testing.T) {
 			want:       "https://dashscope.aliyuncs.com/compatible-mode/v1/responses",
 		},
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			endpoint, _ := url.Parse(tc.endpoint)

@@ -64,6 +64,31 @@ func (e *forwardAttemptError) Unwrap() error {
 	return e.err
 }
 
+// resolveAuthStrategy 返回给定 target 和请求的认证策略。
+// 对于大多数 provider，直接返回注册表中的静态策略；
+// 对于 Azure 和 Claude，根据 target/request 动态创建（因为 AllowBearer / AuthMode 是 per-target 的）。
+func (s *Service) resolveAuthStrategy(target *Target, r *http.Request) AuthStrategy {
+	profile := s.providerRegistry.Lookup(target.EndpointType)
+	if profile == nil {
+		return nil
+	}
+
+	switch target.EndpointType {
+	case config.EndpointTypeAzureOpenAI:
+		azureAuth := strings.TrimSpace(r.Header.Get(headerAzureAuthorization))
+		return &AzureAuth{
+			AllowBearer:    target.AllowBearer,
+			AzureAuthValue: azureAuth,
+		}
+	case config.EndpointTypeClaude, config.EndpointTypeWangsuClaude:
+		return &AnthropicAuth{
+			BearerMode: target.AuthMode == "bearer",
+		}
+	default:
+		return profile.Auth
+	}
+}
+
 func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byte) (*http.Response, context.CancelFunc, int, error) {
 	startedAt := time.Now()
 	target := state.Target()
@@ -203,68 +228,23 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	req.Header.Del(headerAzureAuthorization)
 	req.Header.Del("api-key")
 
-	// Inject upstream credentials based on endpoint type.
-	switch target.EndpointType {
-	case config.EndpointTypeOpenAI:
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeClaude:
-		if target.AuthMode == "bearer" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		} else {
-			req.Header.Set("x-api-key", apiKey)
+	// Inject upstream credentials based on provider profile.
+	authStrategy := s.resolveAuthStrategy(target, r)
+	if authStrategy == nil {
+		cancel()
+		return nil, nil, keyIndex, &forwardAttemptError{
+			status:          http.StatusInternalServerError,
+			retryable:       false,
+			err:             fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
+			startedAt:       startedAt,
+			upstreamURL:     upstreamURL,
+			upstreamFullURL: upstreamFullURL,
 		}
-		if req.Header.Get("anthropic-version") == "" {
-			req.Header.Set("anthropic-version", "2023-06-01")
-		}
-	case config.EndpointTypeGemini:
-		req.Header.Set("x-goog-api-key", apiKey)
-	case config.EndpointTypeWangsuOpenAI:
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeWangsuClaude:
-		if target.AuthMode == "bearer" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		} else {
-			req.Header.Set("x-api-key", apiKey)
-		}
-		if req.Header.Get("anthropic-version") == "" {
-			req.Header.Set("anthropic-version", "2023-06-01")
-		}
-	case config.EndpointTypeWangsuGemini:
-		req.Header.Set("x-goog-api-key", apiKey)
-	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
-		// 网宿图像通道（文生图 / 图编辑）：Bearer 认证，URL 由 buildURL 整体替换。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeDeepSeek:
-		// DeepSeek 官方：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
-		// 上游路径分流由 buildURL 完成（/v1/messages* 自动加 /anthropic 前缀）。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeBailian:
-		// 百炼 Token Plan：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
-		// 上游路径分流由 buildURL 完成（/v1/messages* 走 /apps/anthropic，其余走 /compatible-mode）。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		if isAnthropicStylePath(r.URL.Path) {
-			if req.Header.Get("anthropic-version") == "" {
-				req.Header.Set("anthropic-version", "2023-06-01")
-			}
-		}
-	case config.EndpointTypeBailianAPI:
-		// 百炼 API：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Authorization 头鉴权。
-		// 上游路径分流由 buildURL 完成。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		if isAnthropicStylePath(r.URL.Path) {
-			if req.Header.Get("anthropic-version") == "" {
-				req.Header.Set("anthropic-version", "2023-06-01")
-			}
-		}
-	case config.EndpointTypeCopilot:
-		// Copilot 动态 token 由 HandleCopilotPassthrough（/copilot/* 路径）处理。
-		// 此处仅作为降级路径（copilotService 未配置时使用静态 APIKey）。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeAzureOpenAI:
-		useBearer := target.AllowBearer && azureAuth != ""
-		if useBearer {
-			req.Header.Set("Authorization", azureAuth)
-		} else {
+	}
+
+	// Azure 特殊处理：空 apiKey 且非 Bearer 模式时返回错误
+	if target.EndpointType == config.EndpointTypeAzureOpenAI {
+		if !target.AllowBearer || azureAuth == "" {
 			if apiKey == "" {
 				cancel()
 				return nil, nil, keyIndex, &forwardAttemptError{
@@ -276,14 +256,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 					upstreamFullURL: upstreamFullURL,
 				}
 			}
-			req.Header.Set("api-key", apiKey)
 		}
-	default:
+	}
+
+	if err := authStrategy.InjectAuth(req, apiKey, r.URL.Path); err != nil {
 		cancel()
 		return nil, nil, keyIndex, &forwardAttemptError{
 			status:          http.StatusInternalServerError,
 			retryable:       false,
-			err:             fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
+			err:             fmt.Errorf("proxy: auth injection failed for target %q: %w", target.Name, err),
 			startedAt:       startedAt,
 			upstreamURL:     upstreamURL,
 			upstreamFullURL: upstreamFullURL,

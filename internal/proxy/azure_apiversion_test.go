@@ -17,7 +17,7 @@ func TestBuildURLAzureV1PathNoAPIVersion(t *testing.T) {
 		Endpoint:           endpoint,
 		ResourcePathPrefix: "/openai",
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	// v1 路径不应注入 api-version
 	cases := []struct {
@@ -69,7 +69,7 @@ func TestBuildURLAzureDeploymentPathInjectsAPIVersion(t *testing.T) {
 		Endpoint:           endpoint,
 		ResourcePathPrefix: "/openai",
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	// deployment-based 路径应注入 api-version=2025-04-01-preview
 	cases := []struct {
@@ -116,7 +116,7 @@ func TestBuildURLAzureStripsClientAPIVersion(t *testing.T) {
 		Endpoint:           endpoint,
 		ResourcePathPrefix: "/openai",
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	// v1 路径：客户端传的 api-version 被剥离，且不注入新值
 	original := &url.URL{
@@ -162,7 +162,7 @@ func TestBuildURLNonAzureDoesNotInjectAPIVersion(t *testing.T) {
 		EndpointType: config.EndpointTypeDeepSeek,
 		Endpoint:     endpoint,
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	original := &url.URL{Path: "/v1/chat/completions"}
 	got, err := s.buildURL(target, original)

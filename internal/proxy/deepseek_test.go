@@ -15,7 +15,7 @@ func TestBuildURLDeepSeekOpenAIPathPassthrough(t *testing.T) {
 		EndpointType: config.EndpointTypeDeepSeek,
 		Endpoint:     endpoint,
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	cases := []struct {
 		clientPath string
@@ -45,7 +45,7 @@ func TestBuildURLDeepSeekAnthropicPathPrefix(t *testing.T) {
 		EndpointType: config.EndpointTypeDeepSeek,
 		Endpoint:     endpoint,
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	cases := []struct {
 		clientPath string
@@ -74,7 +74,7 @@ func TestBuildURLDeepSeekDoesNotRewriteForOtherEndpointTypes(t *testing.T) {
 		EndpointType: config.EndpointTypeClaude,
 		Endpoint:     endpoint,
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 	original := &url.URL{Path: "/v1/messages"}
 	got, err := s.buildURL(target, original)
 	if err != nil {
