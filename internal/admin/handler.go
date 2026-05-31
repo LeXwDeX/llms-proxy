@@ -737,6 +737,9 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"auth_mode":                t.AuthMode,
 			"allowed_models":           t.AllowedModels,
 			"sse_auto_aggregate":       sseAutoAgg,
+			"openai_prefix":            t.OpenAIPrefix,
+			"anthropic_prefix":         t.AnthropicPrefix,
+			"supports_responses":       t.SupportsResponses,
 		}
 		// 附加 key 池运行时状态
 		if statuses := h.proxyService.KeyPoolStatus(t.Name); statuses != nil {
