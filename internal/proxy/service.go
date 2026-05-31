@@ -67,6 +67,7 @@ type Target struct {
 	Paused             bool
 	AllowBearer        bool
 	AuthMode           string
+	ImageOperation     string
 	AllowedModels      []string
 	SSEAutoAggregate   bool
 	// dual_protocol 专用字段
@@ -81,6 +82,9 @@ type Target struct {
 func (t *Target) SupportsPath(path string) bool {
 	if !PathSupportedByEndpointType(t.EndpointType, path) {
 		return false
+	}
+	if t.EndpointType == config.EndpointTypeOpenAIImage {
+		return openAIImageOperationSupportsPath(t.ImageOperation, path)
 	}
 	if t.EndpointType == config.EndpointTypeDualProtocol && isOpenAIResponsesStylePath(path) && !t.SupportsResponses {
 		return false

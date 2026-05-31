@@ -482,6 +482,59 @@ func TestHandlerListTargetsReturnsPaused(t *testing.T) {
 	}
 }
 
+func TestHandlerListAndUpdateTargetPreservesImageOperation(t *testing.T) {
+	tempDir := t.TempDir()
+	h, _, stores := newTargetUpdateTestHandler(t, tempDir, []string{"sk-primary-real-0001"})
+	initial := config.Target{
+		Name:           "target-1",
+		EndpointType:   config.EndpointTypeOpenAIImage,
+		Endpoint:       "https://image.example.com/v1/images/edits",
+		APIKey:         "sk-primary-real-0001",
+		ImageOperation: config.ImageOperationEdits,
+		AllowedModels:  []string{"gpt-image-2"},
+	}
+	if err := stores.targetStore.Create(initial); err != nil {
+		t.Fatalf("seed image operation target: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/data/targets", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list targets expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Targets []struct {
+			Name           string `json:"name"`
+			EndpointType   string `json:"endpoint_type"`
+			ImageOperation string `json:"image_operation"`
+		} `json:"targets"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Targets) != 1 || resp.Targets[0].EndpointType != config.EndpointTypeOpenAIImage || resp.Targets[0].ImageOperation != config.ImageOperationEdits {
+		t.Fatalf("list did not include image_operation: %#v", resp.Targets)
+	}
+
+	body := map[string]any{
+		"endpoint_type":            config.EndpointTypeOpenAIImage,
+		"endpoint":                 "https://image.example.com/v1/images/edits",
+		"image_operation":          config.ImageOperationEdits,
+		"api_key":                  "__existing_key_index__:0",
+		"allow_bearer_passthrough": false,
+		"allowed_models":           []string{"gpt-image-2"},
+		"sse_auto_aggregate":       true,
+	}
+	rec = putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if updated.ImageOperation != config.ImageOperationEdits {
+		t.Fatalf("image_operation not preserved after update: %+v", updated)
+	}
+}
+
 func TestHandlerUpdateTargetSetsPausedInStoreAndRuntime(t *testing.T) {
 	tempDir := t.TempDir()
 	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002"}

@@ -258,6 +258,51 @@ func TestNormalizeEndpointType(t *testing.T) {
 	}
 }
 
+func TestConfigValidateNormalizesLegacyEndpointTypes(t *testing.T) {
+	cfg := validConfigForEndpointCompatTest()
+	cfg.Targets = []Target{
+		{Name: "bailian-api", EndpointType: "bailian_api", Endpoint: "https://dashscope.example.com", APIKey: "key"},
+		{Name: "deepseek", EndpointType: "deepseek", Endpoint: "https://deepseek.example.com", APIKey: "key"},
+		{Name: "deepseek-custom", EndpointType: "deepseek", Endpoint: "https://deepseek.example.com", APIKey: "key", AnthropicPrefix: "/custom-anthropic"},
+		{Name: "wangsu-gemini", EndpointType: "wangsu_gemini", Endpoint: "https://gemini.example.com", APIKey: "key"},
+		{Name: "wangsu-image-edit", EndpointType: "wangsu_openai_image_edit", Endpoint: "https://image.example.com/v1/images/edits", APIKey: "key"},
+		{Name: "openai-image-variations", EndpointType: "openai_image", Endpoint: "https://image.example.com/v1/images/variations", APIKey: "key"},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected legacy endpoint_type config to validate: %v", err)
+	}
+
+	assertTargetCompat(t, cfg.Targets[0], EndpointTypeDualProtocol, "", "/compatible-mode", "/apps/anthropic", true)
+	assertTargetCompat(t, cfg.Targets[1], EndpointTypeDualProtocol, "", "", "/anthropic", false)
+	assertTargetCompat(t, cfg.Targets[2], EndpointTypeDualProtocol, "", "", "/custom-anthropic", false)
+	assertTargetCompat(t, cfg.Targets[3], EndpointTypeGemini, "", "", "", false)
+	assertTargetCompat(t, cfg.Targets[4], EndpointTypeOpenAIImage, ImageOperationEdits, "", "", false)
+	assertTargetCompat(t, cfg.Targets[5], EndpointTypeOpenAIImage, ImageOperationVariations, "", "", false)
+}
+
+func validConfigForEndpointCompatTest() *Config {
+	return &Config{
+		Server:       ServerConfig{Bind: "127.0.0.1:8080", RequestTimeoutSeconds: 30},
+		DataStore:    DataStore{DBPath: "test.db"},
+		AdminSession: AdminSessionConfig{CookieName: "admin_sid", Secret: "test-secret", TTLSeconds: 3600},
+		Logging:      LoggingConfig{Level: "info", AccessLog: "logs/access.log", ErrorLog: "logs/error.log"},
+	}
+}
+
+func assertTargetCompat(t *testing.T, target Target, epType, imageOp, openAIPrefix, anthropicPrefix string, supportsResponses bool) {
+	t.Helper()
+	if target.EndpointType != epType {
+		t.Fatalf("%s endpoint_type=%q want %q", target.Name, target.EndpointType, epType)
+	}
+	if target.ImageOperation != imageOp {
+		t.Fatalf("%s image_operation=%q want %q", target.Name, target.ImageOperation, imageOp)
+	}
+	if target.OpenAIPrefix != openAIPrefix || target.AnthropicPrefix != anthropicPrefix || target.SupportsResponses != supportsResponses {
+		t.Fatalf("%s prefixes/supports got openai=%q anthropic=%q responses=%v", target.Name, target.OpenAIPrefix, target.AnthropicPrefix, target.SupportsResponses)
+	}
+}
+
 func TestIsValidEndpointType(t *testing.T) {
 	for _, valid := range ValidEndpointTypes {
 		if !IsValidEndpointType(valid) {

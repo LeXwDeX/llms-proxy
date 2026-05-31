@@ -20,6 +20,12 @@ const (
 	EndpointTypeDualProtocol = "dual_protocol" // 双协议兼容（OpenAI + Anthropic，按路径自动识别，prefix 由 target 配置）
 )
 
+const (
+	ImageOperationGenerations = "generations"
+	ImageOperationEdits       = "edits"
+	ImageOperationVariations  = "variations"
+)
+
 // ValidEndpointTypes lists all supported endpoint types.
 //
 // 从 endpoint_type.go 的 endpointTypes 元数据派生，保持单一信息源。
@@ -39,7 +45,65 @@ func NormalizeEndpointType(t string) string {
 	if t == "" {
 		return EndpointTypeAzureOpenAI
 	}
+	switch t {
+	case "deepseek", "bailian", "bailian_api":
+		return EndpointTypeDualProtocol
+	case "wangsu_openai":
+		return EndpointTypeOpenAI
+	case "wangsu_claude":
+		return EndpointTypeClaude
+	case "wangsu_gemini":
+		return EndpointTypeGemini
+	case "wangsu_openai_image", "wangsu_openai_image_edit":
+		return EndpointTypeOpenAIImage
+	}
 	return t
+}
+
+// NormalizeTargetForCompatibility returns a target with legacy endpoint fields normalized.
+func NormalizeTargetForCompatibility(target Target) Target {
+	rawType := strings.ToLower(strings.TrimSpace(target.EndpointType))
+	target.EndpointType = NormalizeEndpointType(target.EndpointType)
+	target.ImageOperation = NormalizeImageOperation(target.ImageOperation)
+	switch rawType {
+	case "deepseek":
+		if strings.TrimSpace(target.AnthropicPrefix) == "" {
+			target.AnthropicPrefix = "/anthropic"
+		}
+	case "bailian", "bailian_api":
+		if strings.TrimSpace(target.OpenAIPrefix) == "" {
+			target.OpenAIPrefix = "/compatible-mode"
+		}
+		if strings.TrimSpace(target.AnthropicPrefix) == "" {
+			target.AnthropicPrefix = "/apps/anthropic"
+		}
+		target.SupportsResponses = true
+	case "wangsu_openai_image":
+		target.ImageOperation = ImageOperationGenerations
+	case "wangsu_openai_image_edit":
+		target.ImageOperation = ImageOperationEdits
+	}
+	if target.EndpointType == EndpointTypeOpenAIImage && target.ImageOperation == "" {
+		target.ImageOperation = InferImageOperationFromEndpoint(target.Endpoint)
+	}
+	return target
+}
+
+// NormalizeImageOperation returns a canonical image operation value.
+func NormalizeImageOperation(op string) string {
+	return strings.ToLower(strings.TrimSpace(op))
+}
+
+// InferImageOperationFromEndpoint infers the image operation for legacy openai_image targets.
+func InferImageOperationFromEndpoint(endpoint string) string {
+	endpoint = strings.ToLower(endpoint)
+	if strings.Contains(endpoint, "variation") {
+		return ImageOperationVariations
+	}
+	if strings.Contains(endpoint, "edit") {
+		return ImageOperationEdits
+	}
+	return ImageOperationGenerations
 }
 
 // IsValidEndpointType reports whether t is a recognised endpoint type.
@@ -123,6 +187,7 @@ type Target struct {
 	Paused             bool     `json:"paused,omitempty"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
+	ImageOperation     string   `json:"image_operation,omitempty"`
 	AllowedModels      []string `json:"allowed_models"`
 	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
 	// dual_protocol 专用字段
@@ -364,6 +429,8 @@ func (c *Config) Validate() error {
 	}
 
 	for i, target := range c.Targets {
+		target = NormalizeTargetForCompatibility(target)
+		c.Targets[i] = target
 		prefix := fmt.Sprintf("targets[%d]", i)
 
 		// Normalise and validate endpoint_type.

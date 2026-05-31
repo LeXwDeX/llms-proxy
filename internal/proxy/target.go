@@ -385,6 +385,7 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 	parsed := make(map[string]*targetState, len(targets))
 	order := make([]*targetState, 0, len(targets))
 	for idx, t := range targets {
+		t = config.NormalizeTargetForCompatibility(t)
 		endpoint, err := url.Parse(strings.TrimSpace(t.Endpoint))
 		if err != nil {
 			return nil, nil, fmt.Errorf("proxy: invalid endpoint for target %q: %w", t.Name, err)
@@ -433,6 +434,7 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			Paused:             t.Paused,
 			AllowBearer:        t.AllowBearer,
 			AuthMode:           t.AuthMode,
+			ImageOperation:     config.NormalizeImageOperation(t.ImageOperation),
 			AllowedModels:      models,
 			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
 			OpenAIPrefix:       t.OpenAIPrefix,

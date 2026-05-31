@@ -65,3 +65,17 @@ func pathHasAnySuffix(pathLower string, suffixes []string) bool {
 	}
 	return false
 }
+
+func openAIImageOperationSupportsPath(operation, path string) bool {
+	pathLower := strings.ToLower(path)
+	switch operation {
+	case config.ImageOperationEdits:
+		return strings.HasSuffix(pathLower, "/images/edits")
+	case config.ImageOperationVariations:
+		return strings.HasSuffix(pathLower, "/images/variations")
+	case config.ImageOperationGenerations, "":
+		return strings.HasSuffix(pathLower, "/images/generations")
+	default:
+		return false
+	}
+}

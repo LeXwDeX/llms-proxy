@@ -751,6 +751,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"paused":                   t.Paused,
 			"allow_bearer_passthrough": t.AllowBearer,
 			"auth_mode":                t.AuthMode,
+			"image_operation":          t.ImageOperation,
 			"allowed_models":           t.AllowedModels,
 			"sse_auto_aggregate":       sseAutoAgg,
 			"openai_prefix":            t.OpenAIPrefix,
@@ -782,6 +783,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		Paused             bool     `json:"paused"`
 		AllowBearer        bool     `json:"allow_bearer_passthrough"`
 		AuthMode           string   `json:"auth_mode"`
+		ImageOperation     string   `json:"image_operation"`
 		AllowedModels      []string `json:"allowed_models"`
 		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
 		OpenAIPrefix       string   `json:"openai_prefix"`
@@ -844,6 +846,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		Paused:             body.Paused,
 		AllowBearer:        body.AllowBearer,
 		AuthMode:           body.AuthMode,
+		ImageOperation:     body.ImageOperation,
 		AllowedModels:      body.AllowedModels,
 		SSEAutoAggregate:   body.SSEAutoAggregate,
 		OpenAIPrefix:       body.OpenAIPrefix,
@@ -884,6 +887,7 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		Paused             *bool     `json:"paused"`
 		AllowBearer        bool      `json:"allow_bearer_passthrough"`
 		AuthMode           *string   `json:"auth_mode"`
+		ImageOperation     *string   `json:"image_operation"`
 		AllowedModels      []string  `json:"allowed_models"`
 		SSEAutoAggregate   *bool     `json:"sse_auto_aggregate,omitempty"`
 		OpenAIPrefix       *string   `json:"openai_prefix"`
@@ -937,6 +941,9 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			t.AllowedModels = body.AllowedModels
 			if body.AuthMode != nil {
 				t.AuthMode = strings.TrimSpace(*body.AuthMode)
+			}
+			if body.ImageOperation != nil {
+				t.ImageOperation = config.NormalizeImageOperation(*body.ImageOperation)
 			}
 			if body.SSEAutoAggregate != nil {
 				t.SSEAutoAggregate = body.SSEAutoAggregate

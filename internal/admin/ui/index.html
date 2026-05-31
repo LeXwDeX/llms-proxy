@@ -1405,6 +1405,14 @@
           </select>
           <small style="color:var(--text-muted)">Token Plan Anthropic 兼容端点请选择 Bearer Token</small>
         </div>
+        <div class="form-group" id="tgtImageOperationGroup" style="display:none;">
+          <label>图片操作</label>
+          <select class="form-control" id="tgtImageOperation">
+            <option value="generations">Generations</option>
+            <option value="edits">Edits</option>
+            <option value="variations">Variations</option>
+          </select>
+        </div>
         <div class="form-group" id="tgtKeyResetTimeGroup">
           <label>Key 额度重置时间</label>
           <input class="form-control" id="tgtKeyResetTime" type="text" placeholder="23（每月23号）或 2026-07-01 08:00">
@@ -2051,9 +2059,11 @@
         var epType = document.getElementById("tgtType").value;
         var isAzure = (epType === "azure_openai");
         var isClaude = (epType === "claude" || epType === "wangsu_claude");
+        var isOpenAIImage = (epType === "openai_image");
         document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
+        document.getElementById("tgtImageOperationGroup").style.display = isOpenAIImage ? "" : "none";
         // API Keys 和冷却期对所有 provider 类型都显示（统一 keypool 亲和机制）
         applyEndpointPlaceholder(epType);
         renderTgtModelSuggestions(epType);
@@ -2120,6 +2130,7 @@
         document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
         document.getElementById("tgtPaused").checked = t ? !!t.paused : false;
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
+        document.getElementById("tgtImageOperation").value = t ? (t.image_operation || "generations") : "generations";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
         // API Keys：构建卡片列表（合并 api_key + api_keys + key_statuses）
@@ -2168,6 +2179,7 @@
         var allowBearer = document.getElementById("tgtAllowBearer").checked;
         var paused = document.getElementById("tgtPaused").checked;
         var authMode = document.getElementById("tgtAuthMode").value;
+        var imageOperation = document.getElementById("tgtImageOperation").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
         // 统一 keypool：从卡片列表读取，第一个为 api_key，其余为 api_keys
@@ -2188,6 +2200,7 @@
               paused: paused,
               allow_bearer_passthrough: allowBearer,
               auth_mode: authMode,
+              image_operation: imageOperation,
               allowed_models: models,
               sse_auto_aggregate: sseAutoAgg,
               api_key: apiKey,
@@ -2202,6 +2215,7 @@
               resource_path_prefix: rpp, api_key: apiKey,
               paused: paused,
               allow_bearer_passthrough: allowBearer, auth_mode: authMode,
+              image_operation: imageOperation,
               allowed_models: models, sse_auto_aggregate: sseAutoAgg,
               api_keys: apiKeys, key_reset_time: keyResetTime
             }});

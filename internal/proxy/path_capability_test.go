@@ -45,3 +45,12 @@ func TestPathSupportedByEndpointType(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAIImageOperationSupportsVariationsPath(t *testing.T) {
+	if !openAIImageOperationSupportsPath(config.ImageOperationVariations, "/v1/images/variations") {
+		t.Fatal("expected variations operation to support /v1/images/variations")
+	}
+	if openAIImageOperationSupportsPath(config.ImageOperationVariations, "/v1/images/generations") {
+		t.Fatal("expected variations operation to reject /v1/images/generations")
+	}
+}

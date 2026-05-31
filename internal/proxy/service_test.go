@@ -3339,6 +3339,107 @@ func TestSelectTargetExplicitPathIncompatible(t *testing.T) {
 	}
 }
 
+func TestBuildTargetStatesInfersOpenAIImageOperationFromEndpoint(t *testing.T) {
+	_, order, err := buildTargetStates([]config.Target{
+		{Name: "image-edit", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: "https://image.example.com/v1/images/edits", APIKey: "key"},
+		{Name: "image-gen", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: "https://image.example.com/v1/images/generations", APIKey: "key"},
+	})
+	if err != nil {
+		t.Fatalf("buildTargetStates: %v", err)
+	}
+	if len(order) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(order))
+	}
+	if got := order[0].Target().ImageOperation; got != config.ImageOperationEdits {
+		t.Fatalf("edit endpoint image_operation=%q want edits", got)
+	}
+	if got := order[1].Target().ImageOperation; got != config.ImageOperationGenerations {
+		t.Fatalf("generation endpoint image_operation=%q want generations", got)
+	}
+}
+
+func TestServiceSelectsOpenAIImageTargetByOperation(t *testing.T) {
+	var generationCalls atomic.Int32
+	generation := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		generationCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer generation.Close()
+	var editCalls atomic.Int32
+	edit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		editCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer edit.Close()
+
+	service, err := NewService(&config.Config{
+		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
+		Targets: []config.Target{
+			{Name: "image-generations", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: generation.URL + "/v1/images/generations", ImageOperation: config.ImageOperationGenerations, APIKey: "key", AllowedModels: []string{"gpt-image-2"}},
+			{Name: "image-edits", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: edit.URL + "/v1/images/edits", ImageOperation: config.ImageOperationEdits, APIKey: "key", AllowedModels: []string{"gpt-image-2"}},
+		},
+		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
+	}, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+
+	send := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{"model":"gpt-image-2","prompt":"hi"}`))
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+		return rr
+	}
+	if rr := send("/v1/images/generations"); rr.Code != http.StatusOK || rr.Header().Get("X-Proxy-Target") != "image-generations" {
+		t.Fatalf("generations expected 200/image-generations, got %d/%q body=%s", rr.Code, rr.Header().Get("X-Proxy-Target"), rr.Body.String())
+	}
+	if rr := send("/v1/images/edits"); rr.Code != http.StatusOK || rr.Header().Get("X-Proxy-Target") != "image-edits" {
+		t.Fatalf("edits expected 200/image-edits, got %d/%q body=%s", rr.Code, rr.Header().Get("X-Proxy-Target"), rr.Body.String())
+	}
+	if generationCalls.Load() != 1 || editCalls.Load() != 1 {
+		t.Fatalf("unexpected upstream calls generations=%d edits=%d", generationCalls.Load(), editCalls.Load())
+	}
+}
+
+func TestServiceRejectsExplicitOpenAIImageWrongOperation(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	service, err := NewService(&config.Config{
+		Server:  config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
+		Targets: []config.Target{{Name: "image-generations", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: upstream.URL + "/v1/images/generations", ImageOperation: config.ImageOperationGenerations, APIKey: "key", AllowedModels: []string{"gpt-image-2"}}},
+		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
+	}, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewBufferString(`{"model":"gpt-image-2","prompt":"hi"}`))
+	req.Header.Set("X-Proxy-Target", "image-generations")
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("wrong operation target should not be called, got %d", calls.Load())
+	}
+}
+
 func TestServiceStartTime(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
