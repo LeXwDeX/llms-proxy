@@ -905,20 +905,35 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			t.ResourcePathPrefix = rpp
-			if body.APIKey != nil {
-				t.APIKey = strings.TrimSpace(*body.APIKey)
+		if body.APIKey != nil {
+			// 防止 masked key（如 "sk-b...d78a"）回传覆盖真实 key
+			trimmed := strings.TrimSpace(*body.APIKey)
+			if !strings.Contains(trimmed, "...") {
+				t.APIKey = trimmed
 			}
-			t.AllowBearer = body.AllowBearer
-			t.AllowedModels = body.AllowedModels
-			if body.AuthMode != nil {
-				t.AuthMode = strings.TrimSpace(*body.AuthMode)
+		}
+		t.AllowBearer = body.AllowBearer
+		t.AllowedModels = body.AllowedModels
+		if body.AuthMode != nil {
+			t.AuthMode = strings.TrimSpace(*body.AuthMode)
+		}
+		if body.SSEAutoAggregate != nil {
+			t.SSEAutoAggregate = body.SSEAutoAggregate
+		}
+		if body.APIKeys != nil {
+			// 过滤掉 masked key（包含 "..." 的），只保留用户真正输入的新 key
+			var cleanKeys []string
+			for _, k := range *body.APIKeys {
+				trimmed := strings.TrimSpace(k)
+				if trimmed != "" && !strings.Contains(trimmed, "...") {
+					cleanKeys = append(cleanKeys, trimmed)
+				}
 			}
-			if body.SSEAutoAggregate != nil {
-				t.SSEAutoAggregate = body.SSEAutoAggregate
+			// 如果用户没有输入任何有效新 key，保留原有 api_keys
+			if len(cleanKeys) > 0 || len(*body.APIKeys) == 0 {
+				t.APIKeys = cleanKeys
 			}
-			if body.APIKeys != nil {
-				t.APIKeys = *body.APIKeys
-			}
+		}
 			if body.KeyResetTime != nil {
 				t.KeyResetTime = *body.KeyResetTime
 			}
