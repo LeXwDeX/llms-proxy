@@ -13,14 +13,17 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 )
 
-func TestBuildURLBailianAPIProtocolRouting(t *testing.T) {
+func TestBuildURLDualProtocolBailianRouting(t *testing.T) {
 	endpoint, _ := url.Parse("https://dashscope.aliyuncs.com")
 	target := &Target{
-		Name:         "bailian-api",
-		EndpointType: config.EndpointTypeBailianAPI,
-		Endpoint:     endpoint,
+		Name:              "bailian-api",
+		EndpointType:      config.EndpointTypeDualProtocol,
+		Endpoint:          endpoint,
+		OpenAIPrefix:      "/compatible-mode",
+		AnthropicPrefix:   "/apps/anthropic",
+		SupportsResponses: true,
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
 	cases := []struct {
 		clientPath string
@@ -45,59 +48,7 @@ func TestBuildURLBailianAPIProtocolRouting(t *testing.T) {
 	}
 }
 
-func TestBuildURLBailianAPIStripsDocumentedBasePath(t *testing.T) {
-	cases := []struct {
-		name       string
-		endpoint   string
-		clientPath string
-		want       string
-	}{
-		{
-			name:       "openai compatible base can route to anthropic",
-			endpoint:   "https://dashscope.aliyuncs.com/compatible-mode/v1",
-			clientPath: "/v1/messages",
-			want:       "https://dashscope.aliyuncs.com/apps/anthropic/v1/messages",
-		},
-		{
-			name:       "responses base can route to chat completions",
-			endpoint:   "https://dashscope.aliyuncs.com/compatible-mode/v1",
-			clientPath: "/v1/chat/completions",
-			want:       "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-		},
-		{
-			name:       "legacy responses base can still route to chat completions",
-			endpoint:   "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1",
-			clientPath: "/v1/chat/completions",
-			want:       "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-		},
-		{
-			name:       "anthropic base can route to responses",
-			endpoint:   "https://dashscope.aliyuncs.com/apps/anthropic",
-			clientPath: "/v1/responses",
-			want:       "https://dashscope.aliyuncs.com/compatible-mode/v1/responses",
-		},
-	}
-	s := &Service{}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			endpoint, _ := url.Parse(tc.endpoint)
-			target := &Target{
-				Name:         "bailian-api",
-				EndpointType: config.EndpointTypeBailianAPI,
-				Endpoint:     endpoint,
-			}
-			got, err := s.buildURL(target, &url.URL{Path: tc.clientPath})
-			if err != nil {
-				t.Fatalf("buildURL error: %v", err)
-			}
-			if got.String() != tc.want {
-				t.Fatalf("buildURL = %q, want %q", got.String(), tc.want)
-			}
-		})
-	}
-}
-
-func TestServiceBailianAPIRoutesOpenAIWithoutAnthropicBodyMutation(t *testing.T) {
+func TestServiceDualProtocolRoutesOpenAIWithoutAnthropicBodyMutation(t *testing.T) {
 	var seenPath, seenAuth, seenVersion string
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,8 +68,8 @@ func TestServiceBailianAPIRoutesOpenAIWithoutAnthropicBodyMutation(t *testing.T)
 	}))
 	defer upstream.Close()
 
-	service := newBailianAPIService(t, upstream.URL)
-	principal := newBailianAPITestPrincipal(t)
+	service := newDualProtocolService(t, upstream.URL)
+	principal := newDualProtocolTestPrincipal(t)
 	body := bytes.NewBufferString(`{"model":"qwen-plus","messages":[{"role":"user","content":"one"},{"role":"assistant","content":"two"},{"role":"user","content":"three"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
 	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
@@ -148,7 +99,7 @@ func TestServiceBailianAPIRoutesOpenAIWithoutAnthropicBodyMutation(t *testing.T)
 	}
 }
 
-func TestServiceBailianAPIRoutesAnthropicWithVersion(t *testing.T) {
+func TestServiceDualProtocolRoutesAnthropicWithVersion(t *testing.T) {
 	var seenPath, seenAuth, seenVersion string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenPath = r.URL.Path
@@ -159,8 +110,8 @@ func TestServiceBailianAPIRoutesAnthropicWithVersion(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	service := newBailianAPIService(t, upstream.URL)
-	principal := newBailianAPITestPrincipal(t)
+	service := newDualProtocolService(t, upstream.URL)
+	principal := newDualProtocolTestPrincipal(t)
 	body := bytes.NewBufferString(`{"model":"qwen-plus","max_tokens":128,"messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", body)
 	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
@@ -182,7 +133,7 @@ func TestServiceBailianAPIRoutesAnthropicWithVersion(t *testing.T) {
 	}
 }
 
-func newBailianAPIService(t *testing.T, endpoint string) *Service {
+func newDualProtocolService(t *testing.T, endpoint string) *Service {
 	t.Helper()
 	cfg := &config.Config{
 		Server: config.ServerConfig{
@@ -190,11 +141,14 @@ func newBailianAPIService(t *testing.T, endpoint string) *Service {
 			RequestTimeoutSeconds: 5,
 		},
 		Targets: []config.Target{{
-			Name:          "bailian-api",
-			EndpointType:  config.EndpointTypeBailianAPI,
-			Endpoint:      endpoint,
-			APIKey:        "sk-dashscope",
-			AllowedModels: []string{"qwen-plus"},
+			Name:              "dual-proto",
+			EndpointType:      config.EndpointTypeDualProtocol,
+			Endpoint:          endpoint,
+			APIKey:            "sk-dashscope",
+			AllowedModels:     []string{"qwen-plus"},
+			OpenAIPrefix:      "/compatible-mode",
+			AnthropicPrefix:   "/apps/anthropic",
+			SupportsResponses: true,
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -209,7 +163,7 @@ func newBailianAPIService(t *testing.T, endpoint string) *Service {
 	return service
 }
 
-func newBailianAPITestPrincipal(t *testing.T) *auth.Principal {
+func newDualProtocolTestPrincipal(t *testing.T) *auth.Principal {
 	t.Helper()
 	store := auth.NewStore()
 	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {

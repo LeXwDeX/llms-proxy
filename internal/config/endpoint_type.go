@@ -43,40 +43,12 @@ var endpointTypes = []EndpointTypeMeta{
 		BadgeBackground: "#dcfce7", BadgeForeground: "#16a34a",
 	},
 	{
-		Code: EndpointTypeWangsuOpenAI, DisplayName: "网宿 OpenAI", ShortLabel: "网宿OAI",
-		BadgeBackground: "#ede9fe", BadgeForeground: "#7c3aed",
-	},
-	{
-		Code: EndpointTypeWangsuOpenAIImage, DisplayName: "网宿 OpenAI 文生图", ShortLabel: "网宿图生",
+		Code: EndpointTypeOpenAIImage, DisplayName: "OpenAI Image", ShortLabel: "Image",
 		BadgeBackground: "#fef3c7", BadgeForeground: "#d97706",
 	},
 	{
-		Code: EndpointTypeWangsuOpenAIImageEdit, DisplayName: "网宿 OpenAI 图编辑", ShortLabel: "网宿图编",
-		BadgeBackground: "#ffedd5", BadgeForeground: "#ea580c",
-	},
-	{
-		Code: EndpointTypeWangsuClaude, DisplayName: "网宿 Claude", ShortLabel: "网宿Claude",
-		BadgeBackground: "#fdf4ff", BadgeForeground: "#a21caf",
-	},
-	{
-		Code: EndpointTypeWangsuGemini, DisplayName: "网宿 Gemini", ShortLabel: "网宿Gemini",
-		BadgeBackground: "#f0fdf4", BadgeForeground: "#15803d",
-	},
-	{
-		Code: EndpointTypeCopilot, DisplayName: "Copilot", ShortLabel: "Copilot",
-		BadgeBackground: "#f1f5f9", BadgeForeground: "#475569",
-	},
-	{
-		Code: EndpointTypeDeepSeek, DisplayName: "DeepSeek", ShortLabel: "DeepSeek",
+		Code: EndpointTypeDualProtocol, DisplayName: "双协议兼容", ShortLabel: "双协议",
 		BadgeBackground: "#eef2ff", BadgeForeground: "#4f46e5",
-	},
-	{
-		Code: EndpointTypeBailian, DisplayName: "百炼 Token Plan", ShortLabel: "百炼",
-		BadgeBackground: "#fff7ed", BadgeForeground: "#ea580c",
-	},
-	{
-		Code: EndpointTypeBailianAPI, DisplayName: "百炼 API", ShortLabel: "百炼API",
-		BadgeBackground: "#fffbeb", BadgeForeground: "#d97706",
 	},
 }
 

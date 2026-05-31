@@ -128,7 +128,10 @@ func (s *Service) selectTarget(
 		if !modelAllowed(state.Target(), model) {
 			return nil, selectionExplicit, newSelectionError(http.StatusBadRequest, fmt.Sprintf("model %q not allowed for target %q", model, state.Target().Name))
 		}
-		if !PathSupportedByEndpointType(state.Target().EndpointType, path) {
+		if state.Target().Paused {
+			return nil, selectionExplicit, newSelectionError(http.StatusServiceUnavailable, "requested target paused")
+		}
+		if !state.Target().SupportsPath(path) {
 			return nil, selectionExplicit, newSelectionError(http.StatusBadRequest, fmt.Sprintf("target %q does not support path %q", state.Target().Name, path))
 		}
 		if _, tried := attempted[strings.ToLower(state.Target().Name)]; tried {
@@ -153,7 +156,7 @@ func (s *Service) selectTarget(
 				if !allowedOK {
 					_, allowedOK = allowed[nameKey]
 				}
-				if t != nil && allowedOK && !state.IsMuted(now) && modelAllowed(t, model) && PathSupportedByEndpointType(t.EndpointType, path) {
+				if t != nil && allowedOK && !t.Paused && !state.IsMuted(now) && modelAllowed(t, model) && t.SupportsPath(path) {
 					return state, selectionAffinityHit, nil
 				}
 			}
@@ -212,7 +215,11 @@ func (s *Service) hasModelCandidateIgnoringPath(allowed map[string]struct{}, att
 		if state == nil || state.Target() == nil {
 			continue
 		}
-		name := strings.ToLower(state.Target().Name)
+		target := state.Target()
+		if target.Paused {
+			continue
+		}
+		name := strings.ToLower(target.Name)
 		if attempted != nil {
 			if _, seen := attempted[name]; seen {
 				continue
@@ -223,7 +230,7 @@ func (s *Service) hasModelCandidateIgnoringPath(allowed map[string]struct{}, att
 				continue
 			}
 		}
-		if modelAllowed(state.Target(), model) {
+		if modelAllowed(target, model) {
 			return true
 		}
 	}
@@ -253,7 +260,11 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 		if state == nil || state.Target() == nil {
 			continue
 		}
-		name := strings.ToLower(state.Target().Name)
+		target := state.Target()
+		if target.Paused {
+			continue
+		}
+		name := strings.ToLower(target.Name)
 		if attempted != nil {
 			if _, seen := attempted[name]; seen {
 				continue
@@ -264,17 +275,17 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 				continue
 			}
 		}
-		if !modelAllowed(state.Target(), model) {
+		if !modelAllowed(target, model) {
 			continue
 		}
-		if !PathSupportedByEndpointType(state.Target().EndpointType, path) {
+		if !target.SupportsPath(path) {
 			continue
 		}
 
 		// 统计该 target 的配置 key 数量（兜底）
 		keyCount := 1 // 至少有 api_key
-		if len(state.Target().APIKeys) > 0 {
-			keyCount = len(state.Target().APIKeys)
+		if len(target.APIKeys) > 0 {
+			keyCount = len(target.APIKeys)
 		}
 		// 统计当前存活 key 数量（首选权重）。
 		// 无 keyPool（单 key target）时退化为配置数，避免被多 key target 的存活权重挤占到 0。
@@ -374,6 +385,7 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 	parsed := make(map[string]*targetState, len(targets))
 	order := make([]*targetState, 0, len(targets))
 	for idx, t := range targets {
+		t = config.NormalizeTargetForCompatibility(t)
 		endpoint, err := url.Parse(strings.TrimSpace(t.Endpoint))
 		if err != nil {
 			return nil, nil, fmt.Errorf("proxy: invalid endpoint for target %q: %w", t.Name, err)
@@ -419,10 +431,15 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			APIKey:             primaryKey,
 			APIKeys:            mergedKeys,
 			KeyResetTime:       t.KeyResetTime,
+			Paused:             t.Paused,
 			AllowBearer:        t.AllowBearer,
 			AuthMode:           t.AuthMode,
+			ImageOperation:     config.NormalizeImageOperation(t.ImageOperation),
 			AllowedModels:      models,
 			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
+			OpenAIPrefix:       t.OpenAIPrefix,
+			AnthropicPrefix:    t.AnthropicPrefix,
+			SupportsResponses:  t.SupportsResponses,
 			allowedModelsSet:   modelSet,
 		}
 		if info.Name == "" {

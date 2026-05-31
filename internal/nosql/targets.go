@@ -1,6 +1,7 @@
 package nosql
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,7 @@ func (s *TargetStore) List() ([]config.Target, error) {
 	targetsByKey := make(map[string]config.Target)
 	var keys []string
 	var order []string
+	var changed []targetWriteback
 
 	err := s.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(BucketTargets))
@@ -49,6 +51,15 @@ func (s *TargetStore) List() ([]config.Target, error) {
 				return fmt.Errorf("decode target %q: %w", string(k), err)
 			}
 			key := string(k)
+			normalized := normalizeTarget(target)
+			if targetJSONChanged(target, normalized) {
+				changed = append(changed, targetWriteback{
+					key:        key,
+					observed:   append([]byte(nil), v...),
+					normalized: normalized,
+				})
+			}
+			target = normalized
 			targetsByKey[key] = target
 			keys = append(keys, key)
 			return nil
@@ -56,6 +67,19 @@ func (s *TargetStore) List() ([]config.Target, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if len(changed) > 0 {
+		if err := s.db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte(BucketTargets))
+			for _, write := range changed {
+				if err := putTargetIfUnchanged(b, write); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	seen := make(map[string]struct{}, len(targetsByKey))
@@ -257,6 +281,7 @@ func validateTarget(target config.Target) error {
 }
 
 func normalizeTarget(target config.Target) config.Target {
+	target = config.NormalizeTargetForCompatibility(target)
 	target.Name = strings.TrimSpace(target.Name)
 	target.EndpointType = config.NormalizeEndpointType(target.EndpointType)
 	target.Endpoint = strings.TrimSpace(target.Endpoint)
@@ -265,6 +290,7 @@ func normalizeTarget(target config.Target) config.Target {
 	target.KeyResetTime = strings.TrimSpace(target.KeyResetTime)
 	target.ProviderClass = strings.TrimSpace(target.ProviderClass)
 	target.AuthMode = strings.TrimSpace(target.AuthMode)
+	target.ImageOperation = config.NormalizeImageOperation(target.ImageOperation)
 	for i := range target.APIKeys {
 		target.APIKeys[i] = strings.TrimSpace(target.APIKeys[i])
 	}
@@ -272,6 +298,31 @@ func normalizeTarget(target config.Target) config.Target {
 		target.AllowedModels[i] = strings.TrimSpace(target.AllowedModels[i])
 	}
 	return target
+}
+
+func targetJSONChanged(a, b config.Target) bool {
+	ab, errA := json.Marshal(a)
+	bb, errB := json.Marshal(b)
+	if errA != nil || errB != nil {
+		return true
+	}
+	return string(ab) != string(bb)
+}
+
+type targetWriteback struct {
+	key        string
+	observed   []byte
+	normalized config.Target
+}
+
+func putTargetIfUnchanged(b *bolt.Bucket, write targetWriteback) error {
+	if b == nil {
+		return nil
+	}
+	if !bytes.Equal(b.Get([]byte(write.key)), write.observed) {
+		return nil
+	}
+	return putTarget(b, write.key, write.normalized)
 }
 
 func updateTargetOrder(tx *bolt.Tx, update func([]string) []string) error {

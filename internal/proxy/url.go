@@ -18,47 +18,42 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	forward.RawQuery = ""
 	forward.Fragment = ""
 
-	// 网宿图像通道：endpoint 是终态 URL（如 .../openai-image），不拼接客户端 path。
+	// 查找 provider profile
+	var profile *ProviderProfile
+	if s.providerRegistry != nil {
+		profile = s.providerRegistry.Lookup(target.EndpointType)
+	}
+
+	// 终态 URL：不拼接客户端 path（如网宿图像通道）。
 	// 客户端发 POST /v1/images/generations，但上游只认固定 URL，因此整体覆盖。
-	if isTerminalEndpointType(target.EndpointType) {
+	if profile != nil && profile.Path.IsTerminalURL() {
+		forward.RawQuery = normalizeForwardQuery(original)
+		return &forward, nil
+	}
+	if profile == nil && isTerminalEndpointType(target.EndpointType) {
 		forward.RawQuery = normalizeForwardQuery(original)
 		return &forward, nil
 	}
 
-	path := mergePaths(target.ResourcePathPrefix, original.Path)
-
-	// DeepSeek：同一个 base_url 下兼容 OpenAI 与 Anthropic 两种格式。
-	// 客户端发到 /v1/messages（Anthropic 风格）时，上游需要 /anthropic/v1/messages。
-	// 其余路径（/v1/chat/completions、/chat/completions、/embeddings 等）直通 OpenAI 兼容端。
-	// 使用 ResolveReference 风格的拼接前先做路径改写。
-	if target.EndpointType == config.EndpointTypeDeepSeek && isAnthropicStylePath(original.Path) {
-		path = "/anthropic" + ensureLeadingSlash(path)
-	}
-
-	// 百炼 Token Plan：同一个 base_url 下兼容 OpenAI 与 Anthropic 两种格式。
-	// 客户端发到 /v1/messages（Anthropic 风格）时，上游加 /apps/anthropic 前缀。
-	// 其余路径（/v1/chat/completions 等）加 /compatible-mode 前缀。
-	if target.EndpointType == config.EndpointTypeBailian {
-		if isAnthropicStylePath(original.Path) {
-			path = "/apps/anthropic" + ensureLeadingSlash(path)
-		} else {
-			path = "/compatible-mode" + ensureLeadingSlash(path)
+	// 使用 PathMapper 改写路径
+	var path string
+	if profile != nil {
+		// dual_protocol: 从 target 动态创建 PathMapper（prefix 配置在 target 上）
+		pathMapper := profile.Path
+		if target.EndpointType == config.EndpointTypeDualProtocol {
+			pathMapper = &DualProtocolPath{
+				OpenAIPrefix:      target.OpenAIPrefix,
+				AnthropicPrefix:   target.AnthropicPrefix,
+				SupportsResponses: target.SupportsResponses,
+			}
 		}
-	}
-
-	// 百炼 API：OpenAI Chat/Embeddings 等兼容端仍使用 /compatible-mode，
-	// Responses API 使用 /compatible-mode/v1/responses，
-	// Anthropic Messages API 使用 /apps/anthropic。
-	if target.EndpointType == config.EndpointTypeBailianAPI {
-		forward.Path = stripBailianAPIBasePath(forward.Path)
-		switch {
-		case isAnthropicStylePath(original.Path):
-			path = "/apps/anthropic" + ensureLeadingSlash(path)
-		case isOpenAIResponsesStylePath(original.Path):
-			path = "/compatible-mode" + ensureLeadingSlash(path)
-		default:
-			path = "/compatible-mode" + ensureLeadingSlash(path)
-		}
+		// 准备 endpoint path
+		forward.Path = pathMapper.PrepareEndpointPath(forward.Path)
+		// 改写客户端路径
+		path = pathMapper.RewritePath(original.Path, target.ResourcePathPrefix)
+	} else {
+		// 兼容旧逻辑（不应到达，因为所有 endpoint_type 都已注册）
+		path = mergePaths(target.ResourcePathPrefix, original.Path)
 	}
 
 	// Concatenate paths explicitly instead of using url.URL.Parse, because
@@ -84,7 +79,7 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 // （上游只接受固定 URL，buildURL 应整体覆盖客户端 path）。
 func isTerminalEndpointType(epType string) bool {
 	switch epType {
-	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
+	case config.EndpointTypeOpenAIImage:
 		return true
 	}
 	return false
@@ -129,8 +124,8 @@ func deleteQueryKeyCaseInsensitive(query url.Values, key string) {
 }
 
 // isAnthropicStylePath 判断给定客户端 path 是否走 Anthropic API 形态。
-// DeepSeek Anthropic 兼容端口的路径以 /v1/messages 开头（包括 /v1/messages、
-// /v1/messages/count_tokens 等子路径）。其余路径视为 OpenAI 兼容形态。
+// 路径以 /v1/messages 开头（包括 /v1/messages、/v1/messages/count_tokens 等子路径）
+// 视为 Anthropic 形态。其余路径视为 OpenAI 兼容形态。
 func isAnthropicStylePath(p string) bool {
 	pl := strings.ToLower(strings.TrimSpace(p))
 	return pl == "/v1/messages" || strings.HasPrefix(pl, "/v1/messages/") || strings.HasPrefix(pl, "/v1/messages?")
@@ -139,20 +134,6 @@ func isAnthropicStylePath(p string) bool {
 func isOpenAIResponsesStylePath(p string) bool {
 	pl := strings.ToLower(strings.TrimSpace(p))
 	return pl == "/v1/responses" || strings.HasPrefix(pl, "/v1/responses/") || strings.HasPrefix(pl, "/v1/responses?")
-}
-
-func stripBailianAPIBasePath(p string) string {
-	clean := "/" + strings.Trim(strings.TrimSpace(p), "/")
-	switch clean {
-	case "/compatible-mode",
-		"/compatible-mode/v1",
-		"/apps/anthropic",
-		"/api/v2/apps/protocols/compatible-mode",
-		"/api/v2/apps/protocols/compatible-mode/v1":
-		return ""
-	default:
-		return p
-	}
 }
 
 func ensureLeadingSlash(p string) string {

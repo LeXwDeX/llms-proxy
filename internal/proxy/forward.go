@@ -64,6 +64,31 @@ func (e *forwardAttemptError) Unwrap() error {
 	return e.err
 }
 
+// resolveAuthStrategy 返回给定 target 和请求的认证策略。
+// 对于大多数 provider，直接返回注册表中的静态策略；
+// 对于 Azure 和 Claude，根据 target/request 动态创建（因为 AllowBearer / AuthMode 是 per-target 的）。
+func (s *Service) resolveAuthStrategy(target *Target, r *http.Request) AuthStrategy {
+	profile := s.providerRegistry.Lookup(target.EndpointType)
+	if profile == nil {
+		return nil
+	}
+
+	switch target.EndpointType {
+	case config.EndpointTypeAzureOpenAI:
+		azureAuth := strings.TrimSpace(r.Header.Get(headerAzureAuthorization))
+		return &AzureAuth{
+			AllowBearer:    target.AllowBearer,
+			AzureAuthValue: azureAuth,
+		}
+	case config.EndpointTypeClaude:
+		return &AnthropicAuth{
+			BearerMode: target.AuthMode == "bearer",
+		}
+	default:
+		return profile.Auth
+	}
+}
+
 func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byte) (*http.Response, context.CancelFunc, int, error) {
 	startedAt := time.Now()
 	target := state.Target()
@@ -203,68 +228,23 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	req.Header.Del(headerAzureAuthorization)
 	req.Header.Del("api-key")
 
-	// Inject upstream credentials based on endpoint type.
-	switch target.EndpointType {
-	case config.EndpointTypeOpenAI:
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeClaude:
-		if target.AuthMode == "bearer" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		} else {
-			req.Header.Set("x-api-key", apiKey)
+	// Inject upstream credentials based on provider profile.
+	authStrategy := s.resolveAuthStrategy(target, r)
+	if authStrategy == nil {
+		cancel()
+		return nil, nil, keyIndex, &forwardAttemptError{
+			status:          http.StatusInternalServerError,
+			retryable:       false,
+			err:             fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
+			startedAt:       startedAt,
+			upstreamURL:     upstreamURL,
+			upstreamFullURL: upstreamFullURL,
 		}
-		if req.Header.Get("anthropic-version") == "" {
-			req.Header.Set("anthropic-version", "2023-06-01")
-		}
-	case config.EndpointTypeGemini:
-		req.Header.Set("x-goog-api-key", apiKey)
-	case config.EndpointTypeWangsuOpenAI:
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeWangsuClaude:
-		if target.AuthMode == "bearer" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		} else {
-			req.Header.Set("x-api-key", apiKey)
-		}
-		if req.Header.Get("anthropic-version") == "" {
-			req.Header.Set("anthropic-version", "2023-06-01")
-		}
-	case config.EndpointTypeWangsuGemini:
-		req.Header.Set("x-goog-api-key", apiKey)
-	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
-		// 网宿图像通道（文生图 / 图编辑）：Bearer 认证，URL 由 buildURL 整体替换。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeDeepSeek:
-		// DeepSeek 官方：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
-		// 上游路径分流由 buildURL 完成（/v1/messages* 自动加 /anthropic 前缀）。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeBailian:
-		// 百炼 Token Plan：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
-		// 上游路径分流由 buildURL 完成（/v1/messages* 走 /apps/anthropic，其余走 /compatible-mode）。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		if isAnthropicStylePath(r.URL.Path) {
-			if req.Header.Get("anthropic-version") == "" {
-				req.Header.Set("anthropic-version", "2023-06-01")
-			}
-		}
-	case config.EndpointTypeBailianAPI:
-		// 百炼 API：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Authorization 头鉴权。
-		// 上游路径分流由 buildURL 完成。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		if isAnthropicStylePath(r.URL.Path) {
-			if req.Header.Get("anthropic-version") == "" {
-				req.Header.Set("anthropic-version", "2023-06-01")
-			}
-		}
-	case config.EndpointTypeCopilot:
-		// Copilot 动态 token 由 HandleCopilotPassthrough（/copilot/* 路径）处理。
-		// 此处仅作为降级路径（copilotService 未配置时使用静态 APIKey）。
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case config.EndpointTypeAzureOpenAI:
-		useBearer := target.AllowBearer && azureAuth != ""
-		if useBearer {
-			req.Header.Set("Authorization", azureAuth)
-		} else {
+	}
+
+	// Azure 特殊处理：空 apiKey 且非 Bearer 模式时返回错误
+	if target.EndpointType == config.EndpointTypeAzureOpenAI {
+		if !target.AllowBearer || azureAuth == "" {
 			if apiKey == "" {
 				cancel()
 				return nil, nil, keyIndex, &forwardAttemptError{
@@ -276,14 +256,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 					upstreamFullURL: upstreamFullURL,
 				}
 			}
-			req.Header.Set("api-key", apiKey)
 		}
-	default:
+	}
+
+	if err := authStrategy.InjectAuth(req, apiKey, r.URL.Path); err != nil {
 		cancel()
 		return nil, nil, keyIndex, &forwardAttemptError{
 			status:          http.StatusInternalServerError,
 			retryable:       false,
-			err:             fmt.Errorf("proxy: unsupported endpoint type %q for target %q", target.EndpointType, target.Name),
+			err:             fmt.Errorf("proxy: auth injection failed for target %q: %w", target.Name, err),
 			startedAt:       startedAt,
 			upstreamURL:     upstreamURL,
 			upstreamFullURL: upstreamFullURL,
@@ -687,8 +668,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 	// 收集请求头（脱敏）
 	requestHeaders := make(map[string]string)
 	for key := range r.Header {
-		lower := strings.ToLower(key)
-		if lower == "authorization" || lower == "x-api-key" || lower == "x-goog-api-key" || lower == "cookie" {
+		if isSensitiveTraceHeader(key, false) {
 			requestHeaders[key] = "***"
 		} else {
 			requestHeaders[key] = r.Header.Get(key)
@@ -699,8 +679,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 	upstreamHeaders := make(map[string]string)
 	if resp != nil {
 		for key := range resp.Header {
-			lower := strings.ToLower(key)
-			if lower == "authorization" || lower == "x-api-key" || lower == "x-goog-api-key" || lower == "set-cookie" {
+			if isSensitiveTraceHeader(key, true) {
 				upstreamHeaders[key] = "***"
 			} else {
 				upstreamHeaders[key] = resp.Header.Get(key)
@@ -708,19 +687,10 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 		}
 	}
 
-	// 构建上游 URL（脱敏 query 中的 api-key 参数）
+	// 构建上游 URL（脱敏 query 中的敏感参数）
 	upstreamURL := ""
 	if resp != nil && resp.Request != nil && resp.Request.URL != nil {
-		u := *resp.Request.URL
-		q := u.Query()
-		for param := range q {
-			lower := strings.ToLower(param)
-			if lower == "api-key" || lower == "apikey" || lower == "key" || lower == "api_key" {
-				q.Set(param, "***")
-			}
-		}
-		u.RawQuery = q.Encode()
-		upstreamURL = u.String()
+		upstreamURL = sanitizeTraceURLQuery(resp.Request.URL)
 	}
 
 	// 提取 key mask
@@ -755,7 +725,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 		ClientAccessKey: clientAccessKey,
 		Method:          r.Method,
 		Path:            r.URL.Path,
-		QueryParams:     r.URL.RawQuery,
+		QueryParams:     sanitizeTraceRawQuery(r.URL.RawQuery),
 		RequestHeaders:  requestHeaders,
 
 		// META: 路由决策
@@ -781,6 +751,70 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 	}
 
 	s.traceStore.Record(record)
+}
+
+func isSensitiveTraceHeader(key string, includeSetCookie bool) bool {
+	switch strings.ToLower(key) {
+	case "authorization", "api-key", "x-api-key", "x-goog-api-key", "x-azure-authorization", "proxy-authorization", "cookie":
+		return true
+	case "set-cookie":
+		return includeSetCookie
+	default:
+		return false
+	}
+}
+
+func sanitizeTraceRawQuery(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	q, err := url.ParseQuery(raw)
+	if err != nil {
+		return sanitizeTraceInvalidRawQuery(raw)
+	}
+	for param := range q {
+		if isSensitiveTraceQuery(param) {
+			q.Set(param, "***")
+		}
+	}
+	return q.Encode()
+}
+
+func sanitizeTraceInvalidRawQuery(raw string) string {
+	parts := strings.Split(raw, "&")
+	for i, part := range parts {
+		key, _, _ := strings.Cut(part, "=")
+		if isSensitiveTraceQuery(key) || isSensitiveTraceQuery(decodedTraceQueryKey(key)) {
+			parts[i] = key + "=***"
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
+func decodedTraceQueryKey(key string) string {
+	decoded, err := url.QueryUnescape(key)
+	if err != nil {
+		return key
+	}
+	return decoded
+}
+
+func sanitizeTraceURLQuery(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	copy := *u
+	copy.RawQuery = sanitizeTraceRawQuery(copy.RawQuery)
+	return copy.String()
+}
+
+func isSensitiveTraceQuery(key string) bool {
+	switch strings.ToLower(key) {
+	case "api-key", "api_key", "apikey", "key", "access_token", "token":
+		return true
+	default:
+		return false
+	}
 }
 
 // targetEndpointType 返回 target 的 endpoint type。
@@ -823,8 +857,8 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 		endpointType = target.EndpointType
 	}
 
-	// 规范化模型名：把客户端传入的 alias（如 deepseek-chat）解析为 catalog 中的
-	// 规范名（如 deepseek-v4-flash），让用量统计、价格匹配全链路按规范名聚合。
+	// 规范化模型名：把客户端传入的 alias 解析为 catalog 中的规范名，
+	// 让用量统计、价格匹配全链路按规范名聚合。
 	// 找不到 catalog 或 model 不是别名时，ResolveAlias 原样返回。
 	if cat := getLocalCatalog(); cat != nil && model != "" {
 		model = cat.ResolveAlias(endpointType, model)
@@ -1178,7 +1212,7 @@ func (s *Service) probeKey(ctx context.Context, state *targetState, keyIndex int
 
 	// 注入上游凭证
 	switch target.EndpointType {
-	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
+	case config.EndpointTypeOpenAI, config.EndpointTypeDualProtocol:
 		probeReq.Header.Set("Authorization", "Bearer "+apiKey)
 	case config.EndpointTypeClaude:
 		if target.AuthMode == "bearer" {
@@ -1217,9 +1251,9 @@ func (s *Service) buildProbeURL(target *Target) string {
 
 	base := target.Endpoint.String()
 	switch target.EndpointType {
-	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
+	case config.EndpointTypeOpenAI:
 		return base + "/v1/models"
-	case config.EndpointTypeBailian, config.EndpointTypeBailianAPI:
+	case config.EndpointTypeDualProtocol:
 		u, err := s.buildURL(target, &url.URL{Path: "/v1/models"})
 		if err != nil {
 			return ""

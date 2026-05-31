@@ -21,7 +21,7 @@ func TestInitWritesNDJSON(t *testing.T) {
 		Method:         "POST",
 		Path:           "/v1/images/edits",
 		Target:         "OpenAI-Image-Edits",
-		EndpointType:   "wangsu_openai",
+		EndpointType:   "openai_image",
 		UpstreamStatus: 502,
 		DurationMS:     162790,
 		RespExcerpt:    "<html><body>502 Bad Gateway</body></html>",

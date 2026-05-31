@@ -84,7 +84,7 @@ func TestBuildURLOpenAIDeduplicatesV1Path(t *testing.T) {
 			want:       "https://api.openai.com/v1/chat/completions",
 		},
 	}
-	s := &Service{}
+	s := &Service{providerRegistry: DefaultProviderRegistry()}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			endpoint, _ := url.Parse(tc.endpoint)

@@ -167,7 +167,8 @@ var adminLoginHTML = `<!doctype html>
   <style>
     :root { color-scheme: light; --bg:#f5f7fb; --card:#fff; --text:#1f2a37; --line:#d9e2ef; --primary:#2563eb; --danger:#dc2626; }
     * { box-sizing: border-box; }
-    body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,"PingFang SC","Microsoft YaHei",sans-serif; }
+    html { height: 100%; }
+    body { margin:0; min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--text); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,"PingFang SC","Microsoft YaHei",sans-serif; }
     .card { width:min(420px, calc(100vw - 24px)); background:var(--card); border:1px solid var(--line); border-radius:16px; padding:28px; box-shadow:0 18px 40px rgba(15,23,42,.08); }
     h1 { margin:0 0 8px; font-size:24px; }
     p { margin:0 0 20px; color:#64748b; }

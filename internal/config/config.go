@@ -12,19 +12,18 @@ import (
 )
 
 const (
-	EndpointTypeAzureOpenAI           = "azure_openai"
-	EndpointTypeOpenAI                = "openai"
-	EndpointTypeClaude                = "claude"
-	EndpointTypeGemini                = "gemini"
-	EndpointTypeWangsuOpenAI          = "wangsu_openai"
-	EndpointTypeWangsuClaude          = "wangsu_claude"
-	EndpointTypeWangsuGemini          = "wangsu_gemini"
-	EndpointTypeWangsuOpenAIImage     = "wangsu_openai_image"      // 网宿文生图（独立终态 URL）
-	EndpointTypeWangsuOpenAIImageEdit = "wangsu_openai_image_edit" // 网宿图编辑（独立终态 URL）
-	EndpointTypeCopilot               = "copilot"
-	EndpointTypeDeepSeek              = "deepseek"    // DeepSeek 官方（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
-	EndpointTypeBailian               = "bailian"     // 百炼 Token Plan（OpenAI + Anthropic 双协议，按路径自动识别）
-	EndpointTypeBailianAPI            = "bailian_api" // 百炼 API（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
+	EndpointTypeAzureOpenAI  = "azure_openai"
+	EndpointTypeOpenAI       = "openai"
+	EndpointTypeClaude       = "claude"
+	EndpointTypeGemini       = "gemini"
+	EndpointTypeOpenAIImage  = "openai_image"  // OpenAI 图片生成/编辑（独立终态 URL）
+	EndpointTypeDualProtocol = "dual_protocol" // 双协议兼容（OpenAI + Anthropic，按路径自动识别，prefix 由 target 配置）
+)
+
+const (
+	ImageOperationGenerations = "generations"
+	ImageOperationEdits       = "edits"
+	ImageOperationVariations  = "variations"
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
@@ -46,7 +45,65 @@ func NormalizeEndpointType(t string) string {
 	if t == "" {
 		return EndpointTypeAzureOpenAI
 	}
+	switch t {
+	case "deepseek", "bailian", "bailian_api":
+		return EndpointTypeDualProtocol
+	case "wangsu_openai":
+		return EndpointTypeOpenAI
+	case "wangsu_claude":
+		return EndpointTypeClaude
+	case "wangsu_gemini":
+		return EndpointTypeGemini
+	case "wangsu_openai_image", "wangsu_openai_image_edit":
+		return EndpointTypeOpenAIImage
+	}
 	return t
+}
+
+// NormalizeTargetForCompatibility returns a target with legacy endpoint fields normalized.
+func NormalizeTargetForCompatibility(target Target) Target {
+	rawType := strings.ToLower(strings.TrimSpace(target.EndpointType))
+	target.EndpointType = NormalizeEndpointType(target.EndpointType)
+	target.ImageOperation = NormalizeImageOperation(target.ImageOperation)
+	switch rawType {
+	case "deepseek":
+		if strings.TrimSpace(target.AnthropicPrefix) == "" {
+			target.AnthropicPrefix = "/anthropic"
+		}
+	case "bailian", "bailian_api":
+		if strings.TrimSpace(target.OpenAIPrefix) == "" {
+			target.OpenAIPrefix = "/compatible-mode"
+		}
+		if strings.TrimSpace(target.AnthropicPrefix) == "" {
+			target.AnthropicPrefix = "/apps/anthropic"
+		}
+		target.SupportsResponses = true
+	case "wangsu_openai_image":
+		target.ImageOperation = ImageOperationGenerations
+	case "wangsu_openai_image_edit":
+		target.ImageOperation = ImageOperationEdits
+	}
+	if target.EndpointType == EndpointTypeOpenAIImage && target.ImageOperation == "" {
+		target.ImageOperation = InferImageOperationFromEndpoint(target.Endpoint)
+	}
+	return target
+}
+
+// NormalizeImageOperation returns a canonical image operation value.
+func NormalizeImageOperation(op string) string {
+	return strings.ToLower(strings.TrimSpace(op))
+}
+
+// InferImageOperationFromEndpoint infers the image operation for legacy openai_image targets.
+func InferImageOperationFromEndpoint(endpoint string) string {
+	endpoint = strings.ToLower(endpoint)
+	if strings.Contains(endpoint, "variation") {
+		return ImageOperationVariations
+	}
+	if strings.Contains(endpoint, "edit") {
+		return ImageOperationEdits
+	}
+	return ImageOperationGenerations
 }
 
 // IsValidEndpointType reports whether t is a recognised endpoint type.
@@ -117,20 +174,26 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
-// Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
+// Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, OpenAI Image, etc.).
 type Target struct {
 	Name               string   `json:"name"`
-	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot | deepseek | bailian | bailian_api; default azure_openai
+	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | openai_image | dual_protocol; default azure_openai
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	APIKey             string   `json:"api_key"`
 	APIKeys            []string `json:"api_keys,omitempty"`       // 额外 key 池（与 api_key 合并为有序池）
 	KeyResetTime       string   `json:"key_reset_time,omitempty"` // 额度重置时间点（CST），格式 "23"/"monthly:23"（每月23号）或 "2006-01-02"/"2006-01-02 15:04"
 	ProviderClass      string   `json:"provider_class,omitempty"` // subscription | pay_as_you_go; 影响限流/超额/额度耗尽的处理策略
+	Paused             bool     `json:"paused,omitempty"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
+	ImageOperation     string   `json:"image_operation,omitempty"`
 	AllowedModels      []string `json:"allowed_models"`
 	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
+	// dual_protocol 专用字段
+	OpenAIPrefix      string `json:"openai_prefix,omitempty"`      // OpenAI 路径前缀，如 "/compatible-mode"
+	AnthropicPrefix   string `json:"anthropic_prefix,omitempty"`   // Anthropic 路径前缀，如 "/apps/anthropic"
+	SupportsResponses bool   `json:"supports_responses,omitempty"` // 是否支持 /v1/responses
 }
 
 // Client describes a consumer and its access rights.
@@ -366,6 +429,8 @@ func (c *Config) Validate() error {
 	}
 
 	for i, target := range c.Targets {
+		target = NormalizeTargetForCompatibility(target)
+		c.Targets[i] = target
 		prefix := fmt.Sprintf("targets[%d]", i)
 
 		// Normalise and validate endpoint_type.
