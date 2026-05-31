@@ -179,6 +179,9 @@ func (s *Service) selectTarget(
 	}
 
 	if model != "" {
+		if s.hasModelCandidateIgnoringPath(allowed, attempted, model) {
+			return nil, selectionRoundRobin, newSelectionError(http.StatusBadRequest, fmt.Sprintf("no target supports path %q for model %q", path, model))
+		}
 		return nil, selectionRoundRobin, newSelectionError(http.StatusBadRequest, "model not supported by any target")
 	}
 
@@ -202,6 +205,29 @@ func (s *Service) targetSnapshot() []*targetState {
 
 func (s *Service) findAvailableTarget(allowed map[string]struct{}, attempted map[string]struct{}, now time.Time) (*targetState, *targetState) {
 	return s.findAvailableTargetWithModel(allowed, attempted, "", "", now)
+}
+
+func (s *Service) hasModelCandidateIgnoringPath(allowed map[string]struct{}, attempted map[string]struct{}, model string) bool {
+	for _, state := range s.targetSnapshot() {
+		if state == nil || state.Target() == nil {
+			continue
+		}
+		name := strings.ToLower(state.Target().Name)
+		if attempted != nil {
+			if _, seen := attempted[name]; seen {
+				continue
+			}
+		}
+		if allowed != nil {
+			if _, ok := allowed[name]; !ok {
+				continue
+			}
+		}
+		if modelAllowed(state.Target(), model) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, attempted map[string]struct{}, model string, path string, now time.Time) (*targetState, *targetState) {

@@ -12,16 +12,37 @@ func TestPathSupportedByEndpointType(t *testing.T) {
 		path   string
 		want   bool
 	}{
-		// 官方类型全放行
+		// OpenAI 兼容类型支持 OpenAI Chat / Responses，不接 Anthropic Messages
 		{config.EndpointTypeOpenAI, "/v1/responses", true},
 		{config.EndpointTypeOpenAI, "/v1/chat/completions", true},
+		{config.EndpointTypeOpenAI, "/v1/messages", false},
 		{config.EndpointTypeAzureOpenAI, "/v1/responses", true},
+		{config.EndpointTypeAzureOpenAI, "/v1/messages", false},
+		// Anthropic 类型只接 Anthropic Messages
 		{config.EndpointTypeClaude, "/v1/messages", true},
+		{config.EndpointTypeClaude, "/v1/chat/completions", false},
+		{config.EndpointTypeClaude, "/v1/responses", false},
+		// Gemini / Copilot 视为 OpenAI Chat 兼容，不接 Anthropic / Responses
 		{config.EndpointTypeGemini, "/v1/models/gemini:generateContent", true},
-		// wangsu_claude / wangsu_gemini 全放行
+		{config.EndpointTypeGemini, "/v1/chat/completions", true},
+		{config.EndpointTypeGemini, "/v1/messages", false},
+		{config.EndpointTypeGemini, "/v1/responses", false},
+		// 双协议类型按 path schema 自动分流
+		{config.EndpointTypeDeepSeek, "/v1/messages", true},
+		{config.EndpointTypeDeepSeek, "/v1/chat/completions", true},
+		{config.EndpointTypeDeepSeek, "/v1/responses", false},
+		{config.EndpointTypeBailian, "/v1/messages", true},
+		{config.EndpointTypeBailian, "/v1/chat/completions", true},
+		{config.EndpointTypeBailian, "/v1/responses", false},
+		{config.EndpointTypeBailianAPI, "/v1/messages", true},
+		{config.EndpointTypeBailianAPI, "/v1/chat/completions", true},
+		{config.EndpointTypeBailianAPI, "/v1/responses", true},
+		// wangsu_claude 仅 Anthropic，wangsu_gemini 仅 OpenAI Chat 兼容
 		{config.EndpointTypeWangsuClaude, "/v1/messages", true},
-		{config.EndpointTypeWangsuClaude, "/v1/responses", true},
+		{config.EndpointTypeWangsuClaude, "/v1/responses", false},
 		{config.EndpointTypeWangsuGemini, "/v1/models/gemini:generateContent", true},
+		{config.EndpointTypeWangsuGemini, "/v1/messages", false},
+		{config.EndpointTypeWangsuGemini, "/v1/responses", false},
 		// wangsu_openai 受限
 		{config.EndpointTypeWangsuOpenAI, "/v1/chat/completions", true},
 		{config.EndpointTypeWangsuOpenAI, "/v1/images/generations", true},
@@ -31,6 +52,7 @@ func TestPathSupportedByEndpointType(t *testing.T) {
 		{config.EndpointTypeWangsuOpenAI, "/openai/deployments/gpt-4o/chat/completions", true},
 		// wangsu_openai 不支持
 		{config.EndpointTypeWangsuOpenAI, "/v1/responses", false},
+		{config.EndpointTypeWangsuOpenAI, "/v1/messages", false},
 		{config.EndpointTypeWangsuOpenAI, "/v1/audio/transcriptions", false},
 		{config.EndpointTypeWangsuOpenAI, "/v1/models", false},
 		{config.EndpointTypeWangsuOpenAI, "/", false},

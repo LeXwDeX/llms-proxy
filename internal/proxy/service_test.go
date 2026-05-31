@@ -494,15 +494,15 @@ func TestServiceModelAwareRoundRobin(t *testing.T) {
 
 func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 	tests := []struct {
-		name           string
-		targetConfigs  []struct {
+		name          string
+		targetConfigs []struct {
 			name     string
 			keyCount int
 			models   []string
 		}
-		requestCount   int
-		expectedDist   map[string]float64 // target name -> expected percentage
-		tolerance      float64            // allowed deviation from expected percentage
+		requestCount int
+		expectedDist map[string]float64 // target name -> expected percentage
+		tolerance    float64            // allowed deviation from expected percentage
 	}{
 		{
 			name: "extreme imbalance 10:1",
@@ -2259,6 +2259,193 @@ func TestServiceClaudeTargetSendsXAPIKey(t *testing.T) {
 	}
 }
 
+func TestServiceRoutesSameModelByRequestSchema(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "openai-shared",
+				EndpointType:  "openai",
+				Endpoint:      upstream.URL,
+				APIKey:        "sk-openai",
+				AllowedModels: []string{"shared-model"},
+			},
+			{
+				Name:          "claude-shared",
+				EndpointType:  "claude",
+				Endpoint:      upstream.URL,
+				APIKey:        "sk-claude",
+				AllowedModels: []string{"shared-model"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	send := func(path string) *httptest.ResponseRecorder {
+		body := bytes.NewBufferString(`{"model":"shared-model","messages":[{"role":"user","content":"hi"}]}`)
+		req := httptest.NewRequest(http.MethodPost, path, body)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+		rr := httptest.NewRecorder()
+		service.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", path, rr.Code, rr.Body.String())
+		}
+		return rr
+	}
+
+	if got := send("/v1/chat/completions").Header().Get("X-Proxy-Target"); got != "openai-shared" {
+		t.Fatalf("expected OpenAI Chat request to use openai-shared, got %q", got)
+	}
+	if got := send("/v1/messages").Header().Get("X-Proxy-Target"); got != "claude-shared" {
+		t.Fatalf("expected Anthropic request to use claude-shared, got %q", got)
+	}
+}
+
+func TestServiceRoutesResponsesToResponsesCapableTarget(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:          "bailian-token-plan",
+				EndpointType:  "bailian",
+				Endpoint:      upstream.URL,
+				APIKey:        "sk-bailian-token",
+				AllowedModels: []string{"shared-model"},
+			},
+			{
+				Name:          "bailian-api",
+				EndpointType:  "bailian_api",
+				Endpoint:      upstream.URL,
+				APIKey:        "sk-bailian-api",
+				AllowedModels: []string{"shared-model"},
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"shared-model","input":"hi"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Proxy-Target"); got != "bailian-api" {
+		t.Fatalf("expected Responses request to use bailian-api, got %q", got)
+	}
+}
+
+func TestServiceRejectsModelWhenNoTargetSupportsRequestSchema(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("upstream should not be called")
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{{
+			Name:          "claude-only",
+			EndpointType:  "claude",
+			Endpoint:      upstream.URL,
+			APIKey:        "sk-claude",
+			AllowedModels: []string{"shared-model"},
+		}},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	body := bytes.NewBufferString(`{"model":"shared-model","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `no target supports path "/v1/chat/completions" for model "shared-model"`) {
+		t.Fatalf("unexpected error body: %q", rr.Body.String())
+	}
+}
+
 func TestServiceOpenAITargetSkipsSanitize(t *testing.T) {
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3774,7 +3961,7 @@ func TestWriteUpstreamErrorLog(t *testing.T) {
 	gw := gzip.NewWriter(&compressedBody)
 	gw.Write([]byte("compressed error message"))
 	gw.Close()
-	
+
 	respGzip := &http.Response{
 		StatusCode: http.StatusBadRequest,
 		Header:     http.Header{"Content-Encoding": []string{"gzip"}},
@@ -3868,7 +4055,7 @@ func TestRecordTrace(t *testing.T) {
 	gw := gzip.NewWriter(&compressedBody)
 	gw.Write([]byte(`{"id":"compressed-test"}`))
 	gw.Close()
-	
+
 	respGzip := &http.Response{
 		StatusCode: 200,
 		Header:     http.Header{"Content-Encoding": []string{"gzip"}},
@@ -3905,11 +4092,11 @@ func TestRecordTrace(t *testing.T) {
 	respWithHeaders := &http.Response{
 		StatusCode: 200,
 		Header: http.Header{
-			"Authorization": []string{"Bearer upstream-token"},
-			"X-Api-Key":     []string{"upstream-api-key"},
+			"Authorization":  []string{"Bearer upstream-token"},
+			"X-Api-Key":      []string{"upstream-api-key"},
 			"X-Goog-Api-Key": []string{"upstream-goog-key"},
-			"Set-Cookie":    []string{"session=upstream-session"},
-			"Content-Type":  []string{"application/json"},
+			"Set-Cookie":     []string{"session=upstream-session"},
+			"Content-Type":   []string{"application/json"},
 		},
 	}
 	service.recordTrace(req, target, respWithHeaders, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")

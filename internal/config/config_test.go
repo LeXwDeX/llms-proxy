@@ -241,6 +241,9 @@ func TestNormalizeEndpointType(t *testing.T) {
 		{"wangsu_claude", EndpointTypeWangsuClaude},
 		{"WANGSU_CLAUDE", EndpointTypeWangsuClaude},
 		{"wangsu_gemini", EndpointTypeWangsuGemini},
+		{"deepseek", EndpointTypeDeepSeek},
+		{"bailian", EndpointTypeBailian},
+		{"Bailian_API", EndpointTypeBailianAPI},
 		{"unknown", "unknown"},
 	}
 	for _, tt := range tests {
