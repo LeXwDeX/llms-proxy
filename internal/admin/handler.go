@@ -764,6 +764,9 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		AuthMode           string   `json:"auth_mode"`
 		AllowedModels      []string `json:"allowed_models"`
 		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
+		OpenAIPrefix       string   `json:"openai_prefix"`
+		AnthropicPrefix    string   `json:"anthropic_prefix"`
+		SupportsResponses  bool     `json:"supports_responses"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -822,6 +825,9 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		AuthMode:           body.AuthMode,
 		AllowedModels:      body.AllowedModels,
 		SSEAutoAggregate:   body.SSEAutoAggregate,
+		OpenAIPrefix:       body.OpenAIPrefix,
+		AnthropicPrefix:    body.AnthropicPrefix,
+		SupportsResponses:  body.SupportsResponses,
 	}
 	cfg.Targets = append(cfg.Targets, newTarget)
 
@@ -858,6 +864,9 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		AuthMode           *string   `json:"auth_mode"`
 		AllowedModels      []string  `json:"allowed_models"`
 		SSEAutoAggregate   *bool     `json:"sse_auto_aggregate,omitempty"`
+		OpenAIPrefix       *string   `json:"openai_prefix"`
+		AnthropicPrefix    *string   `json:"anthropic_prefix"`
+		SupportsResponses  *bool     `json:"supports_responses"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -909,6 +918,15 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.KeyResetTime != nil {
 				t.KeyResetTime = *body.KeyResetTime
+			}
+			if body.OpenAIPrefix != nil {
+				t.OpenAIPrefix = *body.OpenAIPrefix
+			}
+			if body.AnthropicPrefix != nil {
+				t.AnthropicPrefix = *body.AnthropicPrefix
+			}
+			if body.SupportsResponses != nil {
+				t.SupportsResponses = *body.SupportsResponses
 			}
 
 			// Validate: api_key must be non-empty when allow_bearer is false.
