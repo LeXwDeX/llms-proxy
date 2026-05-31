@@ -12,12 +12,12 @@ import (
 )
 
 const (
-	EndpointTypeAzureOpenAI   = "azure_openai"
-	EndpointTypeOpenAI        = "openai"
-	EndpointTypeClaude        = "claude"
-	EndpointTypeGemini        = "gemini"
-	EndpointTypeOpenAIImage   = "openai_image" // OpenAI 图片生成/编辑（独立终态 URL）
-	EndpointTypeDualProtocol  = "dual_protocol" // 双协议兼容（OpenAI + Anthropic，按路径自动识别，prefix 由 target 配置）
+	EndpointTypeAzureOpenAI  = "azure_openai"
+	EndpointTypeOpenAI       = "openai"
+	EndpointTypeClaude       = "claude"
+	EndpointTypeGemini       = "gemini"
+	EndpointTypeOpenAIImage  = "openai_image"  // OpenAI 图片生成/编辑（独立终态 URL）
+	EndpointTypeDualProtocol = "dual_protocol" // 双协议兼容（OpenAI + Anthropic，按路径自动识别，prefix 由 target 配置）
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
@@ -120,6 +120,7 @@ type Target struct {
 	APIKeys            []string `json:"api_keys,omitempty"`       // 额外 key 池（与 api_key 合并为有序池）
 	KeyResetTime       string   `json:"key_reset_time,omitempty"` // 额度重置时间点（CST），格式 "23"/"monthly:23"（每月23号）或 "2006-01-02"/"2006-01-02 15:04"
 	ProviderClass      string   `json:"provider_class,omitempty"` // subscription | pay_as_you_go; 影响限流/超额/额度耗尽的处理策略
+	Paused             bool     `json:"paused,omitempty"`
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
 	AllowedModels      []string `json:"allowed_models"`

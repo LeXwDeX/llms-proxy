@@ -105,6 +105,8 @@ func NewHandler(
 		r.Post("/targets", h.handleCreateTarget)
 		r.Put("/targets/{name}", h.handleUpdateTarget)
 		r.Delete("/targets/{name}", h.handleDeleteTarget)
+		r.Put("/targets/{name}/pause", h.handlePauseTarget)
+		r.Put("/targets/{name}/resume", h.handleResumeTarget)
 		r.Put("/targets/{name}/keys/{index}/block", h.handleBlockTargetKey)
 		r.Put("/targets/{name}/keys/{index}/unblock", h.handleUnblockTargetKey)
 		r.Post("/targets/{name}/keys/wakeup", h.handleWakeUpTargetKeys)
@@ -300,7 +302,7 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	activeTargets := 0
 	for _, t := range health {
-		if !t.Muted {
+		if !t.Muted && !t.Paused {
 			activeTargets++
 		}
 	}
@@ -733,6 +735,7 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"api_key_count":            len(t.APIKeys),
 			"key_reset_time":           t.KeyResetTime,
 			"provider_class":           t.ProviderClass,
+			"paused":                   t.Paused,
 			"allow_bearer_passthrough": t.AllowBearer,
 			"auth_mode":                t.AuthMode,
 			"allowed_models":           t.AllowedModels,
@@ -763,6 +766,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey             string   `json:"api_key"`
 		APIKeys            []string `json:"api_keys"`
 		KeyResetTime       string   `json:"key_reset_time"`
+		Paused             bool     `json:"paused"`
 		AllowBearer        bool     `json:"allow_bearer_passthrough"`
 		AuthMode           string   `json:"auth_mode"`
 		AllowedModels      []string `json:"allowed_models"`
@@ -824,6 +828,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey:             apiKey,
 		APIKeys:            body.APIKeys,
 		KeyResetTime:       body.KeyResetTime,
+		Paused:             body.Paused,
 		AllowBearer:        body.AllowBearer,
 		AuthMode:           body.AuthMode,
 		AllowedModels:      body.AllowedModels,
@@ -863,6 +868,7 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		APIKey             *string   `json:"api_key"`
 		APIKeys            *[]string `json:"api_keys"`
 		KeyResetTime       *string   `json:"key_reset_time"`
+		Paused             *bool     `json:"paused"`
 		AllowBearer        bool      `json:"allow_bearer_passthrough"`
 		AuthMode           *string   `json:"auth_mode"`
 		AllowedModels      []string  `json:"allowed_models"`
@@ -886,6 +892,7 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	for i := range cfg.Targets {
 		if strings.EqualFold(cfg.Targets[i].Name, name) {
 			t := &cfg.Targets[i]
+			existingKeys := existingTargetKeys(*t)
 			if body.EndpointType != "" {
 				epType := config.NormalizeEndpointType(body.EndpointType)
 				if !config.IsValidEndpointType(epType) {
@@ -905,37 +912,41 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			t.ResourcePathPrefix = rpp
-		if body.APIKey != nil {
-			// 防止 masked key（如 "sk-b...d78a"）回传覆盖真实 key
-			trimmed := strings.TrimSpace(*body.APIKey)
-			if !strings.Contains(trimmed, "...") {
-				t.APIKey = trimmed
-			}
-		}
-		t.AllowBearer = body.AllowBearer
-		t.AllowedModels = body.AllowedModels
-		if body.AuthMode != nil {
-			t.AuthMode = strings.TrimSpace(*body.AuthMode)
-		}
-		if body.SSEAutoAggregate != nil {
-			t.SSEAutoAggregate = body.SSEAutoAggregate
-		}
-		if body.APIKeys != nil {
-			// 过滤掉 masked key（包含 "..." 的），只保留用户真正输入的新 key
-			var cleanKeys []string
-			for _, k := range *body.APIKeys {
-				trimmed := strings.TrimSpace(k)
-				if trimmed != "" && !strings.Contains(trimmed, "...") {
-					cleanKeys = append(cleanKeys, trimmed)
+			if body.APIKey != nil {
+				resolved, err := resolveSubmittedTargetKey(*body.APIKey, existingKeys)
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+					return
 				}
+				t.APIKey = resolved
 			}
-			// 如果用户没有输入任何有效新 key，保留原有 api_keys
-			if len(cleanKeys) > 0 || len(*body.APIKeys) == 0 {
-				t.APIKeys = cleanKeys
+			t.AllowBearer = body.AllowBearer
+			t.AllowedModels = body.AllowedModels
+			if body.AuthMode != nil {
+				t.AuthMode = strings.TrimSpace(*body.AuthMode)
 			}
-		}
+			if body.SSEAutoAggregate != nil {
+				t.SSEAutoAggregate = body.SSEAutoAggregate
+			}
+			if body.APIKeys != nil {
+				resolvedKeys := make([]string, 0, len(*body.APIKeys))
+				for _, k := range *body.APIKeys {
+					resolved, err := resolveSubmittedTargetKey(k, existingKeys)
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+						return
+					}
+					if resolved != "" {
+						resolvedKeys = append(resolvedKeys, resolved)
+					}
+				}
+				t.APIKeys = resolvedKeys
+			}
 			if body.KeyResetTime != nil {
 				t.KeyResetTime = *body.KeyResetTime
+			}
+			if body.Paused != nil {
+				t.Paused = *body.Paused
 			}
 			if body.OpenAIPrefix != nil {
 				t.OpenAIPrefix = *body.OpenAIPrefix
@@ -984,6 +995,51 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
 }
 
+const existingTargetKeyRefPrefix = "__existing_key_index__:"
+
+func existingTargetKeys(t config.Target) []string {
+	keys := make([]string, 0, 1+len(t.APIKeys))
+	keys = append(keys, t.APIKey)
+	keys = append(keys, t.APIKeys...)
+	return keys
+}
+
+func resolveSubmittedTargetKey(submitted string, existing []string) (string, error) {
+	trimmed := strings.TrimSpace(submitted)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(trimmed, existingTargetKeyRefPrefix) {
+		rawIndex := strings.TrimPrefix(trimmed, existingTargetKeyRefPrefix)
+		idx, err := strconv.Atoi(rawIndex)
+		if err != nil || idx < 0 || idx >= len(existing) || existing[idx] == "" {
+			return "", fmt.Errorf("invalid existing key reference")
+		}
+		return existing[idx], nil
+	}
+
+	matched := ""
+	for _, key := range existing {
+		if key != "" && trimmed == maskKey(key) {
+			if matched != "" {
+				return "", fmt.Errorf("ambiguous masked api key")
+			}
+			matched = key
+		}
+	}
+	if matched != "" {
+		return matched, nil
+	}
+	if looksLikeMaskedTargetKey(trimmed) {
+		return "", fmt.Errorf("unrecognized masked api key")
+	}
+	return trimmed, nil
+}
+
+func looksLikeMaskedTargetKey(value string) bool {
+	return value == "****" || strings.Contains(value, "...")
+}
+
 func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if strings.TrimSpace(name) == "" {
@@ -1027,6 +1083,60 @@ func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 
 	h.recordAudit(r, "delete_target", name, "success", "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handlePauseTarget(w http.ResponseWriter, r *http.Request) {
+	h.handleSetTargetPaused(w, r, true)
+}
+
+func (h *Handler) handleResumeTarget(w http.ResponseWriter, r *http.Request) {
+	h.handleSetTargetPaused(w, r, false)
+}
+
+func (h *Handler) handleSetTargetPaused(w http.ResponseWriter, r *http.Request, paused bool) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+		return
+	}
+
+	cfg, err := h.currentConfig()
+	if err != nil {
+		h.writeInternalError(w, "failed to load config", err)
+		return
+	}
+
+	found := false
+	var updatedTarget config.Target
+	for i := range cfg.Targets {
+		if strings.EqualFold(cfg.Targets[i].Name, name) {
+			cfg.Targets[i].Paused = paused
+			updatedTarget = cfg.Targets[i]
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeJSON(w, http.StatusNotFound, errorResponse(fmt.Sprintf("target %q not found", name)))
+		return
+	}
+
+	if err := h.applyConfigRuntime(cfg); err != nil {
+		h.writeInternalError(w, "failed to apply config", err)
+		return
+	}
+	if err := h.targetStore.Update(name, updatedTarget); err != nil {
+		h.writeInternalError(w, "failed to persist target", err)
+		return
+	}
+	h.configManager.Replace(cfg)
+
+	action := "resume_target"
+	if paused {
+		action = "pause_target"
+	}
+	h.recordAudit(r, action, name, "success", "")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": updatedTarget.Name, "paused": paused})
 }
 
 func (h *Handler) handleBlockTargetKey(w http.ResponseWriter, r *http.Request) {

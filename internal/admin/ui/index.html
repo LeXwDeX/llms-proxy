@@ -846,6 +846,7 @@
                     <th>类型</th>
                     <th>Endpoint</th>
                     <th>路径前缀</th>
+                    <th>状态</th>
                     <th>密钥状态</th>
                     <th>SSE聚合</th>
                     <th>允许模型</th>
@@ -1391,6 +1392,11 @@
             <input type="checkbox" id="tgtAllowBearer"> 允许 Bearer 透传
           </label>
         </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="tgtPaused"> 暂停目标（维护中不参与转发）
+          </label>
+        </div>
         <div class="form-group" id="tgtAuthModeGroup" style="display:none;">
           <label>认证方式</label>
           <select class="form-control" id="tgtAuthMode">
@@ -1809,7 +1815,7 @@
         } catch(e) { toast("加载目标失败: "+e.message, "error"); }
       }
       /* ===== Key Card List (target modal) ===== */
-      var tgtKeyList = []; // [{value: "sk-xxx", status: {index, key_mask, status, blocked, exhausted, exhaust_reason, cooldown_end}}]
+      var tgtKeyList = []; // [{value: "sk-xxx", ref: "__existing_key_index__:0", status: {index, key_mask, status, blocked, exhausted, exhaust_reason, cooldown_end}}]
 
       function maskKeyLocal(k) {
         if (!k || k.length <= 10) return "***";
@@ -1859,7 +1865,7 @@
             }
           }
           return "<div style='display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;margin-bottom:4px;background:#fafbfc;'>"
-            + "<span style='font-family:monospace;font-size:12px;color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+esc(item.value ? maskKeyLocal(item.value) : mask)+"'>" + esc(mask) + "</span>"
+            + "<span style='font-family:monospace;font-size:12px;color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+esc(mask)+"'>" + esc(mask) + "</span>"
             + statusBadge + cooldownInfo + actions + removeBtn
             + "</div>";
         }).join("");
@@ -1969,15 +1975,23 @@
           var sseAgg = (t.sse_auto_aggregate !== false)
             ? "<span style='color:var(--success)'>✅</span>"
             : "<span style='color:var(--text-muted)'>⏸</span>";
+          var pauseBadge = t.paused
+            ? "<span style='background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:12px;'>已暂停</span>"
+            : "<span style='background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:4px;font-size:12px;'>运行中</span>";
+          var pauseButton = t.paused
+            ? "<button class='btn btn-sm' data-resume-tgt='"+esc(t.name)+"'>恢复</button>"
+            : "<button class='btn btn-sm' data-pause-tgt='"+esc(t.name)+"'>暂停</button>";
           return "<tr><td>"+esc(t.name)+"</td>"
             +"<td><span class='badge' style='background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:4px;font-size:12px;'>"
             +esc(epDisplayName(t.endpoint_type))+"</span></td>"
             +"<td style='max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+esc(t.endpoint)+"'>"+esc(t.endpoint)+"</td>"
             +"<td>"+esc(t.resource_path_prefix||"-")+"</td>"
+            +"<td>"+pauseBadge+"</td>"
             +"<td>"+keyStatus+"</td>"
             +"<td>"+sseAgg+"</td>"
             +"<td>"+models+"</td>"
             +"<td><div class='btn-group'>"
+            +pauseButton
             +"<button class='btn btn-sm' data-edit-tgt='"+esc(t.name)+"'>编辑</button>"
             +"<button class='btn btn-danger btn-sm' data-del-tgt='"+esc(t.name)+"'>删除</button>"
             +"</div></td></tr>";
@@ -1998,6 +2012,26 @@
               await loadTargets();
             } catch(e) { toast("删除失败: "+e.message, "error"); }
           });
+        }
+        if (t.dataset.pauseTgt) {
+          var pauseName = t.dataset.pauseTgt;
+          showConfirm("确认暂停目标「"+pauseName+"」？暂停后不会转发到该上游。", async function() {
+            try {
+              await api("/admin/data/targets/"+encodeURIComponent(pauseName)+"/pause", {method:"PUT"});
+              toast("已暂停目标: "+pauseName, "success");
+              await loadTargets();
+            } catch(e) { toast("暂停失败: "+e.message, "error"); }
+          });
+        }
+        if (t.dataset.resumeTgt) {
+          var resumeName = t.dataset.resumeTgt;
+          (async function() {
+            try {
+              await api("/admin/data/targets/"+encodeURIComponent(resumeName)+"/resume", {method:"PUT"});
+              toast("已恢复目标: "+resumeName, "success");
+              await loadTargets();
+            } catch(e) { toast("恢复失败: "+e.message, "error"); }
+          })();
         }
         // 唤醒按钮处理
         if (t.dataset.wakeupTarget) {
@@ -2084,6 +2118,7 @@
         var epType = t ? (t.endpoint_type || "azure_openai") : "azure_openai";
         document.getElementById("tgtRpp").value = (epType === "azure_openai") ? (t ? (t.resource_path_prefix || "/openai") : "/openai") : "";
         document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
+        document.getElementById("tgtPaused").checked = t ? !!t.paused : false;
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
         document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
@@ -2092,7 +2127,7 @@
         var keyStatuses = (t && Array.isArray(t.key_statuses)) ? t.key_statuses : [];
         if (t && t.api_key) {
           var ks0 = keyStatuses.find(function(s){return s.index===0;}) || null;
-          tgtKeyList.push({value: t.api_key, status: ks0});
+          tgtKeyList.push({value: t.api_key, ref: "__existing_key_index__:0", status: ks0});
         }
         if (t && Array.isArray(t.api_keys)) {
           t.api_keys.forEach(function(k, i) {
@@ -2100,7 +2135,7 @@
             // dedup against api_key
             if (t.api_key && k === t.api_key) return;
             var ksIdx = keyStatuses.find(function(s){return s.index===(i+1);}) || null;
-            tgtKeyList.push({value: k, status: ksIdx});
+            tgtKeyList.push({value: k, ref: "__existing_key_index__:" + (i+1), status: ksIdx});
           });
         }
         renderKeyList();
@@ -2131,11 +2166,12 @@
         var endpoint = document.getElementById("tgtEndpoint").value.trim();
         var rpp = (epType === "azure_openai") ? document.getElementById("tgtRpp").value.trim() : "";
         var allowBearer = document.getElementById("tgtAllowBearer").checked;
+        var paused = document.getElementById("tgtPaused").checked;
         var authMode = document.getElementById("tgtAuthMode").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
         var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
         // 统一 keypool：从卡片列表读取，第一个为 api_key，其余为 api_keys
-        var allKeys = tgtKeyList.map(function(item){return item.value;}).filter(Boolean);
+        var allKeys = tgtKeyList.map(function(item){return item.ref || item.value;}).filter(Boolean);
         var apiKey = allKeys.length > 0 ? allKeys[0] : "";
         var apiKeys = allKeys.length > 1 ? allKeys.slice(1) : [];
         var keyResetTime = document.getElementById("tgtKeyResetTime").value.trim();
@@ -2149,6 +2185,7 @@
               endpoint_type: epType,
               endpoint: endpoint,
               resource_path_prefix: rpp,
+              paused: paused,
               allow_bearer_passthrough: allowBearer,
               auth_mode: authMode,
               allowed_models: models,
@@ -2163,6 +2200,7 @@
             await api("/admin/data/targets", { method: "POST", body: {
               name: name, endpoint_type: epType, endpoint: endpoint,
               resource_path_prefix: rpp, api_key: apiKey,
+              paused: paused,
               allow_bearer_passthrough: allowBearer, auth_mode: authMode,
               allowed_models: models, sse_auto_aggregate: sseAutoAgg,
               api_keys: apiKeys, key_reset_time: keyResetTime

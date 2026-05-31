@@ -668,8 +668,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 	// 收集请求头（脱敏）
 	requestHeaders := make(map[string]string)
 	for key := range r.Header {
-		lower := strings.ToLower(key)
-		if lower == "authorization" || lower == "x-api-key" || lower == "x-goog-api-key" || lower == "cookie" {
+		if isSensitiveTraceHeader(key, false) {
 			requestHeaders[key] = "***"
 		} else {
 			requestHeaders[key] = r.Header.Get(key)
@@ -680,8 +679,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 	upstreamHeaders := make(map[string]string)
 	if resp != nil {
 		for key := range resp.Header {
-			lower := strings.ToLower(key)
-			if lower == "authorization" || lower == "x-api-key" || lower == "x-goog-api-key" || lower == "set-cookie" {
+			if isSensitiveTraceHeader(key, true) {
 				upstreamHeaders[key] = "***"
 			} else {
 				upstreamHeaders[key] = resp.Header.Get(key)
@@ -689,19 +687,10 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 		}
 	}
 
-	// 构建上游 URL（脱敏 query 中的 api-key 参数）
+	// 构建上游 URL（脱敏 query 中的敏感参数）
 	upstreamURL := ""
 	if resp != nil && resp.Request != nil && resp.Request.URL != nil {
-		u := *resp.Request.URL
-		q := u.Query()
-		for param := range q {
-			lower := strings.ToLower(param)
-			if lower == "api-key" || lower == "apikey" || lower == "key" || lower == "api_key" {
-				q.Set(param, "***")
-			}
-		}
-		u.RawQuery = q.Encode()
-		upstreamURL = u.String()
+		upstreamURL = sanitizeTraceURLQuery(resp.Request.URL)
 	}
 
 	// 提取 key mask
@@ -736,7 +725,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 		ClientAccessKey: clientAccessKey,
 		Method:          r.Method,
 		Path:            r.URL.Path,
-		QueryParams:     r.URL.RawQuery,
+		QueryParams:     sanitizeTraceRawQuery(r.URL.RawQuery),
 		RequestHeaders:  requestHeaders,
 
 		// META: 路由决策
@@ -762,6 +751,70 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 	}
 
 	s.traceStore.Record(record)
+}
+
+func isSensitiveTraceHeader(key string, includeSetCookie bool) bool {
+	switch strings.ToLower(key) {
+	case "authorization", "api-key", "x-api-key", "x-goog-api-key", "x-azure-authorization", "proxy-authorization", "cookie":
+		return true
+	case "set-cookie":
+		return includeSetCookie
+	default:
+		return false
+	}
+}
+
+func sanitizeTraceRawQuery(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	q, err := url.ParseQuery(raw)
+	if err != nil {
+		return sanitizeTraceInvalidRawQuery(raw)
+	}
+	for param := range q {
+		if isSensitiveTraceQuery(param) {
+			q.Set(param, "***")
+		}
+	}
+	return q.Encode()
+}
+
+func sanitizeTraceInvalidRawQuery(raw string) string {
+	parts := strings.Split(raw, "&")
+	for i, part := range parts {
+		key, _, _ := strings.Cut(part, "=")
+		if isSensitiveTraceQuery(key) || isSensitiveTraceQuery(decodedTraceQueryKey(key)) {
+			parts[i] = key + "=***"
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
+func decodedTraceQueryKey(key string) string {
+	decoded, err := url.QueryUnescape(key)
+	if err != nil {
+		return key
+	}
+	return decoded
+}
+
+func sanitizeTraceURLQuery(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	copy := *u
+	copy.RawQuery = sanitizeTraceRawQuery(copy.RawQuery)
+	return copy.String()
+}
+
+func isSensitiveTraceQuery(key string) bool {
+	switch strings.ToLower(key) {
+	case "api-key", "api_key", "apikey", "key", "access_token", "token":
+		return true
+	default:
+		return false
+	}
 }
 
 // targetEndpointType 返回 target 的 endpoint type。

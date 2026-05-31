@@ -121,6 +121,7 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
+			Paused:             true,
 			AllowedModels:      []string{"gpt-4o"},
 		}},
 		DataStore: DataStore{DBPath: "test.db"},
@@ -156,6 +157,9 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 	if cfg.Targets[0].AllowedModels[0] != "gpt-4o" {
 		t.Errorf("original target allowed models mutated: %v", cfg.Targets[0].AllowedModels)
 	}
+	if !cfg.Targets[0].Paused || !cloned.Targets[0].Paused {
+		t.Fatalf("expected paused to be preserved in clone")
+	}
 	if cfg.DataFiles.ClientsFile != "config/clients.json" {
 		t.Errorf("original data_files mutated: %s", cfg.DataFiles.ClientsFile)
 	}
@@ -176,7 +180,8 @@ func TestLoadReadsFile(t *testing.T) {
 			"name":"primary",
 			"endpoint":"https://example.com",
 			"resource_path_prefix":"/openai",
-			"api_key":"key"
+			"api_key":"key",
+			"paused":true
 		}],
 		"data_store":{
 			"db_path":"llms-proxy.db"
@@ -214,6 +219,9 @@ func TestLoadReadsFile(t *testing.T) {
 	}
 	if len(cfg.Targets) != 1 || cfg.Targets[0].Name != "primary" {
 		t.Fatalf("unexpected targets: %#v", cfg.Targets)
+	}
+	if !cfg.Targets[0].Paused {
+		t.Fatalf("expected paused target flag to be loaded")
 	}
 	if cfg.DataFiles.ClientsFile != filepath.Join(dir, "clients.json") {
 		t.Fatalf("expected clients file resolved to absolute path, got %q", cfg.DataFiles.ClientsFile)

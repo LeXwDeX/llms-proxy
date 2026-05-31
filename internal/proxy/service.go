@@ -64,6 +64,7 @@ type Target struct {
 	APIKey             string
 	APIKeys            []string // 合并后的有序 key 池 [api_key, api_keys...]
 	KeyResetTime       string   // 额度重置时间点（CST）
+	Paused             bool
 	AllowBearer        bool
 	AuthMode           string
 	AllowedModels      []string
@@ -114,6 +115,7 @@ type TargetStatus struct {
 	EndpointType         string
 	Endpoint             string
 	ResourcePathPrefix   string
+	Paused               bool
 	Muted                bool
 	MutedUntil           time.Time
 	LastSuccess          time.Time
@@ -723,6 +725,7 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 			EndpointType:              target.EndpointType,
 			Endpoint:                  endpoint,
 			ResourcePathPrefix:        target.ResourcePathPrefix,
+			Paused:                    target.Paused,
 			Muted:                     state.IsMuted(now),
 			MutedUntil:                stats.MutedUntil,
 			LastSuccess:               stats.LastSuccess,

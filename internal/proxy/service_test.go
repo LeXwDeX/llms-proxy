@@ -22,6 +22,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/copilot"
 	"github.com/ycgame/llms-proxy/internal/nosql"
+	"github.com/ycgame/llms-proxy/internal/tracestore"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -865,6 +866,145 @@ func TestServiceRejectsUnauthorizedTarget(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 status, got %d", rr.Code)
+	}
+}
+
+func TestServiceSkipsPausedTargetForAutomaticSelection(t *testing.T) {
+	var pausedCalls atomic.Int32
+	paused := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pausedCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer paused.Close()
+	var activeCalls atomic.Int32
+	active := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		activeCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer active.Close()
+
+	service, err := NewService(&config.Config{
+		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
+		Targets: []config.Target{
+			{Name: "paused", Endpoint: paused.URL, ResourcePathPrefix: "/openai", APIKey: "key1", Paused: true, AllowedModels: []string{"gpt-paused"}},
+			{Name: "active", Endpoint: active.URL, ResourcePathPrefix: "/openai", APIKey: "key2", AllowedModels: []string{"gpt-paused"}},
+		},
+		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
+	}, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-paused","messages":[{"role":"user","content":"hi"}]}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Proxy-Target"); got != "active" {
+		t.Fatalf("expected active target, got %q", got)
+	}
+	if pausedCalls.Load() != 0 || activeCalls.Load() != 1 {
+		t.Fatalf("unexpected upstream calls paused=%d active=%d", pausedCalls.Load(), activeCalls.Load())
+	}
+}
+
+func TestServiceAffinitySkipsPausedTarget(t *testing.T) {
+	var pausedCalls atomic.Int32
+	paused := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pausedCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer paused.Close()
+	var activeCalls atomic.Int32
+	active := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		activeCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer active.Close()
+
+	service, err := NewService(&config.Config{
+		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
+		Targets: []config.Target{
+			{Name: "paused", Endpoint: paused.URL, ResourcePathPrefix: "/openai", APIKey: "key1", Paused: true, AllowedModels: []string{"gpt-paused"}},
+			{Name: "active", Endpoint: active.URL, ResourcePathPrefix: "/openai", APIKey: "key2", AllowedModels: []string{"gpt-paused"}},
+		},
+		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
+	}, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+	client := "203.0.113.9"
+	service.affinity.Set(affinityKey(client, "tester", "gpt-paused"), "paused", time.Now())
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-paused","messages":[{"role":"user","content":"hi"}]}`))
+	req.RemoteAddr = client + ":12345"
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Proxy-Target"); got != "active" {
+		t.Fatalf("expected active target, got %q", got)
+	}
+	if pausedCalls.Load() != 0 || activeCalls.Load() != 1 {
+		t.Fatalf("unexpected upstream calls paused=%d active=%d", pausedCalls.Load(), activeCalls.Load())
+	}
+}
+
+func TestServiceRejectsExplicitPausedTarget(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	service, err := NewService(&config.Config{
+		Server:  config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
+		Targets: []config.Target{{Name: "paused", Endpoint: upstream.URL, ResourcePathPrefix: "/openai", APIKey: "key", Paused: true, AllowedModels: []string{"gpt-paused"}}},
+		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
+	}, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-paused","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("X-Proxy-Target", "paused")
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "paused") {
+		t.Fatalf("expected paused error, got %q", rr.Body.String())
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("paused target should not be called, got %d calls", calls.Load())
+	}
+	statuses := service.TargetStatuses(time.Now())
+	if len(statuses) != 1 || !statuses[0].Paused {
+		t.Fatalf("expected TargetStatuses paused=true, got %#v", statuses)
 	}
 }
 
@@ -4313,4 +4453,137 @@ func TestRecordTrace(t *testing.T) {
 		Request:    reqMultiQueryURL,
 	}
 	service.recordTrace(req, target, respMultiQuery, []byte(`{"model":"gpt-4"}`), []byte(`{"id":"test"}`), time.Now(), 0, "gpt-4")
+}
+
+func TestRecordTraceRedactsSensitiveHeadersAndQuery(t *testing.T) {
+	store := tracestore.New(tracestore.Config{Enabled: true, RingBufferSize: 1, MaxBodySize: 1024}, newTestLogger())
+	t.Cleanup(func() { _ = store.Close() })
+	service := &Service{traceStore: store}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?api-key=req-api-key&token=req-token&access_token=req-access&safe=ok", strings.NewReader(`{"model":"gpt-4","prompt":"secret body stays"}`))
+	req.Header.Set("Authorization", "Bearer req-auth")
+	req.Header.Set("Api-Key", "req-api-key-header")
+	req.Header.Set("X-Api-Key", "req-x-api-key")
+	req.Header.Set("X-Goog-Api-Key", "req-goog-api-key")
+	req.Header.Set(headerAzureAuthorization, "Bearer req-azure")
+	req.Header.Set("Proxy-Authorization", "Bearer req-proxy")
+	req.Header.Set("Cookie", "session=req-cookie")
+	req.Header.Set("Content-Type", "application/json")
+
+	upstreamReq := httptest.NewRequest(http.MethodPost, "http://upstream.local/v1/chat/completions?api_key=up-api-key&apikey=up-apikey&key=up-key&access_token=up-access&token=up-token&safe=ok", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Authorization":         []string{"Bearer resp-auth"},
+			"Api-Key":               []string{"resp-api-key"},
+			"X-Api-Key":             []string{"resp-x-api-key"},
+			"X-Goog-Api-Key":        []string{"resp-goog-api-key"},
+			"X-Azure-Authorization": []string{"Bearer resp-azure"},
+			"Proxy-Authorization":   []string{"Bearer resp-proxy"},
+			"Cookie":                []string{"session=resp-cookie"},
+			"Set-Cookie":            []string{"session=resp-set-cookie"},
+			"Content-Type":          []string{"application/json"},
+		},
+		Request: upstreamReq,
+	}
+
+	requestBody := []byte(`{"model":"gpt-4","prompt":"secret body stays"}`)
+	responseBody := []byte(`{"id":"resp","secret":"response body stays"}`)
+	service.recordTrace(req, &Target{Name: "target1", EndpointType: "openai"}, resp, requestBody, responseBody, time.Now(), -1, "gpt-4")
+
+	record := store.Get("")
+	if record == nil {
+		t.Fatal("expected trace record")
+	}
+
+	for _, key := range []string{"Authorization", "Api-Key", "X-Api-Key", "X-Goog-Api-Key", headerAzureAuthorization, "Proxy-Authorization", "Cookie"} {
+		if got := record.RequestHeaders[key]; got != "***" {
+			t.Fatalf("expected request header %s to be redacted, got %q", key, got)
+		}
+	}
+	if got := record.RequestHeaders["Content-Type"]; got != "application/json" {
+		t.Fatalf("expected safe request header preserved, got %q", got)
+	}
+
+	for _, key := range []string{"Authorization", "Api-Key", "X-Api-Key", "X-Goog-Api-Key", "X-Azure-Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie"} {
+		if got := record.UpstreamHeaders[key]; got != "***" {
+			t.Fatalf("expected upstream header %s to be redacted, got %q", key, got)
+		}
+	}
+	if got := record.UpstreamHeaders["Content-Type"]; got != "application/json" {
+		t.Fatalf("expected safe upstream header preserved, got %q", got)
+	}
+
+	assertRawQueryRedacted(t, record.QueryParams, []string{"api-key", "token", "access_token"}, []string{"req-api-key", "req-token", "req-access"})
+	assertURLQueryRedacted(t, record.UpstreamURL, []string{"api_key", "apikey", "key", "access_token", "token"}, []string{"up-api-key", "up-apikey", "up-key", "up-access", "up-token"})
+
+	if record.RequestBody != string(requestBody) {
+		t.Fatalf("expected request body unchanged, got %q", record.RequestBody)
+	}
+	if record.ResponseBody != string(responseBody) {
+		t.Fatalf("expected response body unchanged, got %q", record.ResponseBody)
+	}
+}
+
+func TestRecordTraceRedactsInvalidSensitiveQuery(t *testing.T) {
+	store := tracestore.New(tracestore.Config{Enabled: true, RingBufferSize: 1, MaxBodySize: 1024}, newTestLogger())
+	t.Cleanup(func() { _ = store.Close() })
+	service := &Service{traceStore: store}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.URL.RawQuery = "api-key=sk-secret%ZZ&token=tok-secret&api%2Dkey=sk-encoded-secret%ZZ&access%5Ftoken=tok-encoded-secret%ZZ&safe=ok"
+	upstreamReq := httptest.NewRequest(http.MethodPost, "http://upstream.local/v1/chat/completions", nil)
+	upstreamReq.URL.RawQuery = "api_key=up-secret%ZZ&access_token=up-access-secret&api%5Fkey=up-encoded-secret%ZZ&access%5Ftoken=up-encoded-access-secret%ZZ&safe=ok"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Request:    upstreamReq,
+	}
+
+	service.recordTrace(req, &Target{Name: "target1", EndpointType: "openai"}, resp, nil, nil, time.Now(), -1, "gpt-4")
+
+	record := store.Get("")
+	if record == nil {
+		t.Fatal("expected trace record")
+	}
+	for _, forbidden := range []string{"sk-secret", "tok-secret", "sk-encoded-secret", "tok-encoded-secret"} {
+		if strings.Contains(record.QueryParams, forbidden) {
+			t.Fatalf("invalid request query %q leaked secret %q", record.QueryParams, forbidden)
+		}
+	}
+	for _, forbidden := range []string{"up-secret", "up-access-secret", "up-encoded-secret", "up-encoded-access-secret"} {
+		if strings.Contains(record.UpstreamURL, forbidden) {
+			t.Fatalf("invalid upstream URL %q leaked secret %q", record.UpstreamURL, forbidden)
+		}
+	}
+}
+
+func assertRawQueryRedacted(t *testing.T, raw string, redactedKeys, forbiddenValues []string) {
+	t.Helper()
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		t.Fatalf("parse query %q: %v", raw, err)
+	}
+	for _, key := range redactedKeys {
+		if got := values.Get(key); got != "***" {
+			t.Fatalf("expected query %s to be redacted, got %q in %q", key, got, raw)
+		}
+	}
+	if got := values.Get("safe"); got != "ok" {
+		t.Fatalf("expected safe query preserved, got %q in %q", got, raw)
+	}
+	for _, forbidden := range forbiddenValues {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("query %q leaked secret %q", raw, forbidden)
+		}
+	}
+}
+
+func assertURLQueryRedacted(t *testing.T, rawURL string, redactedKeys, forbiddenValues []string) {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse upstream URL %q: %v", rawURL, err)
+	}
+	assertRawQueryRedacted(t, u.RawQuery, redactedKeys, forbiddenValues)
 }

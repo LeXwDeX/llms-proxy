@@ -426,6 +426,295 @@ func TestHandlerDataClientsCRUD(t *testing.T) {
 	}
 }
 
+func TestHandlerUpdateTargetPreservesKeyPoolWithExistingRefs(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002", "sk-secondary-real-0003"}
+	h, _, stores := newTargetUpdateTestHandler(t, tempDir, initialKeys)
+
+	body := map[string]any{
+		"endpoint_type":            "azure_openai",
+		"endpoint":                 "https://example.com",
+		"resource_path_prefix":     "/openai",
+		"api_key":                  "__existing_key_index__:0",
+		"api_keys":                 []string{"__existing_key_index__:1", "__existing_key_index__:2"},
+		"allow_bearer_passthrough": false,
+		"allowed_models":           []string{"gpt-4o", "gpt-4o-mini"},
+		"sse_auto_aggregate":       true,
+	}
+	rec := putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if updated.APIKey != initialKeys[0] {
+		t.Fatalf("APIKey overwritten: got %q want %q", updated.APIKey, initialKeys[0])
+	}
+	if got, want := updated.APIKeys, initialKeys[1:]; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("APIKeys changed: got %#v want %#v", got, want)
+	}
+	if got := strings.Join(updated.AllowedModels, ","); got != "gpt-4o,gpt-4o-mini" {
+		t.Fatalf("allowed_models not updated, got %q", got)
+	}
+}
+
+func TestHandlerListTargetsReturnsPaused(t *testing.T) {
+	tempDir := t.TempDir()
+	h, _, _ := newTargetUpdateTestHandler(t, tempDir, []string{"sk-primary-real-0001"})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/data/targets", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list targets expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Targets []struct {
+			Name   string `json:"name"`
+			Paused bool   `json:"paused"`
+		} `json:"targets"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Targets) != 1 || resp.Targets[0].Name != "target-1" {
+		t.Fatalf("unexpected targets: %#v", resp.Targets)
+	}
+}
+
+func TestHandlerUpdateTargetSetsPausedInStoreAndRuntime(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002"}
+	h, _, stores, service := newTargetUpdateTestHandlerWithService(t, tempDir, initialKeys)
+
+	body := targetUpdateBody("__existing_key_index__:0", []string{"__existing_key_index__:1"})
+	body["paused"] = true
+	rec := putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if !updated.Paused {
+		t.Fatalf("expected paused=true in target store")
+	}
+	statuses := service.TargetStatuses(time.Now())
+	if len(statuses) != 1 || !statuses[0].Paused {
+		t.Fatalf("expected runtime paused=true, got %#v", statuses)
+	}
+
+	body["paused"] = false
+	rec = putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	updated = mustGetTarget(t, stores.targetStore, "target-1")
+	if updated.Paused {
+		t.Fatalf("expected paused=false in target store")
+	}
+	statuses = service.TargetStatuses(time.Now())
+	if len(statuses) != 1 || statuses[0].Paused {
+		t.Fatalf("expected runtime paused=false, got %#v", statuses)
+	}
+}
+
+func TestHandlerPauseResumeTargetPreservesAPIKeys(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002", "sk-secondary-real-0003"}
+	h, _, stores, service := newTargetUpdateTestHandlerWithService(t, tempDir, initialKeys)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "http://example.com/data/targets/target-1/pause", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pause target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	paused := mustGetTarget(t, stores.targetStore, "target-1")
+	if !paused.Paused {
+		t.Fatalf("expected paused=true")
+	}
+	if paused.APIKey != initialKeys[0] || fmt.Sprint(paused.APIKeys) != fmt.Sprint(initialKeys[1:]) {
+		t.Fatalf("keys changed on pause: %#v", paused)
+	}
+	statuses := service.TargetStatuses(time.Now())
+	if len(statuses) != 1 || !statuses[0].Paused {
+		t.Fatalf("expected runtime paused=true, got %#v", statuses)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "http://example.com/data/targets/target-1/resume", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	resumed := mustGetTarget(t, stores.targetStore, "target-1")
+	if resumed.Paused {
+		t.Fatalf("expected paused=false")
+	}
+	if resumed.APIKey != initialKeys[0] || fmt.Sprint(resumed.APIKeys) != fmt.Sprint(initialKeys[1:]) {
+		t.Fatalf("keys changed on resume: %#v", resumed)
+	}
+	statuses = service.TargetStatuses(time.Now())
+	if len(statuses) != 1 || statuses[0].Paused {
+		t.Fatalf("expected runtime paused=false, got %#v", statuses)
+	}
+}
+
+func TestHandlerUpdateTargetAcceptsExactMaskedExistingKeys(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002", "sk-secondary-real-0003"}
+	h, _, stores := newTargetUpdateTestHandler(t, tempDir, initialKeys)
+
+	body := targetUpdateBody(initialKeys[0], []string{maskKey(initialKeys[1]), maskKey(initialKeys[2])})
+	rec := putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if updated.APIKey != initialKeys[0] {
+		t.Fatalf("APIKey overwritten: got %q want %q", updated.APIKey, initialKeys[0])
+	}
+	if got, want := updated.APIKeys, initialKeys[1:]; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("APIKeys changed: got %#v want %#v", got, want)
+	}
+}
+
+func TestHandlerUpdateTargetDeletesOmittedSecondaryKey(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002", "sk-secondary-real-0003"}
+	h, _, stores := newTargetUpdateTestHandler(t, tempDir, initialKeys)
+
+	body := targetUpdateBody("__existing_key_index__:0", []string{"__existing_key_index__:2"})
+	rec := putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if got, want := updated.APIKeys, []string{initialKeys[2]}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("APIKeys after delete got %#v want %#v", got, want)
+	}
+}
+
+func TestHandlerUpdateTargetKeepsExistingSecondaryAndAddsNewOne(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002", "sk-secondary-real-0003"}
+	h, _, stores := newTargetUpdateTestHandler(t, tempDir, initialKeys)
+
+	body := targetUpdateBody("__existing_key_index__:0", []string{"__existing_key_index__:1", "sk-secondary-real-0004"})
+	rec := putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if got, want := updated.APIKeys, []string{initialKeys[1], "sk-secondary-real-0004"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("APIKeys after add got %#v want %#v", got, want)
+	}
+}
+
+func TestHandlerUpdateTargetRejectsUnrecognizedMaskedLookingKey(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002"}
+	h, _, stores := newTargetUpdateTestHandler(t, tempDir, initialKeys)
+
+	body := targetUpdateBody("__existing_key_index__:0", []string{"sk-b...dead"})
+	rec := putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("update target expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if got, want := updated.APIKeys, initialKeys[1:]; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("APIKeys should remain unchanged after reject, got %#v want %#v", got, want)
+	}
+}
+
+func TestHandlerUpdateTargetRejectsOutOfRangeExistingRef(t *testing.T) {
+	tempDir := t.TempDir()
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002"}
+	h, _, stores := newTargetUpdateTestHandler(t, tempDir, initialKeys)
+
+	body := targetUpdateBody("__existing_key_index__:0", []string{"__existing_key_index__:9"})
+	rec := putTarget(t, h, "target-1", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("update target expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated := mustGetTarget(t, stores.targetStore, "target-1")
+	if got, want := updated.APIKeys, initialKeys[1:]; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("APIKeys should remain unchanged after reject, got %#v want %#v", got, want)
+	}
+}
+
+func newTargetUpdateTestHandler(t *testing.T, tempDir string, keys []string) (http.Handler, *config.Manager, testStores) {
+	h, manager, stores, _ := newTargetUpdateTestHandlerWithService(t, tempDir, keys)
+	return h, manager, stores
+}
+
+func newTargetUpdateTestHandlerWithService(t *testing.T, tempDir string, keys []string) (http.Handler, *config.Manager, testStores, *proxy.Service) {
+	t.Helper()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg := testConfig(tempDir, 1, []string{"k1"})
+	cfg.Targets[0].APIKey = keys[0]
+	if len(keys) > 1 {
+		cfg.Targets[0].APIKeys = append([]string(nil), keys[1:]...)
+	}
+	clients := testClients([]string{"k1"})
+	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
+	manager := config.NewManager(configPath)
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("failed to init auth store: %v", err)
+	}
+	service, err := proxy.NewService(cfg, logger)
+	if err != nil {
+		t.Fatalf("failed to init proxy service: %v", err)
+	}
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	return h, manager, stores, service
+}
+
+func targetUpdateBody(apiKey string, apiKeys []string) map[string]any {
+	return map[string]any{
+		"endpoint_type":            "azure_openai",
+		"endpoint":                 "https://example.com",
+		"resource_path_prefix":     "/openai",
+		"api_key":                  apiKey,
+		"api_keys":                 apiKeys,
+		"allow_bearer_passthrough": false,
+		"allowed_models":           []string{"gpt-4o"},
+		"sse_auto_aggregate":       true,
+	}
+}
+
+func putTarget(t *testing.T, h http.Handler, name string, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal update body: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "http://example.com/data/targets/"+name, bytes.NewReader(payload)))
+	return rec
+}
+
+func mustGetTarget(t *testing.T, store *nosql.TargetStore, name string) config.Target {
+	t.Helper()
+	targets, err := store.List()
+	if err != nil {
+		t.Fatalf("list targets: %v", err)
+	}
+	for _, target := range targets {
+		if target.Name == name {
+			return target
+		}
+	}
+	t.Fatalf("target %q not found", name)
+	return config.Target{}
+}
+
 func TestHandlerUsageSummary(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
