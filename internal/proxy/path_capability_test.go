@@ -33,7 +33,7 @@ func TestPathSupportedByEndpointType(t *testing.T) {
 		{config.EndpointTypeDeepSeek, "/v1/responses", false},
 		{config.EndpointTypeBailian, "/v1/messages", true},
 		{config.EndpointTypeBailian, "/v1/chat/completions", true},
-		{config.EndpointTypeBailian, "/v1/responses", false},
+		{config.EndpointTypeBailian, "/v1/responses", true},
 		{config.EndpointTypeBailianAPI, "/v1/messages", true},
 		{config.EndpointTypeBailianAPI, "/v1/chat/completions", true},
 		{config.EndpointTypeBailianAPI, "/v1/responses", true},

@@ -66,6 +66,7 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	// any sub-path already present in the endpoint (e.g. a gateway base path
 	// like /v2/gws/<id>/anthropic).
 	forward.Path = strings.TrimRight(forward.Path, "/") + "/" + strings.TrimLeft(path, "/")
+	forward.Path = deduplicateV1Path(forward.Path)
 	forward.RawQuery = normalizeForwardQuery(original)
 
 	// Azure OpenAI deployment-based API（/deployments/{name}/...）需要 api-version 查询参数。
@@ -160,6 +161,22 @@ func ensureLeadingSlash(p string) string {
 	}
 	if p[0] != '/' {
 		return "/" + p
+	}
+	return p
+}
+
+// deduplicateV1Path 消除路径中因 endpoint URL 与客户端 path 都含 /v1 而产生的
+// /v1/v1 重复前缀。例如 endpoint=https://api.openai.com/v1 + client=/v1/chat/completions
+// 会拼出 /v1/v1/chat/completions，此函数将其归一化为 /v1/chat/completions。
+// /v1/v1 在任何已知上游 API 中都不合法，因此该归一化是安全的。
+func deduplicateV1Path(p string) string {
+	// 处理路径中间的 /v1/v1/ 重复：保留第一个 /v1/，跳过第二个 /v1
+	if idx := strings.Index(p, "/v1/v1/"); idx >= 0 {
+		return p[:idx+1] + p[idx+4:]
+	}
+	// 处理路径以 /v1/v1 结尾（无后续路径）
+	if strings.HasSuffix(p, "/v1/v1") {
+		return p[:len(p)-3]
 	}
 	return p
 }

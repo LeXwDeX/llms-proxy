@@ -44,8 +44,10 @@ func PathSupportedByEndpointType(epType, path string) bool {
 		return schema == requestSchemaAnthropic
 	case config.EndpointTypeGemini, config.EndpointTypeWangsuGemini, config.EndpointTypeCopilot:
 		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat
-	case config.EndpointTypeDeepSeek, config.EndpointTypeBailian:
+	case config.EndpointTypeDeepSeek:
 		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat || schema == requestSchemaAnthropic
+	case config.EndpointTypeBailian:
+		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat || schema == requestSchemaOpenAIResponses || schema == requestSchemaAnthropic
 	case config.EndpointTypeBailianAPI:
 		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat || schema == requestSchemaOpenAIResponses || schema == requestSchemaAnthropic
 	case config.EndpointTypeWangsuOpenAI:

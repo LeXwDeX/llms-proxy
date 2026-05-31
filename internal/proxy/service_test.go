@@ -2387,8 +2387,9 @@ func TestServiceRoutesResponsesToResponsesCapableTarget(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if got := rr.Header().Get("X-Proxy-Target"); got != "bailian-api" {
-		t.Fatalf("expected Responses request to use bailian-api, got %q", got)
+	// Both bailian and bailian_api now support /v1/responses, so either target is valid.
+	if got := rr.Header().Get("X-Proxy-Target"); got != "bailian-api" && got != "bailian-token-plan" {
+		t.Fatalf("expected Responses request to use a bailian target, got %q", got)
 	}
 }
 
