@@ -1892,13 +1892,12 @@ func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 	}
 }
 
-// TestServiceUsageEventResolvesAlias 红线：客户端用 DeepSeek 兼容别名 "deepseek-chat"
-// 调用时，记录的用量事件 model 字段必须被规范化为 "deepseek-v4-flash"，
-// 否则下游 CostTable 查不到价格、用量统计也无法按真实模型聚合。
-func TestServiceUsageEventResolvesAlias(t *testing.T) {
+// TestServiceUsageEventRecordsModel 红线：用量事件的 model 字段必须与上游响应中的
+// model 字段一致（小写化），确保下游 CostTable 能查到价格、用量统计按模型聚合。
+func TestServiceUsageEventRecordsModel(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"model":"deepseek-chat","usage":{"prompt_tokens":5,"completion_tokens":3}}`))
+		_, _ = w.Write([]byte(`{"model":"deepseek-v4-flash","usage":{"prompt_tokens":5,"completion_tokens":3}}`))
 	}))
 	defer upstream.Close()
 
@@ -1916,10 +1915,11 @@ func TestServiceUsageEventResolvesAlias(t *testing.T) {
 			RequestTimeoutSeconds: 5,
 		},
 		Targets: []config.Target{{
-			Name:         "ds1",
-			EndpointType: config.EndpointTypeDeepSeek,
-			Endpoint:     upstream.URL,
-			APIKey:       "key",
+			Name:            "ds1",
+			EndpointType:    config.EndpointTypeDualProtocol,
+			Endpoint:        upstream.URL,
+			APIKey:          "key",
+			AnthropicPrefix: "/anthropic",
 		}},
 		DataStore: config.DataStore{DBPath: filepath.Join(tmpDir, "test.db")},
 		Logging: config.LoggingConfig{
@@ -1945,7 +1945,7 @@ func TestServiceUsageEventResolvesAlias(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
-		bytes.NewBufferString(`{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}`))
+		bytes.NewBufferString(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}`))
 	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
 	rr := httptest.NewRecorder()
 	service.ServeHTTP(rr, req)
@@ -1962,7 +1962,7 @@ func TestServiceUsageEventResolvesAlias(t *testing.T) {
 		t.Fatalf("expected 1 usage event, got %d", len(events))
 	}
 	if got := events[0].Model; got != "deepseek-v4-flash" {
-		t.Fatalf("expected model normalized to deepseek-v4-flash, got %q", got)
+		t.Fatalf("expected model deepseek-v4-flash, got %q", got)
 	}
 }
 
@@ -2342,18 +2342,24 @@ func TestServiceRoutesResponsesToResponsesCapableTarget(t *testing.T) {
 		},
 		Targets: []config.Target{
 			{
-				Name:          "bailian-token-plan",
-				EndpointType:  "bailian",
-				Endpoint:      upstream.URL,
-				APIKey:        "sk-bailian-token",
-				AllowedModels: []string{"shared-model"},
+				Name:              "dual-proto-1",
+				EndpointType:      "dual_protocol",
+				Endpoint:          upstream.URL,
+				APIKey:            "sk-dual-token",
+				AllowedModels:     []string{"shared-model"},
+				OpenAIPrefix:      "/compatible-mode",
+				AnthropicPrefix:   "/apps/anthropic",
+				SupportsResponses: true,
 			},
 			{
-				Name:          "bailian-api",
-				EndpointType:  "bailian_api",
-				Endpoint:      upstream.URL,
-				APIKey:        "sk-bailian-api",
-				AllowedModels: []string{"shared-model"},
+				Name:              "dual-proto-2",
+				EndpointType:      "dual_protocol",
+				Endpoint:          upstream.URL,
+				APIKey:            "sk-dual-api",
+				AllowedModels:     []string{"shared-model"},
+				OpenAIPrefix:      "/compatible-mode",
+				AnthropicPrefix:   "/apps/anthropic",
+				SupportsResponses: true,
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -2387,9 +2393,9 @@ func TestServiceRoutesResponsesToResponsesCapableTarget(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-	// Both bailian and bailian_api now support /v1/responses, so either target is valid.
-	if got := rr.Header().Get("X-Proxy-Target"); got != "bailian-api" && got != "bailian-token-plan" {
-		t.Fatalf("expected Responses request to use a bailian target, got %q", got)
+	// Both dual_protocol targets support /v1/responses, so either target is valid.
+	if got := rr.Header().Get("X-Proxy-Target"); got != "dual-proto-1" && got != "dual-proto-2" {
+		t.Fatalf("expected Responses request to use a dual_protocol target, got %q", got)
 	}
 }
 
@@ -3009,11 +3015,12 @@ func TestSelectTargetPathFiltering(t *testing.T) {
 				AllowedModels: []string{"gpt-4o"},
 			},
 			{
-				Name:          "wangsu-t2",
-				EndpointType:  "wangsu_openai",
-				Endpoint:      t2.URL,
-				APIKey:        "key2",
-				AllowedModels: []string{"gpt-4o"},
+				Name:            "dual-proto-t2",
+				EndpointType:    "dual_protocol",
+				Endpoint:        t2.URL,
+				APIKey:          "key2",
+				AllowedModels:   []string{"gpt-4o"},
+				AnthropicPrefix: "/anthropic",
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -3151,9 +3158,9 @@ func TestSelectTargetExplicitPathIncompatible(t *testing.T) {
 		},
 		Targets: []config.Target{
 			{
-				Name:          "wangsu",
-				EndpointType:  "wangsu_openai",
-				Endpoint:      "http://example.com",
+				Name:          "openai_image",
+				EndpointType:  "openai_image",
+				Endpoint:      "http://example.com/v1/images/generations",
 				APIKey:        "key",
 				AllowedModels: []string{"gpt-4o"},
 			},
@@ -3181,7 +3188,7 @@ func TestSelectTargetExplicitPathIncompatible(t *testing.T) {
 
 	body := bytes.NewBufferString(`{"model":"gpt-4o","input":"hi"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", body)
-	req.Header.Set("X-Proxy-Target", "wangsu")
+	req.Header.Set("X-Proxy-Target", "openai_image")
 	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
 
 	rr := httptest.NewRecorder()

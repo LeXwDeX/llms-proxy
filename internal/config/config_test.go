@@ -236,14 +236,10 @@ func TestNormalizeEndpointType(t *testing.T) {
 		{"CLAUDE", EndpointTypeClaude},
 		{"gemini", EndpointTypeGemini},
 		{"GEMINI", EndpointTypeGemini},
-		{"wangsu_openai", EndpointTypeWangsuOpenAI},
-		{"Wangsu_OpenAI", EndpointTypeWangsuOpenAI},
-		{"wangsu_claude", EndpointTypeWangsuClaude},
-		{"WANGSU_CLAUDE", EndpointTypeWangsuClaude},
-		{"wangsu_gemini", EndpointTypeWangsuGemini},
-		{"deepseek", EndpointTypeDeepSeek},
-		{"bailian", EndpointTypeBailian},
-		{"Bailian_API", EndpointTypeBailianAPI},
+		{"openai_image", EndpointTypeOpenAIImage},
+		{"OpenAI_Image", EndpointTypeOpenAIImage},
+		{"dual_protocol", EndpointTypeDualProtocol},
+		{"Dual_Protocol", EndpointTypeDualProtocol},
 		{"unknown", "unknown"},
 	}
 	for _, tt := range tests {

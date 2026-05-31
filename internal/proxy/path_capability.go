@@ -15,21 +15,12 @@ const (
 	requestSchemaAnthropic       requestSchema = "anthropic"
 )
 
-// wangsuOpenAISupportedPaths 列出 wangsu_openai 支持的请求路径后缀。
-// 网宿 OpenAI 兼容通道仅支持部分 OpenAI 端点，不支持 /responses 等。
-var wangsuOpenAISupportedPaths = []string{
-	"/chat/completions",
+// openAIImageSupportedPaths 列出 openai_image 支持的请求路径后缀。
+var openAIImageSupportedPaths = []string{
 	"/images/generations",
 	"/images/edits",
 	"/images/variations",
-	"/embeddings",
 }
-
-// 网宿图像通道（独立终态 URL），各自只接受一条客户端路径，用以路由消歧。
-var (
-	wangsuOpenAIImageSupportedPaths     = []string{"/images/generations"}
-	wangsuOpenAIImageEditSupportedPaths = []string{"/images/edits"}
-)
 
 // PathSupportedByEndpointType 检查指定 endpoint_type 是否支持给定的请求路径 schema。
 // 目标选择先按 model 过滤，再按请求 schema 过滤，避免同一 model 在 OpenAI / Anthropic /
@@ -40,25 +31,14 @@ func PathSupportedByEndpointType(epType, path string) bool {
 	switch epType {
 	case config.EndpointTypeOpenAI, config.EndpointTypeAzureOpenAI:
 		return schema != requestSchemaAnthropic
-	case config.EndpointTypeClaude, config.EndpointTypeWangsuClaude:
+	case config.EndpointTypeClaude:
 		return schema == requestSchemaAnthropic
-	case config.EndpointTypeGemini, config.EndpointTypeWangsuGemini, config.EndpointTypeCopilot:
+	case config.EndpointTypeGemini:
 		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat
-	case config.EndpointTypeDeepSeek:
-		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat || schema == requestSchemaAnthropic
-	case config.EndpointTypeBailian:
+	case config.EndpointTypeDualProtocol:
 		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat || schema == requestSchemaOpenAIResponses || schema == requestSchemaAnthropic
-	case config.EndpointTypeBailianAPI:
-		return schema == requestSchemaOpenAICompat || schema == requestSchemaOpenAIChat || schema == requestSchemaOpenAIResponses || schema == requestSchemaAnthropic
-	case config.EndpointTypeWangsuOpenAI:
-		if schema == requestSchemaAnthropic || schema == requestSchemaOpenAIResponses {
-			return false
-		}
-		return pathHasAnySuffix(pathLower, wangsuOpenAISupportedPaths)
-	case config.EndpointTypeWangsuOpenAIImage:
-		return pathHasAnySuffix(pathLower, wangsuOpenAIImageSupportedPaths)
-	case config.EndpointTypeWangsuOpenAIImageEdit:
-		return pathHasAnySuffix(pathLower, wangsuOpenAIImageEditSupportedPaths)
+	case config.EndpointTypeOpenAIImage:
+		return pathHasAnySuffix(pathLower, openAIImageSupportedPaths)
 	}
 	return schema != requestSchemaAnthropic
 }

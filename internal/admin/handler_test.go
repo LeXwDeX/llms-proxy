@@ -639,8 +639,8 @@ func TestHandlerEndpointTypesEndpoint(t *testing.T) {
 	if resp.Count != len(resp.EndpointTypes) {
 		t.Fatalf("count(%d) != len(%d)", resp.Count, len(resp.EndpointTypes))
 	}
-	// 必须包含本轮新增的两个 wangsu 图像类型
-	want := map[string]bool{"wangsu_openai_image": false, "wangsu_openai_image_edit": false}
+	// 必须包含 openai_image 类型
+	want := map[string]bool{"openai_image": false}
 	for _, m := range resp.EndpointTypes {
 		if _, ok := want[m.Code]; ok {
 			want[m.Code] = true

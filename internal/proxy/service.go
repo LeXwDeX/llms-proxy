@@ -58,7 +58,7 @@ type Service struct {
 // Target represents an upstream endpoint with runtime metadata.
 type Target struct {
 	Name               string
-	EndpointType       string // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini
+	EndpointType       string // azure_openai | openai | claude | gemini | openai_image | dual_protocol
 	Endpoint           *url.URL
 	ResourcePathPrefix string
 	APIKey             string
@@ -68,7 +68,23 @@ type Target struct {
 	AuthMode           string
 	AllowedModels      []string
 	SSEAutoAggregate   bool
-	allowedModelsSet   map[string]struct{}
+	// dual_protocol 专用字段
+	OpenAIPrefix      string // OpenAI 路径前缀
+	AnthropicPrefix   string // Anthropic 路径前缀
+	SupportsResponses bool   // 是否支持 /v1/responses
+	allowedModelsSet  map[string]struct{}
+}
+
+// SupportsPath 检查 target 是否支持给定的请求路径。
+// 综合 endpoint_type 级别的路径能力检查和 per-target 的配置（如 SupportsResponses）。
+func (t *Target) SupportsPath(path string) bool {
+	if !PathSupportedByEndpointType(t.EndpointType, path) {
+		return false
+	}
+	if t.EndpointType == config.EndpointTypeDualProtocol && isOpenAIResponsesStylePath(path) && !t.SupportsResponses {
+		return false
+	}
+	return true
 }
 
 type requestMetrics struct {

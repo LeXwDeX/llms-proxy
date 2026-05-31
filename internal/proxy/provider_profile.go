@@ -54,7 +54,7 @@ func (a *GeminiAuth) InjectAuth(req *http.Request, apiKey string, clientPath str
 }
 
 // BearerWithConditionalAnthropicVersion 设置 Bearer + 条件性 anthropic-version。
-// 用于 bailian/bailian_api/deepseek：Bearer 认证，但 Anthropic 路径需要 anthropic-version。
+// 用于 dual_protocol：Bearer 认证，但 Anthropic 路径需要 anthropic-version。
 type BearerWithConditionalAnthropicVersion struct{}
 
 func (a *BearerWithConditionalAnthropicVersion) InjectAuth(req *http.Request, apiKey string, clientPath string) error {
@@ -93,7 +93,7 @@ type PathMapper interface {
 	// IsTerminalURL 返回 true 表示 endpoint URL 是终态 URL（不拼接客户端 path）。
 	IsTerminalURL() bool
 	// PrepareEndpointPath 返回经过 provider 特定处理后的 endpoint path。
-	// 默认返回原值；BailianAPIPath 会调用 stripBailianAPIBasePath。
+	// 默认返回原值。
 	PrepareEndpointPath(endpointPath string) string
 }
 
@@ -108,58 +108,27 @@ func (m *PassthroughPath) IsTerminalURL() bool { return false }
 
 func (m *PassthroughPath) PrepareEndpointPath(endpointPath string) string { return endpointPath }
 
-// DeepSeekPath DeepSeek 路径改写：Anthropic 路径加 /anthropic 前缀。
-type DeepSeekPath struct{}
-
-func (m *DeepSeekPath) RewritePath(clientPath, resourcePathPrefix string) string {
-	path := mergePaths(resourcePathPrefix, clientPath)
-	if isAnthropicStylePath(clientPath) {
-		path = "/anthropic" + ensureLeadingSlash(path)
-	}
-	return path
+// DualProtocolPath 双协议路径改写：从 target 读取 prefix 配置，按路径自动分流。
+// OpenAI 风格路径加 OpenAIPrefix，Anthropic 风格路径加 AnthropicPrefix。
+type DualProtocolPath struct {
+	OpenAIPrefix      string
+	AnthropicPrefix   string
+	SupportsResponses bool
 }
 
-func (m *DeepSeekPath) IsTerminalURL() bool { return false }
-
-func (m *DeepSeekPath) PrepareEndpointPath(endpointPath string) string { return endpointPath }
-
-// BailianPath 百炼 Token Plan 路径改写。
-type BailianPath struct{}
-
-func (m *BailianPath) RewritePath(clientPath, resourcePathPrefix string) string {
+func (m *DualProtocolPath) RewritePath(clientPath, resourcePathPrefix string) string {
 	path := mergePaths(resourcePathPrefix, clientPath)
 	if isAnthropicStylePath(clientPath) {
-		path = "/apps/anthropic" + ensureLeadingSlash(path)
+		path = m.AnthropicPrefix + ensureLeadingSlash(path)
 	} else {
-		path = "/compatible-mode" + ensureLeadingSlash(path)
+		path = m.OpenAIPrefix + ensureLeadingSlash(path)
 	}
 	return path
 }
 
-func (m *BailianPath) IsTerminalURL() bool { return false }
+func (m *DualProtocolPath) IsTerminalURL() bool { return false }
 
-func (m *BailianPath) PrepareEndpointPath(endpointPath string) string { return endpointPath }
-
-// BailianAPIPath 百炼 API 路径改写。
-type BailianAPIPath struct {
-	BasePath string // endpoint URL 的 path 部分，用于 stripBailianAPIBasePath
-}
-
-func (m *BailianAPIPath) RewritePath(clientPath, resourcePathPrefix string) string {
-	path := mergePaths(resourcePathPrefix, clientPath)
-	if isAnthropicStylePath(clientPath) {
-		path = "/apps/anthropic" + ensureLeadingSlash(path)
-	} else {
-		path = "/compatible-mode" + ensureLeadingSlash(path)
-	}
-	return path
-}
-
-func (m *BailianAPIPath) IsTerminalURL() bool { return false }
-
-func (m *BailianAPIPath) PrepareEndpointPath(endpointPath string) string {
-	return stripBailianAPIBasePath(endpointPath)
-}
+func (m *DualProtocolPath) PrepareEndpointPath(endpointPath string) string { return endpointPath }
 
 // TerminalURLPath 终态 URL（不拼接客户端 path）。
 type TerminalURLPath struct{}
@@ -188,7 +157,7 @@ type BodyPolicy struct {
 	SanitizeFunc func(r *http.Request, body []byte) ([]byte, []string)
 
 	// InjectCacheControl 可选的 cache_control 注入函数。
-	// 仅 Bailian Anthropic 路径使用。
+	// 仅 dual_protocol Anthropic 路径使用。
 	// path 参数为客户端原始路径，用于条件性注入。
 	InjectCacheControl func(body []byte, path string) []byte
 }
@@ -261,7 +230,7 @@ func (r *ProviderRegistry) Register(profile *ProviderProfile) {
 	r.profiles[profile.EndpointType] = profile
 }
 
-// DefaultProviderRegistry 返回包含所有 13 个 endpoint_type 的默认注册表。
+// DefaultProviderRegistry 返回包含所有 endpoint_type 的默认注册表。
 func DefaultProviderRegistry() *ProviderRegistry {
 	r := NewProviderRegistry()
 
@@ -301,17 +270,9 @@ func DefaultProviderRegistry() *ProviderRegistry {
 		Path:         &PassthroughPath{},
 	})
 
-	r.Register(&ProviderProfile{
-		EndpointType: config.EndpointTypeDeepSeek,
-		Provider:     "deepseek",
-		Protocols:    []config.ProtocolType{config.ProtocolOpenAIChat, config.ProtocolAnthropicMessages},
-		Auth:         &BearerWithConditionalAnthropicVersion{},
-		Path:         &DeepSeekPath{},
-	})
-
-	// bailianCacheControlInjector 是百炼 Anthropic 路径 cache_control 注入函数。
+	// dualProtocolCacheControlInjector 是双协议 Anthropic 路径 cache_control 注入函数。
 	// 仅当路径为 Anthropic 格式时注入，OpenAI 兼容路径不注入。
-	bailianCacheControlInjector := func(body []byte, path string) []byte {
+	dualProtocolCacheControlInjector := func(body []byte, path string) []byte {
 		if isAnthropicStylePath(path) {
 			return injectBailianCacheControl(body)
 		}
@@ -319,82 +280,25 @@ func DefaultProviderRegistry() *ProviderRegistry {
 	}
 
 	r.Register(&ProviderProfile{
-		EndpointType: config.EndpointTypeBailian,
-		Provider:     "bailian_token_plan",
-		Protocols:    []config.ProtocolType{config.ProtocolOpenAIChat, config.ProtocolOpenAIResponses, config.ProtocolAnthropicMessages},
+		EndpointType: config.EndpointTypeDualProtocol,
+		Provider:     "dual_protocol",
+		Protocols:    []config.ProtocolType{config.ProtocolOpenAIChat, config.ProtocolAnthropicMessages},
 		Auth:         &BearerWithConditionalAnthropicVersion{},
-		Path:         &BailianPath{},
+		Path:         &DualProtocolPath{}, // 实际使用时从 target 动态创建
 		Body: BodyPolicy{
-			InjectCacheControl: bailianCacheControlInjector,
+			InjectCacheControl: dualProtocolCacheControlInjector,
 		},
 	})
 
 	r.Register(&ProviderProfile{
-		EndpointType: config.EndpointTypeBailianAPI,
-		Provider:     "bailian_api",
-		Protocols:    []config.ProtocolType{config.ProtocolOpenAIChat, config.ProtocolOpenAIResponses, config.ProtocolAnthropicMessages},
-		Auth:         &BearerWithConditionalAnthropicVersion{},
-		Path:         &BailianAPIPath{},
-		Body: BodyPolicy{
-			InjectCacheControl: bailianCacheControlInjector,
-		},
-	})
-
-	r.Register(&ProviderProfile{
-		EndpointType:   config.EndpointTypeWangsuOpenAI,
-		Provider:       "wangsu",
-		Protocols:      []config.ProtocolType{config.ProtocolOpenAIChat, config.ProtocolOpenAIImage},
-		Auth:           &BearerAuth{},
-		Path:           &PassthroughPath{},
-		SupportedPaths: []string{"/chat/completions", "/images/generations", "/images/edits", "/images/variations", "/embeddings"},
-	})
-
-	r.Register(&ProviderProfile{
-		EndpointType:   config.EndpointTypeWangsuOpenAIImage,
-		Provider:       "wangsu",
-		Protocols:      []config.ProtocolType{config.ProtocolOpenAIImage},
-		Auth:           &BearerAuth{},
-		Path:           &TerminalURLPath{},
-		SupportedPaths: []string{"/images/generations"},
-		Body: BodyPolicy{
-			PreserveMultipart: true,
-		},
-	})
-
-	r.Register(&ProviderProfile{
-		EndpointType:   config.EndpointTypeWangsuOpenAIImageEdit,
-		Provider:       "wangsu",
-		Protocols:      []config.ProtocolType{config.ProtocolOpenAIImage},
-		Auth:           &BearerAuth{},
-		Path:           &TerminalURLPath{},
-		SupportedPaths: []string{"/images/edits"},
-		Body: BodyPolicy{
-			PreserveMultipart: true,
-		},
-	})
-
-	r.Register(&ProviderProfile{
-		EndpointType: config.EndpointTypeWangsuClaude,
-		Provider:     "wangsu",
-		Protocols:    []config.ProtocolType{config.ProtocolAnthropicMessages},
-		Auth:         &AnthropicAuth{},
-		Path:         &PassthroughPath{},
-	})
-
-	r.Register(&ProviderProfile{
-		EndpointType: config.EndpointTypeWangsuGemini,
-		Provider:     "wangsu",
-		Protocols:    []config.ProtocolType{config.ProtocolGemini},
-		Auth:         &GeminiAuth{},
-		Path:         &PassthroughPath{},
-	})
-
-	r.Register(&ProviderProfile{
-		EndpointType: config.EndpointTypeCopilot,
-		Provider:     "copilot",
-		Protocols:    []config.ProtocolType{config.ProtocolOpenAIChat},
+		EndpointType: config.EndpointTypeOpenAIImage,
+		Provider:     "openai_image",
+		Protocols:    []config.ProtocolType{config.ProtocolOpenAIImage},
 		Auth:         &BearerAuth{},
-		Path:         &PassthroughPath{},
+		Path:         &TerminalURLPath{},
+		Body: BodyPolicy{
+			PreserveMultipart: true,
+		},
 	})
 
 	return r

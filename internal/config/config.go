@@ -12,19 +12,12 @@ import (
 )
 
 const (
-	EndpointTypeAzureOpenAI           = "azure_openai"
-	EndpointTypeOpenAI                = "openai"
-	EndpointTypeClaude                = "claude"
-	EndpointTypeGemini                = "gemini"
-	EndpointTypeWangsuOpenAI          = "wangsu_openai"
-	EndpointTypeWangsuClaude          = "wangsu_claude"
-	EndpointTypeWangsuGemini          = "wangsu_gemini"
-	EndpointTypeWangsuOpenAIImage     = "wangsu_openai_image"      // 网宿文生图（独立终态 URL）
-	EndpointTypeWangsuOpenAIImageEdit = "wangsu_openai_image_edit" // 网宿图编辑（独立终态 URL）
-	EndpointTypeCopilot               = "copilot"
-	EndpointTypeDeepSeek              = "deepseek"    // DeepSeek 官方（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
-	EndpointTypeBailian               = "bailian"     // 百炼 Token Plan（OpenAI + Anthropic 双协议，按路径自动识别）
-	EndpointTypeBailianAPI            = "bailian_api" // 百炼 API（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
+	EndpointTypeAzureOpenAI   = "azure_openai"
+	EndpointTypeOpenAI        = "openai"
+	EndpointTypeClaude        = "claude"
+	EndpointTypeGemini        = "gemini"
+	EndpointTypeOpenAIImage   = "openai_image" // OpenAI 图片生成/编辑（独立终态 URL）
+	EndpointTypeDualProtocol  = "dual_protocol" // 双协议兼容（OpenAI + Anthropic，按路径自动识别，prefix 由 target 配置）
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
@@ -117,10 +110,10 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
-// Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
+// Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, OpenAI Image, etc.).
 type Target struct {
 	Name               string   `json:"name"`
-	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot | deepseek | bailian | bailian_api; default azure_openai
+	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | openai_image | dual_protocol; default azure_openai
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	APIKey             string   `json:"api_key"`
@@ -131,6 +124,10 @@ type Target struct {
 	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
 	AllowedModels      []string `json:"allowed_models"`
 	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
+	// dual_protocol 专用字段
+	OpenAIPrefix      string `json:"openai_prefix,omitempty"`      // OpenAI 路径前缀，如 "/compatible-mode"
+	AnthropicPrefix   string `json:"anthropic_prefix,omitempty"`   // Anthropic 路径前缀，如 "/apps/anthropic"
+	SupportsResponses bool   `json:"supports_responses,omitempty"` // 是否支持 /v1/responses
 }
 
 // Client describes a consumer and its access rights.

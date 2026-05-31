@@ -44,67 +44,18 @@ func TestProviderProfileSupportsProtocol(t *testing.T) {
 			config.ProtocolAnthropicMessages: false,
 			config.ProtocolOpenAIImage:       false,
 		},
-		config.EndpointTypeDeepSeek: {
+		config.EndpointTypeDualProtocol: {
 			config.ProtocolOpenAIChat:        true,
 			config.ProtocolAnthropicMessages: true,
 			config.ProtocolOpenAIResponses:   false,
 			config.ProtocolOpenAIImage:       false,
 			config.ProtocolGemini:            false,
 		},
-		config.EndpointTypeBailian: {
-			config.ProtocolOpenAIChat:        true,
-			config.ProtocolOpenAIResponses:   true,
-			config.ProtocolAnthropicMessages: true,
-			config.ProtocolOpenAIImage:       false,
-			config.ProtocolGemini:            false,
-		},
-		config.EndpointTypeBailianAPI: {
-			config.ProtocolOpenAIChat:        true,
-			config.ProtocolOpenAIResponses:   true,
-			config.ProtocolAnthropicMessages: true,
-			config.ProtocolOpenAIImage:       false,
-			config.ProtocolGemini:            false,
-		},
-		config.EndpointTypeWangsuOpenAI: {
-			config.ProtocolOpenAIChat:        true,
-			config.ProtocolOpenAIImage:       true,
-			config.ProtocolOpenAIResponses:   false,
-			config.ProtocolAnthropicMessages: false,
-			config.ProtocolGemini:            false,
-		},
-		config.EndpointTypeWangsuOpenAIImage: {
+		config.EndpointTypeOpenAIImage: {
 			config.ProtocolOpenAIImage:       true,
 			config.ProtocolOpenAIChat:        false,
 			config.ProtocolOpenAIResponses:   false,
 			config.ProtocolAnthropicMessages: false,
-			config.ProtocolGemini:            false,
-		},
-		config.EndpointTypeWangsuOpenAIImageEdit: {
-			config.ProtocolOpenAIImage:       true,
-			config.ProtocolOpenAIChat:        false,
-			config.ProtocolOpenAIResponses:   false,
-			config.ProtocolAnthropicMessages: false,
-			config.ProtocolGemini:            false,
-		},
-		config.EndpointTypeWangsuClaude: {
-			config.ProtocolAnthropicMessages: true,
-			config.ProtocolOpenAIChat:        false,
-			config.ProtocolOpenAIResponses:   false,
-			config.ProtocolOpenAIImage:       false,
-			config.ProtocolGemini:            false,
-		},
-		config.EndpointTypeWangsuGemini: {
-			config.ProtocolGemini:            true,
-			config.ProtocolOpenAIChat:        false,
-			config.ProtocolOpenAIResponses:   false,
-			config.ProtocolAnthropicMessages: false,
-			config.ProtocolOpenAIImage:       false,
-		},
-		config.EndpointTypeCopilot: {
-			config.ProtocolOpenAIChat:        true,
-			config.ProtocolOpenAIResponses:   false,
-			config.ProtocolAnthropicMessages: false,
-			config.ProtocolOpenAIImage:       false,
 			config.ProtocolGemini:            false,
 		},
 	}
@@ -124,7 +75,7 @@ func TestProviderProfileSupportsProtocol(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestProviderProfileSupportsPath — wangsu_openai 受限路径、wangsu_image 终态 URL
+// TestProviderProfileSupportsPath — openai_image 终态 URL
 // ---------------------------------------------------------------------------
 
 func TestProviderProfileSupportsPath(t *testing.T) {
@@ -135,23 +86,11 @@ func TestProviderProfileSupportsPath(t *testing.T) {
 		path         string
 		expected     bool
 	}{
-		// wangsu_openai: restricted to specific paths
-		{config.EndpointTypeWangsuOpenAI, "/v1/chat/completions", true},
-		{config.EndpointTypeWangsuOpenAI, "/v1/images/generations", true},
-		{config.EndpointTypeWangsuOpenAI, "/v1/images/edits", true},
-		{config.EndpointTypeWangsuOpenAI, "/v1/images/variations", true},
-		{config.EndpointTypeWangsuOpenAI, "/v1/embeddings", true},
-		{config.EndpointTypeWangsuOpenAI, "/v1/responses", false},
-		{config.EndpointTypeWangsuOpenAI, "/v1/messages", false},
-
-		// wangsu_openai_image: terminal URL, only /images/generations
-		{config.EndpointTypeWangsuOpenAIImage, "/v1/images/generations", true},
-		{config.EndpointTypeWangsuOpenAIImage, "/v1/images/edits", false},
-		{config.EndpointTypeWangsuOpenAIImage, "/v1/chat/completions", false},
-
-		// wangsu_openai_image_edit: terminal URL, only /images/edits
-		{config.EndpointTypeWangsuOpenAIImageEdit, "/v1/images/edits", true},
-		{config.EndpointTypeWangsuOpenAIImageEdit, "/v1/images/generations", false},
+		// openai_image: terminal URL, supports image paths
+		{config.EndpointTypeOpenAIImage, "/v1/images/generations", true},
+		{config.EndpointTypeOpenAIImage, "/v1/images/edits", true},
+		{config.EndpointTypeOpenAIImage, "/v1/images/variations", true},
+		{config.EndpointTypeOpenAIImage, "/v1/chat/completions", false},
 
 		// openai: no path restrictions (nil SupportedPaths)
 		{config.EndpointTypeOpenAI, "/v1/chat/completions", true},
@@ -181,7 +120,7 @@ func TestProviderProfileSupportsPath(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestDefaultProviderRegistry — 13 个 endpoint_type 全部注册、Lookup 正确
+// TestDefaultProviderRegistry — 9 个 endpoint_type 全部注册、Lookup 正确
 // ---------------------------------------------------------------------------
 
 func TestDefaultProviderRegistry(t *testing.T) {
@@ -192,19 +131,12 @@ func TestDefaultProviderRegistry(t *testing.T) {
 		config.EndpointTypeAzureOpenAI,
 		config.EndpointTypeClaude,
 		config.EndpointTypeGemini,
-		config.EndpointTypeDeepSeek,
-		config.EndpointTypeBailian,
-		config.EndpointTypeBailianAPI,
-		config.EndpointTypeWangsuOpenAI,
-		config.EndpointTypeWangsuOpenAIImage,
-		config.EndpointTypeWangsuOpenAIImageEdit,
-		config.EndpointTypeWangsuClaude,
-		config.EndpointTypeWangsuGemini,
-		config.EndpointTypeCopilot,
+		config.EndpointTypeDualProtocol,
+		config.EndpointTypeOpenAIImage,
 	}
 
-	if len(expectedTypes) != 13 {
-		t.Fatalf("expected 13 endpoint types in test, got %d", len(expectedTypes))
+	if len(expectedTypes) != 6 {
+		t.Fatalf("expected 6 endpoint types in test, got %d", len(expectedTypes))
 	}
 
 	for _, epType := range expectedTypes {
@@ -386,10 +318,10 @@ func TestPathMappers(t *testing.T) {
 		}
 	})
 
-	t.Run("DeepSeekPath_Anthropic", func(t *testing.T) {
-		m := &DeepSeekPath{}
+	t.Run("DualProtocolPath_Anthropic", func(t *testing.T) {
+		m := &DualProtocolPath{AnthropicPrefix: "/anthropic"}
 		if m.IsTerminalURL() {
-			t.Error("DeepSeekPath should not be terminal")
+			t.Error("DualProtocolPath should not be terminal")
 		}
 		got := m.RewritePath("/v1/messages", "")
 		if got != "/anthropic/v1/messages" {
@@ -397,46 +329,32 @@ func TestPathMappers(t *testing.T) {
 		}
 	})
 
-	t.Run("DeepSeekPath_OpenAI", func(t *testing.T) {
-		m := &DeepSeekPath{}
+	t.Run("DualProtocolPath_OpenAI", func(t *testing.T) {
+		m := &DualProtocolPath{OpenAIPrefix: ""}
 		got := m.RewritePath("/v1/chat/completions", "")
 		if got != "/v1/chat/completions" {
 			t.Errorf("RewritePath = %q, want %q", got, "/v1/chat/completions")
 		}
 	})
 
-	t.Run("BailianPath_Anthropic", func(t *testing.T) {
-		m := &BailianPath{}
-		if m.IsTerminalURL() {
-			t.Error("BailianPath should not be terminal")
-		}
+	t.Run("DualProtocolPath_BailianAnthropic", func(t *testing.T) {
+		m := &DualProtocolPath{AnthropicPrefix: "/apps/anthropic"}
 		got := m.RewritePath("/v1/messages", "")
 		if got != "/apps/anthropic/v1/messages" {
 			t.Errorf("RewritePath = %q, want %q", got, "/apps/anthropic/v1/messages")
 		}
 	})
 
-	t.Run("BailianPath_OpenAI", func(t *testing.T) {
-		m := &BailianPath{}
+	t.Run("DualProtocolPath_BailianOpenAI", func(t *testing.T) {
+		m := &DualProtocolPath{OpenAIPrefix: "/compatible-mode"}
 		got := m.RewritePath("/v1/chat/completions", "")
 		if got != "/compatible-mode/v1/chat/completions" {
 			t.Errorf("RewritePath = %q, want %q", got, "/compatible-mode/v1/chat/completions")
 		}
 	})
 
-	t.Run("BailianAPIPath_Anthropic", func(t *testing.T) {
-		m := &BailianAPIPath{}
-		if m.IsTerminalURL() {
-			t.Error("BailianAPIPath should not be terminal")
-		}
-		got := m.RewritePath("/v1/messages", "")
-		if got != "/apps/anthropic/v1/messages" {
-			t.Errorf("RewritePath = %q, want %q", got, "/apps/anthropic/v1/messages")
-		}
-	})
-
-	t.Run("BailianAPIPath_Responses", func(t *testing.T) {
-		m := &BailianAPIPath{}
+	t.Run("DualProtocolPath_Responses", func(t *testing.T) {
+		m := &DualProtocolPath{OpenAIPrefix: "/compatible-mode", SupportsResponses: true}
 		got := m.RewritePath("/v1/responses", "")
 		if got != "/compatible-mode/v1/responses" {
 			t.Errorf("RewritePath = %q, want %q", got, "/compatible-mode/v1/responses")
@@ -467,12 +385,8 @@ func TestPathMapperPrepareEndpointPath(t *testing.T) {
 		want   string
 	}{
 		{"passthrough", &PassthroughPath{}, "/compatible-mode/v1", "/compatible-mode/v1"},
-		{"deepseek", &DeepSeekPath{}, "/v1", "/v1"},
-		{"bailian", &BailianPath{}, "/compatible-mode", "/compatible-mode"},
-		{"bailian_api strip compatible-mode", &BailianAPIPath{}, "/compatible-mode", ""},
-		{"bailian_api strip compatible-mode/v1", &BailianAPIPath{}, "/compatible-mode/v1", ""},
-		{"bailian_api strip apps/anthropic", &BailianAPIPath{}, "/apps/anthropic", ""},
-		{"bailian_api keep custom", &BailianAPIPath{}, "/custom/path", "/custom/path"},
+		{"dual_protocol", &DualProtocolPath{}, "/v1", "/v1"},
+		{"dual_protocol with prefix", &DualProtocolPath{OpenAIPrefix: "/compatible-mode"}, "/compatible-mode", "/compatible-mode"},
 		{"terminal", &TerminalURLPath{}, "/openai-image", "/openai-image"},
 	}
 	for _, tc := range cases {

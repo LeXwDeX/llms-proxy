@@ -162,7 +162,8 @@ func (h *Handler) handleDeleteCopilotPool(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// validateCopilotTargets 校验所有 target 名称存在且 endpoint_type 为 copilot。
+// validateCopilotTargets 校验所有 target 名称存在。
+// Copilot 是独立模块，不再校验 endpoint_type。
 func (h *Handler) validateCopilotTargets(targets []string) error {
 	if len(targets) == 0 {
 		return nil // 空 targets 列表合法
@@ -177,13 +178,8 @@ func (h *Handler) validateCopilotTargets(targets []string) error {
 	}
 	for _, tName := range targets {
 		name := strings.ToLower(strings.TrimSpace(tName))
-		t, ok := targetMap[name]
-		if !ok {
+		if _, ok := targetMap[name]; !ok {
 			return fmt.Errorf("target %q not found", tName)
-		}
-		epType := config.NormalizeEndpointType(t.EndpointType)
-		if epType != config.EndpointTypeCopilot {
-			return fmt.Errorf("target %q is type %q, not copilot", tName, epType)
 		}
 	}
 	return nil

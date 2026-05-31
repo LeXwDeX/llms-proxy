@@ -158,9 +158,10 @@ func TestBuildURLAzureStripsClientAPIVersion(t *testing.T) {
 func TestBuildURLNonAzureDoesNotInjectAPIVersion(t *testing.T) {
 	endpoint, _ := url.Parse("https://api.deepseek.com")
 	target := &Target{
-		Name:         "deepseek",
-		EndpointType: config.EndpointTypeDeepSeek,
-		Endpoint:     endpoint,
+		Name:            "dual-proto",
+		EndpointType:    config.EndpointTypeDualProtocol,
+		Endpoint:        endpoint,
+		AnthropicPrefix: "/anthropic",
 	}
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
 

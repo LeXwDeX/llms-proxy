@@ -27,15 +27,15 @@ func TestEndpointTypeMetaSingleSourceOfTruth(t *testing.T) {
 
 func TestEndpointTypeMetaOf(t *testing.T) {
 	// 标准 code 命中
-	m, ok := EndpointTypeMetaOf("wangsu_openai_image")
+	m, ok := EndpointTypeMetaOf("openai_image")
 	if !ok {
-		t.Fatal("未找到 wangsu_openai_image 元数据")
+		t.Fatal("未找到 openai_image 元数据")
 	}
-	if m.DisplayName != "网宿 OpenAI 文生图" {
+	if m.DisplayName != "OpenAI Image" {
 		t.Errorf("DisplayName 不符合预期：%s", m.DisplayName)
 	}
 	// 大小写 + 空白容错
-	if _, ok := EndpointTypeMetaOf("  WANGSU_OPENAI_IMAGE_EDIT  "); !ok {
+	if _, ok := EndpointTypeMetaOf("  OPENAI_IMAGE  "); !ok {
 		t.Error("大小写/空白未正规化")
 	}
 	// 未知类型返回 false

@@ -80,7 +80,7 @@ func (s *Service) resolveAuthStrategy(target *Target, r *http.Request) AuthStrat
 			AllowBearer:    target.AllowBearer,
 			AzureAuthValue: azureAuth,
 		}
-	case config.EndpointTypeClaude, config.EndpointTypeWangsuClaude:
+	case config.EndpointTypeClaude:
 		return &AnthropicAuth{
 			BearerMode: target.AuthMode == "bearer",
 		}
@@ -804,8 +804,8 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 		endpointType = target.EndpointType
 	}
 
-	// 规范化模型名：把客户端传入的 alias（如 deepseek-chat）解析为 catalog 中的
-	// 规范名（如 deepseek-v4-flash），让用量统计、价格匹配全链路按规范名聚合。
+	// 规范化模型名：把客户端传入的 alias 解析为 catalog 中的规范名，
+	// 让用量统计、价格匹配全链路按规范名聚合。
 	// 找不到 catalog 或 model 不是别名时，ResolveAlias 原样返回。
 	if cat := getLocalCatalog(); cat != nil && model != "" {
 		model = cat.ResolveAlias(endpointType, model)
@@ -1159,7 +1159,7 @@ func (s *Service) probeKey(ctx context.Context, state *targetState, keyIndex int
 
 	// 注入上游凭证
 	switch target.EndpointType {
-	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
+	case config.EndpointTypeOpenAI, config.EndpointTypeDualProtocol:
 		probeReq.Header.Set("Authorization", "Bearer "+apiKey)
 	case config.EndpointTypeClaude:
 		if target.AuthMode == "bearer" {
@@ -1198,9 +1198,9 @@ func (s *Service) buildProbeURL(target *Target) string {
 
 	base := target.Endpoint.String()
 	switch target.EndpointType {
-	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
+	case config.EndpointTypeOpenAI:
 		return base + "/v1/models"
-	case config.EndpointTypeBailian, config.EndpointTypeBailianAPI:
+	case config.EndpointTypeDualProtocol:
 		u, err := s.buildURL(target, &url.URL{Path: "/v1/models"})
 		if err != nil {
 			return ""

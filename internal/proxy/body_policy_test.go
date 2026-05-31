@@ -21,18 +21,11 @@ func TestBodyPolicyPreserveMultipart(t *testing.T) {
 		wantPreserve bool
 	}{
 		{config.EndpointTypeAzureOpenAI, true},
-		{config.EndpointTypeWangsuOpenAIImage, true},
-		{config.EndpointTypeWangsuOpenAIImageEdit, true},
+		{config.EndpointTypeOpenAIImage, true},
 		{config.EndpointTypeOpenAI, false},
 		{config.EndpointTypeClaude, false},
 		{config.EndpointTypeGemini, false},
-		{config.EndpointTypeDeepSeek, false},
-		{config.EndpointTypeBailian, false},
-		{config.EndpointTypeBailianAPI, false},
-		{config.EndpointTypeWangsuOpenAI, false},
-		{config.EndpointTypeWangsuClaude, false},
-		{config.EndpointTypeWangsuGemini, false},
-		{config.EndpointTypeCopilot, false},
+		{config.EndpointTypeDualProtocol, false},
 	}
 
 	for _, tc := range cases {
@@ -70,15 +63,8 @@ func TestBodyPolicySanitizeFunc(t *testing.T) {
 		config.EndpointTypeOpenAI,
 		config.EndpointTypeClaude,
 		config.EndpointTypeGemini,
-		config.EndpointTypeDeepSeek,
-		config.EndpointTypeBailian,
-		config.EndpointTypeBailianAPI,
-		config.EndpointTypeWangsuOpenAI,
-		config.EndpointTypeWangsuOpenAIImage,
-		config.EndpointTypeWangsuOpenAIImageEdit,
-		config.EndpointTypeWangsuClaude,
-		config.EndpointTypeWangsuGemini,
-		config.EndpointTypeCopilot,
+		config.EndpointTypeDualProtocol,
+		config.EndpointTypeOpenAIImage,
 	}
 	for _, epType := range otherTypes {
 		p := registry.Lookup(epType)
@@ -128,21 +114,19 @@ func TestBodyPolicySanitizeFuncBehavior(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestBodyPolicyInjectCacheControl — Bailian 有 InjectCacheControl，其他无
+// TestBodyPolicyInjectCacheControl — dual_protocol 有 InjectCacheControl，其他无
 // ---------------------------------------------------------------------------
 
 func TestBodyPolicyInjectCacheControl(t *testing.T) {
 	registry := DefaultProviderRegistry()
 
-	// Bailian 和 BailianAPI 有 InjectCacheControl
-	for _, epType := range []string{config.EndpointTypeBailian, config.EndpointTypeBailianAPI} {
-		p := registry.Lookup(epType)
-		if p == nil {
-			t.Fatalf("provider %q not registered", epType)
-		}
-		if p.Body.InjectCacheControl == nil {
-			t.Errorf("%s should have InjectCacheControl", epType)
-		}
+	// dual_protocol 有 InjectCacheControl
+	dp := registry.Lookup(config.EndpointTypeDualProtocol)
+	if dp == nil {
+		t.Fatalf("provider %q not registered", config.EndpointTypeDualProtocol)
+	}
+	if dp.Body.InjectCacheControl == nil {
+		t.Errorf("%s should have InjectCacheControl", config.EndpointTypeDualProtocol)
 	}
 
 	// 其他 provider 无 InjectCacheControl
@@ -151,13 +135,7 @@ func TestBodyPolicyInjectCacheControl(t *testing.T) {
 		config.EndpointTypeAzureOpenAI,
 		config.EndpointTypeClaude,
 		config.EndpointTypeGemini,
-		config.EndpointTypeDeepSeek,
-		config.EndpointTypeWangsuOpenAI,
-		config.EndpointTypeWangsuOpenAIImage,
-		config.EndpointTypeWangsuOpenAIImageEdit,
-		config.EndpointTypeWangsuClaude,
-		config.EndpointTypeWangsuGemini,
-		config.EndpointTypeCopilot,
+		config.EndpointTypeOpenAIImage,
 	}
 	for _, epType := range otherTypes {
 		p := registry.Lookup(epType)
@@ -176,12 +154,12 @@ func TestBodyPolicyInjectCacheControl(t *testing.T) {
 
 func TestBodyPolicyInjectCacheControlBehavior(t *testing.T) {
 	registry := DefaultProviderRegistry()
-	bailian := registry.Lookup(config.EndpointTypeBailian)
-	if bailian == nil {
-		t.Fatal("bailian not registered")
+	dp := registry.Lookup(config.EndpointTypeDualProtocol)
+	if dp == nil {
+		t.Fatal("dual_protocol not registered")
 	}
-	if bailian.Body.InjectCacheControl == nil {
-		t.Fatal("bailian InjectCacheControl is nil")
+	if dp.Body.InjectCacheControl == nil {
+		t.Fatal("dual_protocol InjectCacheControl is nil")
 	}
 
 	// 构造 >= 3 轮非 system 消息的请求体（触发注入条件）
@@ -194,7 +172,7 @@ func TestBodyPolicyInjectCacheControlBehavior(t *testing.T) {
 	}`)
 
 	t.Run("Anthropic_path_injects", func(t *testing.T) {
-		result := bailian.Body.InjectCacheControl(body, "/v1/messages")
+		result := dp.Body.InjectCacheControl(body, "/v1/messages")
 		// 验证 cache_control 被注入
 		var parsed map[string]interface{}
 		if err := json.Unmarshal(result, &parsed); err != nil {
@@ -216,32 +194,10 @@ func TestBodyPolicyInjectCacheControlBehavior(t *testing.T) {
 	})
 
 	t.Run("OpenAI_path_no_injection", func(t *testing.T) {
-		result := bailian.Body.InjectCacheControl(body, "/v1/chat/completions")
+		result := dp.Body.InjectCacheControl(body, "/v1/chat/completions")
 		// 验证无变化（应返回原始 body）
 		if !bytes.Equal(result, body) {
 			t.Error("OpenAI path should not inject cache_control")
-		}
-	})
-
-	t.Run("BailianAPI_also_injects", func(t *testing.T) {
-		bailianAPI := registry.Lookup(config.EndpointTypeBailianAPI)
-		if bailianAPI == nil {
-			t.Fatal("bailian_api not registered")
-		}
-		if bailianAPI.Body.InjectCacheControl == nil {
-			t.Fatal("bailian_api InjectCacheControl is nil")
-		}
-		result := bailianAPI.Body.InjectCacheControl(body, "/v1/messages")
-		var parsed map[string]interface{}
-		if err := json.Unmarshal(result, &parsed); err != nil {
-			t.Fatalf("result is not valid JSON: %v", err)
-		}
-		messages := parsed["messages"].([]interface{})
-		lastMsg := messages[len(messages)-1].(map[string]interface{})
-		content := lastMsg["content"].([]interface{})
-		lastBlock := content[len(content)-1].(map[string]interface{})
-		if _, has := lastBlock["cache_control"]; !has {
-			t.Error("bailian_api should also inject cache_control for Anthropic path")
 		}
 	})
 }

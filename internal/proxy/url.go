@@ -38,10 +38,19 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	// 使用 PathMapper 改写路径
 	var path string
 	if profile != nil {
-		// 准备 endpoint path（BailianAPI 会 strip 已知 base path）
-		forward.Path = profile.Path.PrepareEndpointPath(forward.Path)
+		// dual_protocol: 从 target 动态创建 PathMapper（prefix 配置在 target 上）
+		pathMapper := profile.Path
+		if target.EndpointType == config.EndpointTypeDualProtocol {
+			pathMapper = &DualProtocolPath{
+				OpenAIPrefix:      target.OpenAIPrefix,
+				AnthropicPrefix:   target.AnthropicPrefix,
+				SupportsResponses: target.SupportsResponses,
+			}
+		}
+		// 准备 endpoint path
+		forward.Path = pathMapper.PrepareEndpointPath(forward.Path)
 		// 改写客户端路径
-		path = profile.Path.RewritePath(original.Path, target.ResourcePathPrefix)
+		path = pathMapper.RewritePath(original.Path, target.ResourcePathPrefix)
 	} else {
 		// 兼容旧逻辑（不应到达，因为所有 endpoint_type 都已注册）
 		path = mergePaths(target.ResourcePathPrefix, original.Path)
@@ -70,7 +79,7 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 // （上游只接受固定 URL，buildURL 应整体覆盖客户端 path）。
 func isTerminalEndpointType(epType string) bool {
 	switch epType {
-	case config.EndpointTypeWangsuOpenAIImage, config.EndpointTypeWangsuOpenAIImageEdit:
+	case config.EndpointTypeOpenAIImage:
 		return true
 	}
 	return false
@@ -115,8 +124,8 @@ func deleteQueryKeyCaseInsensitive(query url.Values, key string) {
 }
 
 // isAnthropicStylePath 判断给定客户端 path 是否走 Anthropic API 形态。
-// DeepSeek Anthropic 兼容端口的路径以 /v1/messages 开头（包括 /v1/messages、
-// /v1/messages/count_tokens 等子路径）。其余路径视为 OpenAI 兼容形态。
+// 路径以 /v1/messages 开头（包括 /v1/messages、/v1/messages/count_tokens 等子路径）
+// 视为 Anthropic 形态。其余路径视为 OpenAI 兼容形态。
 func isAnthropicStylePath(p string) bool {
 	pl := strings.ToLower(strings.TrimSpace(p))
 	return pl == "/v1/messages" || strings.HasPrefix(pl, "/v1/messages/") || strings.HasPrefix(pl, "/v1/messages?")
@@ -125,20 +134,6 @@ func isAnthropicStylePath(p string) bool {
 func isOpenAIResponsesStylePath(p string) bool {
 	pl := strings.ToLower(strings.TrimSpace(p))
 	return pl == "/v1/responses" || strings.HasPrefix(pl, "/v1/responses/") || strings.HasPrefix(pl, "/v1/responses?")
-}
-
-func stripBailianAPIBasePath(p string) string {
-	clean := "/" + strings.Trim(strings.TrimSpace(p), "/")
-	switch clean {
-	case "/compatible-mode",
-		"/compatible-mode/v1",
-		"/apps/anthropic",
-		"/api/v2/apps/protocols/compatible-mode",
-		"/api/v2/apps/protocols/compatible-mode/v1":
-		return ""
-	default:
-		return p
-	}
 }
 
 func ensureLeadingSlash(p string) string {

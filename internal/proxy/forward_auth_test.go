@@ -66,126 +66,32 @@ func TestResolveAuthStrategyAndInject(t *testing.T) {
 			wantHeaders:  map[string]string{"x-goog-api-key": "AIza"},
 		},
 
-		// ── wangsu_openai ──
+		// ── openai_image ──
 		{
-			name:         "wangsu_openai",
-			endpointType: config.EndpointTypeWangsuOpenAI,
-			clientPath:   "/v1/chat/completions",
-			apiKey:       "sk-ws",
-			wantHeaders:  map[string]string{"Authorization": "Bearer sk-ws"},
-		},
-
-		// ── wangsu_claude (default) ──
-		{
-			name:         "wangsu_claude default",
-			endpointType: config.EndpointTypeWangsuClaude,
-			clientPath:   "/v1/messages",
-			apiKey:       "sk-ws",
-			wantHeaders:  map[string]string{"x-api-key": "sk-ws", "anthropic-version": "2023-06-01"},
-		},
-
-		// ── wangsu_claude (bearer) ──
-		{
-			name:          "wangsu_claude bearer",
-			endpointType:  config.EndpointTypeWangsuClaude,
-			authMode:      "bearer",
-			clientPath:    "/v1/messages",
-			apiKey:        "sk-ws",
-			wantHeaders:   map[string]string{"Authorization": "Bearer sk-ws", "anthropic-version": "2023-06-01"},
-			wantNoHeaders: []string{"x-api-key"},
-		},
-
-		// ── wangsu_gemini ──
-		{
-			name:         "wangsu_gemini",
-			endpointType: config.EndpointTypeWangsuGemini,
-			clientPath:   "/v1beta/models/gemini:generateContent",
-			apiKey:       "AIza",
-			wantHeaders:  map[string]string{"x-goog-api-key": "AIza"},
-		},
-
-		// ── wangsu_openai_image ──
-		{
-			name:         "wangsu_openai_image",
-			endpointType: config.EndpointTypeWangsuOpenAIImage,
+			name:         "openai_image",
+			endpointType: config.EndpointTypeOpenAIImage,
 			clientPath:   "/v1/images/generations",
-			apiKey:       "sk-ws",
-			wantHeaders:  map[string]string{"Authorization": "Bearer sk-ws"},
+			apiKey:       "sk-img",
+			wantHeaders:  map[string]string{"Authorization": "Bearer sk-img"},
 		},
 
-		// ── wangsu_openai_image_edit ──
+		// ── dual_protocol (OpenAI path) ──
 		{
-			name:         "wangsu_openai_image_edit",
-			endpointType: config.EndpointTypeWangsuOpenAIImageEdit,
-			clientPath:   "/v1/images/edits",
-			apiKey:       "sk-ws",
-			wantHeaders:  map[string]string{"Authorization": "Bearer sk-ws"},
-		},
-
-		// ── deepseek (OpenAI path) ──
-		{
-			name:          "deepseek openai",
-			endpointType:  config.EndpointTypeDeepSeek,
+			name:          "dual_protocol openai",
+			endpointType:  config.EndpointTypeDualProtocol,
 			clientPath:    "/v1/chat/completions",
-			apiKey:        "sk-ds",
-			wantHeaders:   map[string]string{"Authorization": "Bearer sk-ds"},
+			apiKey:        "sk-dp",
+			wantHeaders:   map[string]string{"Authorization": "Bearer sk-dp"},
 			wantNoHeaders: []string{"anthropic-version"},
 		},
 
-		// ── deepseek (Anthropic path — new behavior: injects anthropic-version) ──
+		// ── dual_protocol (Anthropic path — injects anthropic-version) ──
 		{
-			name:         "deepseek anthropic",
-			endpointType: config.EndpointTypeDeepSeek,
+			name:         "dual_protocol anthropic",
+			endpointType: config.EndpointTypeDualProtocol,
 			clientPath:   "/v1/messages",
-			apiKey:       "sk-ds",
-			wantHeaders:  map[string]string{"Authorization": "Bearer sk-ds", "anthropic-version": "2023-06-01"},
-		},
-
-		// ── bailian (OpenAI path) ──
-		{
-			name:          "bailian openai",
-			endpointType:  config.EndpointTypeBailian,
-			clientPath:    "/v1/chat/completions",
-			apiKey:        "sk-bl",
-			wantHeaders:   map[string]string{"Authorization": "Bearer sk-bl"},
-			wantNoHeaders: []string{"anthropic-version"},
-		},
-
-		// ── bailian (Anthropic path) ──
-		{
-			name:         "bailian anthropic",
-			endpointType: config.EndpointTypeBailian,
-			clientPath:   "/v1/messages",
-			apiKey:       "sk-bl",
-			wantHeaders:  map[string]string{"Authorization": "Bearer sk-bl", "anthropic-version": "2023-06-01"},
-		},
-
-		// ── bailian_api (OpenAI path) ──
-		{
-			name:          "bailian_api openai",
-			endpointType:  config.EndpointTypeBailianAPI,
-			clientPath:    "/v1/chat/completions",
-			apiKey:        "sk-bl",
-			wantHeaders:   map[string]string{"Authorization": "Bearer sk-bl"},
-			wantNoHeaders: []string{"anthropic-version"},
-		},
-
-		// ── bailian_api (Anthropic path) ──
-		{
-			name:         "bailian_api anthropic",
-			endpointType: config.EndpointTypeBailianAPI,
-			clientPath:   "/v1/messages",
-			apiKey:       "sk-bl",
-			wantHeaders:  map[string]string{"Authorization": "Bearer sk-bl", "anthropic-version": "2023-06-01"},
-		},
-
-		// ── copilot ──
-		{
-			name:         "copilot",
-			endpointType: config.EndpointTypeCopilot,
-			clientPath:   "/v1/chat/completions",
-			apiKey:       "sk-cp",
-			wantHeaders:  map[string]string{"Authorization": "Bearer sk-cp"},
+			apiKey:       "sk-dp",
+			wantHeaders:  map[string]string{"Authorization": "Bearer sk-dp", "anthropic-version": "2023-06-01"},
 		},
 
 		// ── azure (api-key mode) ──

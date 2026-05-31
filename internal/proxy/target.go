@@ -128,7 +128,7 @@ func (s *Service) selectTarget(
 		if !modelAllowed(state.Target(), model) {
 			return nil, selectionExplicit, newSelectionError(http.StatusBadRequest, fmt.Sprintf("model %q not allowed for target %q", model, state.Target().Name))
 		}
-		if !PathSupportedByEndpointType(state.Target().EndpointType, path) {
+		if !state.Target().SupportsPath(path) {
 			return nil, selectionExplicit, newSelectionError(http.StatusBadRequest, fmt.Sprintf("target %q does not support path %q", state.Target().Name, path))
 		}
 		if _, tried := attempted[strings.ToLower(state.Target().Name)]; tried {
@@ -153,7 +153,7 @@ func (s *Service) selectTarget(
 				if !allowedOK {
 					_, allowedOK = allowed[nameKey]
 				}
-				if t != nil && allowedOK && !state.IsMuted(now) && modelAllowed(t, model) && PathSupportedByEndpointType(t.EndpointType, path) {
+				if t != nil && allowedOK && !state.IsMuted(now) && modelAllowed(t, model) && t.SupportsPath(path) {
 					return state, selectionAffinityHit, nil
 				}
 			}
@@ -267,7 +267,7 @@ func (s *Service) findAvailableTargetWithModel(allowed map[string]struct{}, atte
 		if !modelAllowed(state.Target(), model) {
 			continue
 		}
-		if !PathSupportedByEndpointType(state.Target().EndpointType, path) {
+		if !state.Target().SupportsPath(path) {
 			continue
 		}
 
@@ -423,6 +423,9 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			AuthMode:           t.AuthMode,
 			AllowedModels:      models,
 			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
+			OpenAIPrefix:       t.OpenAIPrefix,
+			AnthropicPrefix:    t.AnthropicPrefix,
+			SupportsResponses:  t.SupportsResponses,
 			allowedModelsSet:   modelSet,
 		}
 		if info.Name == "" {

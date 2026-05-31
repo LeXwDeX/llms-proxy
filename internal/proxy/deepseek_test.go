@@ -1,4 +1,4 @@
-// deepseek_test.go — DeepSeek 路径自动识别 + endpoint_type 路由约束的回归测试。
+// deepseek_test.go — dual_protocol 路径自动识别 + endpoint_type 路由约束的回归测试。
 package proxy
 
 import (
@@ -8,12 +8,14 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 )
 
-func TestBuildURLDeepSeekOpenAIPathPassthrough(t *testing.T) {
+func TestBuildURLDualProtocolOpenAIPathPassthrough(t *testing.T) {
 	endpoint, _ := url.Parse("https://api.deepseek.com")
 	target := &Target{
-		Name:         "ds",
-		EndpointType: config.EndpointTypeDeepSeek,
-		Endpoint:     endpoint,
+		Name:            "ds",
+		EndpointType:    config.EndpointTypeDualProtocol,
+		Endpoint:        endpoint,
+		OpenAIPrefix:    "",
+		AnthropicPrefix: "/anthropic",
 	}
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
@@ -38,12 +40,14 @@ func TestBuildURLDeepSeekOpenAIPathPassthrough(t *testing.T) {
 	}
 }
 
-func TestBuildURLDeepSeekAnthropicPathPrefix(t *testing.T) {
+func TestBuildURLDualProtocolAnthropicPathPrefix(t *testing.T) {
 	endpoint, _ := url.Parse("https://api.deepseek.com")
 	target := &Target{
-		Name:         "ds",
-		EndpointType: config.EndpointTypeDeepSeek,
-		Endpoint:     endpoint,
+		Name:            "ds",
+		EndpointType:    config.EndpointTypeDualProtocol,
+		Endpoint:        endpoint,
+		OpenAIPrefix:    "",
+		AnthropicPrefix: "/anthropic",
 	}
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
@@ -66,8 +70,8 @@ func TestBuildURLDeepSeekAnthropicPathPrefix(t *testing.T) {
 	}
 }
 
-func TestBuildURLDeepSeekDoesNotRewriteForOtherEndpointTypes(t *testing.T) {
-	// Anthropic 风格 path 不应影响非 DeepSeek 类型的 target（例如真正的 Claude）。
+func TestBuildURLDualProtocolDoesNotRewriteForOtherEndpointTypes(t *testing.T) {
+	// Anthropic 风格 path 不应影响非 dual_protocol 类型的 target（例如真正的 Claude）。
 	endpoint, _ := url.Parse("https://api.anthropic.com")
 	target := &Target{
 		Name:         "claude-real",
