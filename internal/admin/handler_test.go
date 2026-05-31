@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -556,6 +557,42 @@ func TestHandlerPauseResumeTargetPreservesAPIKeys(t *testing.T) {
 	}
 }
 
+func TestHandlerPauseResumeURLUnescapesChineseTargetName(t *testing.T) {
+	tempDir := t.TempDir()
+	name := "网宿-Gemini"
+	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002"}
+	h, stores, service := newNamedTargetUpdateTestHandler(t, tempDir, name, initialKeys)
+	escapedName := url.PathEscape(name)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "http://example.com/data/targets/"+escapedName+"/pause", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pause Chinese target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	paused := mustGetTarget(t, stores.targetStore, name)
+	if !paused.Paused {
+		t.Fatalf("expected paused=true for %q", name)
+	}
+	statuses := service.TargetStatuses(time.Now())
+	if len(statuses) != 1 || statuses[0].Name != name || !statuses[0].Paused {
+		t.Fatalf("expected runtime paused=true for %q, got %#v", name, statuses)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "http://example.com/data/targets/"+escapedName+"/resume", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume Chinese target expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	resumed := mustGetTarget(t, stores.targetStore, name)
+	if resumed.Paused {
+		t.Fatalf("expected paused=false for %q", name)
+	}
+	statuses = service.TargetStatuses(time.Now())
+	if len(statuses) != 1 || statuses[0].Name != name || statuses[0].Paused {
+		t.Fatalf("expected runtime paused=false for %q, got %#v", name, statuses)
+	}
+}
+
 func TestHandlerUpdateTargetAcceptsExactMaskedExistingKeys(t *testing.T) {
 	tempDir := t.TempDir()
 	initialKeys := []string{"sk-primary-real-0001", "sk-secondary-real-0002", "sk-secondary-real-0003"}
@@ -674,6 +711,34 @@ func newTargetUpdateTestHandlerWithService(t *testing.T, tempDir string, keys []
 	}
 	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
 	return h, manager, stores, service
+}
+
+func newNamedTargetUpdateTestHandler(t *testing.T, tempDir, name string, keys []string) (http.Handler, testStores, *proxy.Service) {
+	t.Helper()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg := testConfig(tempDir, 1, []string{"k1"})
+	cfg.Targets[0].Name = name
+	cfg.Targets[0].APIKey = keys[0]
+	if len(keys) > 1 {
+		cfg.Targets[0].APIKeys = append([]string(nil), keys[1:]...)
+	}
+	clients := testClients([]string{"k1"})
+	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
+	manager := config.NewManager(configPath)
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("failed to init auth store: %v", err)
+	}
+	service, err := proxy.NewService(cfg, logger)
+	if err != nil {
+		t.Fatalf("failed to init proxy service: %v", err)
+	}
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	return h, stores, service
 }
 
 func targetUpdateBody(apiKey string, apiKeys []string) map[string]any {

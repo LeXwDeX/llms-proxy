@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -702,6 +703,18 @@ func (h *Handler) handleUI(w http.ResponseWriter, r *http.Request) {
 
 // ===== Target CRUD =====
 
+func targetNameParam(r *http.Request) (string, error) {
+	name, err := url.PathUnescape(chi.URLParam(r, "name"))
+	if err != nil {
+		return "", errors.New("invalid target name")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("name must not be empty")
+	}
+	return name, nil
+}
+
 func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 	cfg, err := h.currentConfig()
 	if err != nil {
@@ -855,9 +868,9 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+	name, err := targetNameParam(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
 
@@ -1041,9 +1054,9 @@ func looksLikeMaskedTargetKey(value string) bool {
 }
 
 func (h *Handler) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+	name, err := targetNameParam(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
 
@@ -1094,9 +1107,9 @@ func (h *Handler) handleResumeTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSetTargetPaused(w http.ResponseWriter, r *http.Request, paused bool) {
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+	name, err := targetNameParam(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
 
@@ -1140,10 +1153,10 @@ func (h *Handler) handleSetTargetPaused(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) handleBlockTargetKey(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, nameErr := targetNameParam(r)
 	indexStr := chi.URLParam(r, "index")
-	if strings.TrimSpace(name) == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+	if nameErr != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(nameErr.Error()))
 		return
 	}
 	index, err := strconv.Atoi(indexStr)
@@ -1162,10 +1175,10 @@ func (h *Handler) handleBlockTargetKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUnblockTargetKey(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, nameErr := targetNameParam(r)
 	indexStr := chi.URLParam(r, "index")
-	if strings.TrimSpace(name) == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+	if nameErr != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(nameErr.Error()))
 		return
 	}
 	index, err := strconv.Atoi(indexStr)
@@ -1184,9 +1197,9 @@ func (h *Handler) handleUnblockTargetKey(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleWakeUpTargetKeys(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("name must not be empty"))
+	name, err := targetNameParam(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
 	}
 
