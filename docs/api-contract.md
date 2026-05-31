@@ -597,7 +597,7 @@ Token Plan 图像生成使用 DashScope 原生 API 格式（非 OpenAI/Claude/Ge
 | 协议 | Base URL | 代理路由规则 |
 |------|----------|--------------|
 | OpenAI Chat/Embeddings 兼容 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 客户端 `/v1/chat/completions`、`/v1/embeddings` 等转发到 `/compatible-mode/v1/*` |
-| OpenAI Responses 兼容 | `https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1` | 客户端 `/v1/responses*` 转发到 `/api/v2/apps/protocols/compatible-mode/v1/responses*` |
+| OpenAI Responses 兼容 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 客户端 `/v1/responses*` 转发到 `/compatible-mode/v1/responses*` |
 | Anthropic 兼容 | `https://dashscope.aliyuncs.com/apps/anthropic` | 客户端 `/v1/messages*` 转发到 `/apps/anthropic/v1/messages*` |
 
 ### 代理配置示例

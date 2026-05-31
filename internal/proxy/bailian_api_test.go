@@ -28,8 +28,8 @@ func TestBuildURLBailianAPIProtocolRouting(t *testing.T) {
 	}{
 		{"/v1/chat/completions", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"},
 		{"/v1/embeddings", "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"},
-		{"/v1/responses", "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses"},
-		{"/v1/responses/resp_123", "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses/resp_123"},
+		{"/v1/responses", "https://dashscope.aliyuncs.com/compatible-mode/v1/responses"},
+		{"/v1/responses/resp_123", "https://dashscope.aliyuncs.com/compatible-mode/v1/responses/resp_123"},
 		{"/v1/messages", "https://dashscope.aliyuncs.com/apps/anthropic/v1/messages"},
 		{"/v1/messages/count_tokens", "https://dashscope.aliyuncs.com/apps/anthropic/v1/messages/count_tokens"},
 	}
@@ -60,6 +60,12 @@ func TestBuildURLBailianAPIStripsDocumentedBasePath(t *testing.T) {
 		},
 		{
 			name:       "responses base can route to chat completions",
+			endpoint:   "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			clientPath: "/v1/chat/completions",
+			want:       "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+		},
+		{
+			name:       "legacy responses base can still route to chat completions",
 			endpoint:   "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1",
 			clientPath: "/v1/chat/completions",
 			want:       "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
@@ -68,7 +74,7 @@ func TestBuildURLBailianAPIStripsDocumentedBasePath(t *testing.T) {
 			name:       "anthropic base can route to responses",
 			endpoint:   "https://dashscope.aliyuncs.com/apps/anthropic",
 			clientPath: "/v1/responses",
-			want:       "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses",
+			want:       "https://dashscope.aliyuncs.com/compatible-mode/v1/responses",
 		},
 	}
 	s := &Service{}
