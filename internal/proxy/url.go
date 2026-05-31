@@ -47,7 +47,7 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	}
 
 	// 百炼 API：OpenAI Chat/Embeddings 等兼容端仍使用 /compatible-mode，
-	// Responses API 使用官方新版 /api/v2/apps/protocols/compatible-mode，
+	// Responses API 使用 /compatible-mode/v1/responses，
 	// Anthropic Messages API 使用 /apps/anthropic。
 	if target.EndpointType == config.EndpointTypeBailianAPI {
 		forward.Path = stripBailianAPIBasePath(forward.Path)
@@ -55,7 +55,7 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 		case isAnthropicStylePath(original.Path):
 			path = "/apps/anthropic" + ensureLeadingSlash(path)
 		case isOpenAIResponsesStylePath(original.Path):
-			path = "/api/v2/apps/protocols/compatible-mode" + ensureLeadingSlash(path)
+			path = "/compatible-mode" + ensureLeadingSlash(path)
 		default:
 			path = "/compatible-mode" + ensureLeadingSlash(path)
 		}
