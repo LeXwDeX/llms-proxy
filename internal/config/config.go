@@ -22,8 +22,9 @@ const (
 	EndpointTypeWangsuOpenAIImage     = "wangsu_openai_image"      // 网宿文生图（独立终态 URL）
 	EndpointTypeWangsuOpenAIImageEdit = "wangsu_openai_image_edit" // 网宿图编辑（独立终态 URL）
 	EndpointTypeCopilot               = "copilot"
-	EndpointTypeDeepSeek              = "deepseek" // DeepSeek 官方（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
-	EndpointTypeBailian               = "bailian"  // 百炼 Token Plan（OpenAI + Anthropic 双协议，按路径自动识别）
+	EndpointTypeDeepSeek              = "deepseek"    // DeepSeek 官方（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
+	EndpointTypeBailian               = "bailian"     // 百炼 Token Plan（OpenAI + Anthropic 双协议，按路径自动识别）
+	EndpointTypeBailianAPI            = "bailian_api" // 百炼 API（OpenAI 兼容 + Anthropic 兼容双格式，按路径自动识别）
 )
 
 // ValidEndpointTypes lists all supported endpoint types.
@@ -119,7 +120,7 @@ type ServerConfig struct {
 // Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, or Wangsu variants).
 type Target struct {
 	Name               string   `json:"name"`
-	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot; default azure_openai
+	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | wangsu_openai | wangsu_claude | wangsu_gemini | copilot | deepseek | bailian | bailian_api; default azure_openai
 	Endpoint           string   `json:"endpoint"`
 	ResourcePathPrefix string   `json:"resource_path_prefix"`
 	APIKey             string   `json:"api_key"`

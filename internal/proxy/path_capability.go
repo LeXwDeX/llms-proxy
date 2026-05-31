@@ -24,7 +24,7 @@ var (
 
 // PathSupportedByEndpointType 检查指定 endpoint_type 是否支持给定的请求路径。
 // wangsu_openai / wangsu_openai_image / wangsu_openai_image_edit 有路径限制；其余类型全放行。
-// bailian / deepseek 等双协议类型不做路径限制，由 buildURL 按路径分流到正确的上游。
+// bailian / bailian_api / deepseek 等双协议类型不做路径限制，由 buildURL 按路径分流到正确的上游。
 func PathSupportedByEndpointType(epType, path string) bool {
 	pathLower := strings.ToLower(path)
 	switch epType {

@@ -1,9 +1,9 @@
 # 多类型 AI 代理服务（Azure OpenAI / OpenAI / Claude）
 
-本项目提供一个轻量级的 HTTP 代理，用于统一转发多种 AI 上游端点。支持的上游类型包括 **Azure OpenAI**、**OpenAI** 和 **Claude（Anthropic）**，客户端可通过同一入口透明访问不同供应商的模型。代理负责集中管理凭据、请求路由、日志，以及基本的故障切换能力。
+本项目提供一个轻量级的 HTTP 代理，用于统一转发多种 AI 上游端点。支持的上游类型包括 **Azure OpenAI**、**OpenAI**、**Claude（Anthropic）**、**Gemini** 以及 DeepSeek/百炼等双协议端点，客户端可通过同一入口透明访问不同供应商的模型。代理负责集中管理凭据、请求路由、日志，以及基本的故障切换能力。
 
 ## 功能特性
-- **多类型上游端点**：支持四种上游类型 —— `azure_openai`、`openai`、`claude`、`gemini`，每个 target 通过 `endpoint_type` 字段区分。
+- **多类型上游端点**：支持多种上游类型 —— `azure_openai`、`openai`、`claude`、`gemini`、`deepseek`、`bailian`、`bailian_api` 等，每个 target 通过 `endpoint_type` 字段区分。
 - **内嵌模型目录**：内置模型元数据的本地数据库（`internal/catalog`），构建时从 models.dev 更新并保留上游 provider，提供默认费用参考和别名解析，无需运行时外部网络请求。
 - **endpoint_type + model 双维度费用与消费统计**：模型费用与消费事件均按上游类型维度追踪，支持精细化成本分析。
 - **后台目标管理（Target CRUD）**：通过管理接口和 Web UI 动态添加、修改、删除上游目标，无需重启服务。
@@ -34,6 +34,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
   - **OpenAI**：需要 OpenAI API Key（endpoint 通常为 `https://api.openai.com`）。
   - **Claude（Anthropic）**：需要 Anthropic API Key（endpoint 通常为 `https://api.anthropic.com`）。
   - **Gemini（Google）**：需要 Google Gemini API Key（endpoint 通常为 `https://generativelanguage.googleapis.com/v1beta/openai`）。
+  - **百炼 API**：需要 DashScope API Key（endpoint 可填区域根 URL，如 `https://dashscope.aliyuncs.com`）。
 - 能够为内部客户端生成并分发访问令牌。
 
 ## 快速上手
@@ -64,7 +65,7 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
 `config/config.json` 中的关键字段：
 
 - `server`：监听地址、对外基址、超时时间、请求体大小限制。
-- `targets`：上游目标列表，顺序决定主备优先级。每个目标可通过 `endpoint_type` 字段指定上游类型（默认 `azure_openai`），支持四种类型：
+- `targets`：上游目标列表，顺序决定主备优先级。每个目标可通过 `endpoint_type` 字段指定上游类型（默认 `azure_openai`），常用类型：
 
   | `endpoint_type`  | 说明 | 必填字段 |
   |-------------------|------|----------|
@@ -72,6 +73,9 @@ test/integration/    # 集成测试（使用 -tags integration 运行）
   | `openai`          | OpenAI 官方 API | `endpoint`（如 `https://api.openai.com`）、`api_key`（OpenAI API Key） |
   | `claude`          | Anthropic Claude API | `endpoint`（如 `https://api.anthropic.com`）、`api_key`（Anthropic API Key） |
   | `gemini`          | Google Gemini API | `endpoint`（如 `https://generativelanguage.googleapis.com/v1beta/openai`）、`api_key`（Google API Key） |
+  | `deepseek`        | DeepSeek 官方双协议 API，按路径自动分流 OpenAI/Anthropic 兼容端 | `endpoint`（如 `https://api.deepseek.com`）、`api_key` |
+  | `bailian`         | 百炼 Token Plan 双协议 API，按路径自动分流 | `endpoint`（如 `https://token-plan.cn-beijing.maas.aliyuncs.com`）、`api_key` |
+  | `bailian_api`     | 百炼 API 双协议模式；`/v1/messages*` 走 Anthropic，`/v1/responses*` 走新版 Responses API，其余 `/v1/*` 走 OpenAI 兼容 | `endpoint`（如 `https://dashscope.aliyuncs.com`）、`api_key` |
 
   > 注：`resource_path_prefix` 仅 `azure_openai` 类型必填；其他类型无需此字段。
 

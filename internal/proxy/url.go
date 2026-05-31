@@ -46,6 +46,21 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 		}
 	}
 
+	// 百炼 API：OpenAI Chat/Embeddings 等兼容端仍使用 /compatible-mode，
+	// Responses API 使用官方新版 /api/v2/apps/protocols/compatible-mode，
+	// Anthropic Messages API 使用 /apps/anthropic。
+	if target.EndpointType == config.EndpointTypeBailianAPI {
+		forward.Path = stripBailianAPIBasePath(forward.Path)
+		switch {
+		case isAnthropicStylePath(original.Path):
+			path = "/apps/anthropic" + ensureLeadingSlash(path)
+		case isOpenAIResponsesStylePath(original.Path):
+			path = "/api/v2/apps/protocols/compatible-mode" + ensureLeadingSlash(path)
+		default:
+			path = "/compatible-mode" + ensureLeadingSlash(path)
+		}
+	}
+
 	// Concatenate paths explicitly instead of using url.URL.Parse, because
 	// url.Parse treats paths starting with "/" as absolute and would discard
 	// any sub-path already present in the endpoint (e.g. a gateway base path
@@ -118,6 +133,25 @@ func deleteQueryKeyCaseInsensitive(query url.Values, key string) {
 func isAnthropicStylePath(p string) bool {
 	pl := strings.ToLower(strings.TrimSpace(p))
 	return pl == "/v1/messages" || strings.HasPrefix(pl, "/v1/messages/") || strings.HasPrefix(pl, "/v1/messages?")
+}
+
+func isOpenAIResponsesStylePath(p string) bool {
+	pl := strings.ToLower(strings.TrimSpace(p))
+	return pl == "/v1/responses" || strings.HasPrefix(pl, "/v1/responses/") || strings.HasPrefix(pl, "/v1/responses?")
+}
+
+func stripBailianAPIBasePath(p string) string {
+	clean := "/" + strings.Trim(strings.TrimSpace(p), "/")
+	switch clean {
+	case "/compatible-mode",
+		"/compatible-mode/v1",
+		"/apps/anthropic",
+		"/api/v2/apps/protocols/compatible-mode",
+		"/api/v2/apps/protocols/compatible-mode/v1":
+		return ""
+	default:
+		return p
+	}
 }
 
 func ensureLeadingSlash(p string) string {

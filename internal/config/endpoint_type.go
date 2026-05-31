@@ -74,6 +74,10 @@ var endpointTypes = []EndpointTypeMeta{
 		Code: EndpointTypeBailian, DisplayName: "百炼 Token Plan", ShortLabel: "百炼",
 		BadgeBackground: "#fff7ed", BadgeForeground: "#ea580c",
 	},
+	{
+		Code: EndpointTypeBailianAPI, DisplayName: "百炼 API", ShortLabel: "百炼API",
+		BadgeBackground: "#fffbeb", BadgeForeground: "#d97706",
+	},
 }
 
 // AllEndpointTypeMetas returns a copy of all registered endpoint type metadata

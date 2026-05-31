@@ -397,8 +397,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// 百炼自动注入 cache_control（仅 3 轮及以上对话）
-		if target.EndpointType == config.EndpointTypeBailian {
+		// 百炼 Anthropic 格式自动注入 cache_control（仅 3 轮及以上对话）。
+		// OpenAI 兼容格式不能注入 Anthropic 专用字段。
+		if (target.EndpointType == config.EndpointTypeBailian || target.EndpointType == config.EndpointTypeBailianAPI) &&
+			isAnthropicStylePath(r.URL.Path) {
 			forwardBody = injectBailianCacheControl(forwardBody)
 		}
 

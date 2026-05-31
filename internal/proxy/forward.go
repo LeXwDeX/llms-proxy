@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -240,6 +241,15 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 	case config.EndpointTypeBailian:
 		// 百炼 Token Plan：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Bearer 鉴权。
 		// 上游路径分流由 buildURL 完成（/v1/messages* 走 /apps/anthropic，其余走 /compatible-mode）。
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		if isAnthropicStylePath(r.URL.Path) {
+			if req.Header.Get("anthropic-version") == "" {
+				req.Header.Set("anthropic-version", "2023-06-01")
+			}
+		}
+	case config.EndpointTypeBailianAPI:
+		// 百炼 API：OpenAI 兼容 / Anthropic 兼容两种格式都使用 Authorization 头鉴权。
+		// 上游路径分流由 buildURL 完成。
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		if isAnthropicStylePath(r.URL.Path) {
 			if req.Header.Get("anthropic-version") == "" {
@@ -1209,6 +1219,12 @@ func (s *Service) buildProbeURL(target *Target) string {
 	switch target.EndpointType {
 	case config.EndpointTypeOpenAI, config.EndpointTypeDeepSeek:
 		return base + "/v1/models"
+	case config.EndpointTypeBailian, config.EndpointTypeBailianAPI:
+		u, err := s.buildURL(target, &url.URL{Path: "/v1/models"})
+		if err != nil {
+			return ""
+		}
+		return u.String()
 	case config.EndpointTypeClaude:
 		return base + "/v1/models"
 	case config.EndpointTypeGemini:

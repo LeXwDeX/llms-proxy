@@ -585,6 +585,34 @@ Token Plan 图像生成使用 DashScope 原生 API 格式（非 OpenAI/Claude/Ge
 | 8 | DeepSeek OpenAI 格式 | `POST /v1/chat/completions` + `X-Proxy-Target: deepseek-target` | 200 + 直通上游 |
 | 9 | DeepSeek Anthropic 格式 | `POST /v1/messages` + `X-Proxy-Target: deepseek-target` | 200 + 上游加 `/anthropic` 前缀 |
 | 10 | 百炼 OpenAI 格式 | `POST /v1/chat/completions` + `X-Proxy-Target: token-plan` | 200 + 上游路由到 `/compatible-mode`，qwen/deepseek 等模型 |
+
+---
+
+## 百炼 API 双协议接入方案
+
+阿里云百炼 API 公开端点可使用 `endpoint_type=bailian_api` 作为单一 target 接入，避免为同一个百炼 API Key 分别创建 OpenAI/Claude 两个同名 target。
+
+### 端点信息
+
+| 协议 | Base URL | 代理路由规则 |
+|------|----------|--------------|
+| OpenAI Chat/Embeddings 兼容 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 客户端 `/v1/chat/completions`、`/v1/embeddings` 等转发到 `/compatible-mode/v1/*` |
+| OpenAI Responses 兼容 | `https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1` | 客户端 `/v1/responses*` 转发到 `/api/v2/apps/protocols/compatible-mode/v1/responses*` |
+| Anthropic 兼容 | `https://dashscope.aliyuncs.com/apps/anthropic` | 客户端 `/v1/messages*` 转发到 `/apps/anthropic/v1/messages*` |
+
+### 代理配置示例
+
+```json
+{
+  "name": "bailian-api",
+  "endpoint_type": "bailian_api",
+  "endpoint": "https://dashscope.aliyuncs.com",
+  "api_key": "sk-xxx",
+  "allowed_models": ["qwen-plus", "qwen-max"]
+}
+```
+
+`endpoint` 建议填写区域根 URL。若粘贴了官方 OpenAI/Responses/Anthropic base URL，代理会在 `bailian_api` 模式下去除已知协议前缀后再按客户端路径重新分流。
 | 11 | 模型白名单拒绝 | 请求不在 `allowed_models` 中的模型 | 403 Forbidden |
 | 12 | 路径不兼容跳过 | `POST /v1/images/generations` 但目标为 `wangsu_openai`（支持）vs 其他类型 | 自动选择兼容目标 |
 | 13 | 目标 failover | 主目标网络不可达 | 自动切换到备用目标 |
