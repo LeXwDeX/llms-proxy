@@ -604,6 +604,7 @@ func (h *Handler) handleGetCopilotQuota(w http.ResponseWriter, r *http.Request) 
 		"quota_reset_at":          account.QuotaResetAt,
 		"quota_last_sync_at":      account.QuotaLastSyncAt,
 		"quota_billing_model":     account.QuotaBillingModel,
+		"quota_unlimited":         account.QuotaUnlimited,
 	})
 }
 
@@ -641,13 +642,13 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 
 	// 更新账户额度字段
 	account.QuotaPercentRemaining = quotaInfo.PercentRemaining
+	account.QuotaUnlimited = quotaInfo.Unlimited
 	if quotaInfo.ResetAt != "" {
 		account.QuotaResetAt = quotaInfo.ResetAt
 	}
 	account.QuotaLastSyncAt = time.Now().UTC().Format(time.RFC3339)
-	if quotaInfo.Entitlement > 0 {
-		account.QuotaEntitlement = quotaInfo.Entitlement
-	}
+	// unlimited 账户 entitlement/remaining 为 0，直接覆盖清除旧值
+	account.QuotaEntitlement = quotaInfo.Entitlement
 	account.QuotaRemaining = quotaInfo.Remaining
 	account.QuotaBillingModel = quotaInfo.BillingModel
 
@@ -656,7 +657,11 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	h.recordAudit(r, "copilot.quota.sync", id, "success", fmt.Sprintf("remaining=%.1f%% (%d/%d)", quotaInfo.PercentRemaining, quotaInfo.Remaining, quotaInfo.Entitlement))
+	auditDetail := fmt.Sprintf("remaining=%.1f%% (%d/%d)", quotaInfo.PercentRemaining, quotaInfo.Remaining, quotaInfo.Entitlement)
+	if quotaInfo.Unlimited {
+		auditDetail = "unlimited"
+	}
+	h.recordAudit(r, "copilot.quota.sync", id, "success", auditDetail)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"account_id":              id,
 		"quota_percent_remaining": quotaInfo.PercentRemaining,
@@ -666,6 +671,7 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 		"quota_last_sync_at":      account.QuotaLastSyncAt,
 		"copilot_plan":            quotaInfo.CopilotPlan,
 		"quota_billing_model":     quotaInfo.BillingModel,
+		"quota_unlimited":         quotaInfo.Unlimited,
 	})
 }
 

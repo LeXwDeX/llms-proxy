@@ -49,6 +49,7 @@ type CopilotAccount struct {
 	QuotaResetAt          string  `json:"quota_reset_at,omitempty"`
 	QuotaLastSyncAt       string  `json:"quota_last_sync_at,omitempty"`
 	QuotaBillingModel     string  `json:"quota_billing_model,omitempty"` // "credits" 或 "pru"
+	QuotaUnlimited        bool    `json:"quota_unlimited,omitempty"`     // Business/Enterprise 无限额度
 	AllowOverage          bool    `json:"allow_overage"`                 // 允许超额调用（额度耗尽后仍可使用付费模型）
 
 	// 元数据

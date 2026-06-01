@@ -177,52 +177,59 @@ func TestDeductQuota(t *testing.T) {
 		shouldBeUnchanged bool
 	}{
 		{
-			name:              "免费模型不扣减",
-			model:             "gpt-4.1",
-			initialPercent:    100.0,
-			expectedPercent:   100.0,
-			shouldBeUnchanged: true,
+			name:           "低消耗模型扣减（乘数 0.33）",
+			model:          "claude-haiku-4.5",
+			initialPercent: 100.0,
+			// 扣减量 = (0.33 / 300) * 100 = 0.11
+			expectedPercent: 100.0 - (0.33/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
 			name:           "标准模型扣减（乘数 1）",
-			model:          "claude-sonnet-4",
+			model:          "gpt-4.1",
 			initialPercent: 100.0,
 			// 扣减量 = (1 / 300) * 100 ≈ 0.3333
 			expectedPercent: 100.0 - (1.0/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
-			name:           "高消耗模型扣减（乘数 3）",
-			model:          "claude-opus-4.5",
+			name:           "中消耗模型扣减（乘数 3）",
+			model:          "gpt-5.1",
 			initialPercent: 100.0,
 			// 扣减量 = (3 / 300) * 100 = 1.0
 			expectedPercent: 100.0 - (3.0/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
-			name:           "低消耗模型扣减（乘数 0.33）",
-			model:          "claude-haiku-4.5",
-			initialPercent: 50.0,
-			// 扣减量 = (0.33 / 300) * 100 = 0.11
-			expectedPercent: 50.0 - (0.33/DefaultMonthlyPremiumRequests)*100,
+			name:           "高消耗模型扣减（乘数 6）",
+			model:          "claude-sonnet-4.5",
+			initialPercent: 100.0,
+			// 扣减量 = (6 / 300) * 100 = 2.0
+			expectedPercent: 100.0 - (6.0/DefaultMonthlyPremiumRequests)*100,
+		},
+		{
+			name:           "超高消耗模型扣减（乘数 15）",
+			model:          "claude-opus-4.5",
+			initialPercent: 100.0,
+			// 扣减量 = (15 / 300) * 100 = 5.0
+			expectedPercent: 100.0 - (15.0/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
 			name:           "允许扣减为负数（超额使用）",
 			model:          "claude-opus-4.5",
-			initialPercent: 0.5,
-			// 扣减量 = (3 / 300) * 100 = 1.0，0.5 - 1.0 = -0.5
-			expectedPercent: -0.5,
+			initialPercent: 2.0,
+			// 扣减量 = (15 / 300) * 100 = 5.0，2.0 - 5.0 = -3.0
+			expectedPercent: -3.0,
 		},
 		{
 			name:            "从 0 继续扣减为负",
-			model:           "claude-sonnet-4",
+			model:           "gpt-4.1",
 			initialPercent:  0.0,
 			expectedPercent: 0.0 - (1.0/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
-			name:              "带 Copilot 前缀",
-			model:             "Copilot gpt-4.1",
-			initialPercent:    80.0,
-			expectedPercent:   80.0,
-			shouldBeUnchanged: true,
+			name:           "带 Copilot 前缀",
+			model:          "Copilot gpt-4.1",
+			initialPercent: 80.0,
+			// gpt-4.1 乘数 1，扣减量 = (1 / 300) * 100
+			expectedPercent: 80.0 - (1.0/DefaultMonthlyPremiumRequests)*100,
 		},
 		{
 			name:            "未知模型默认乘数 1.0",

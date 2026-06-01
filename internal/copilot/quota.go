@@ -289,18 +289,22 @@ func (m *QuotaManager) syncAllAccounts(ctx context.Context, store *nosql.Copilot
 
 		// 更新额度信息
 		account.QuotaPercentRemaining = quotaInfo.PercentRemaining
+		account.QuotaUnlimited = quotaInfo.Unlimited
 		if quotaInfo.ResetAt != "" {
 			account.QuotaResetAt = quotaInfo.ResetAt
 		}
 		account.QuotaLastSyncAt = time.Now().UTC().Format(time.RFC3339)
-		if quotaInfo.Entitlement > 0 {
-			account.QuotaEntitlement = quotaInfo.Entitlement
-		}
-		account.QuotaRemaining = quotaInfo.Remaining
 		account.QuotaBillingModel = quotaInfo.BillingModel
+		// unlimited 账户 entitlement/remaining 为 0，直接覆盖清除旧值
+		account.QuotaEntitlement = quotaInfo.Entitlement
+		account.QuotaRemaining = quotaInfo.Remaining
 
-		// 根据额度调整状态
-		if quotaInfo.PercentRemaining <= QuotaExhaustedThreshold {
+		// 根据额度调整状态（unlimited 账户永不耗尽）
+		if quotaInfo.Unlimited {
+			if account.Status == nosql.AccountStatusQuotaExceeded {
+				account.Status = nosql.AccountStatusActive
+			}
+		} else if quotaInfo.PercentRemaining <= QuotaExhaustedThreshold {
 			account.Status = nosql.AccountStatusQuotaExceeded
 		} else if account.Status == nosql.AccountStatusQuotaExceeded {
 			// 之前是 quota_exceeded 但额度恢复了（月度重置），恢复为 active

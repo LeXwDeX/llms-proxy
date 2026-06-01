@@ -19,10 +19,11 @@ type ModelInfo struct {
 
 // categoryOrder 定义模型分类的显示优先级。
 var categoryOrder = map[string]int{
-	"免费":  0,
-	"低消耗": 1,
-	"标准":  2,
-	"高消耗": 3,
+	"免费":     0,
+	"低消耗":   1,
+	"标准":     2,
+	"高消耗":   3,
+	"超高消耗": 4,
 }
 
 // sortModelInfoByCategory 按 Category 优先级排序 ModelInfo 切片，同 Category 内按 Name 排序。
@@ -55,41 +56,47 @@ const ModelPrefix = "Copilot "
 
 // ModelMultipliers 定义所有已知模型的 premium request 乘数。
 // key 为小写模型名。
-// 数据来源：https://docs.github.com/en/copilot/concepts/billing/copilot-requests
-// 注意：此表仅用于 SelectAccount 选号时的额度预判，不再用于逐请求扣减。
+// 数据来源：https://docs.github.com/en/copilot/reference/copilot-billing/model-multipliers-for-annual-plans
+// 注意：乘数仅适用于 legacy request-based billing（年付用户），
+// 新版 usage-based billing（token 计费）不使用乘数概念。
+// 此表用于 SelectAccount 选号时的额度预判和 admin 面板展示。
 var ModelMultipliers = map[string]float64{
-	// 免费模型（乘数 0，paid plan 不消耗 premium request / AI credits 极低）
-	"gpt-4.1":      0,
-	"gpt-4o":       0,
-	"gpt-5-mini":   0,
-	"gpt-5.4-nano": 0,
-	"raptor-mini":  0,
-
 	// 低消耗模型（乘数 <1）
-	"grok-code-fast-1": 0.25,
-	"claude-haiku-4.5": 0.33,
-	"gemini-3-flash":   0.33,
-	"gpt-5.4-mini":     0.33,
+	"claude-haiku-4.5":    0.33,
+	"gemini-3-flash":      0.33,
+	"gpt-4o":              0.33,
+	"gpt-4o-mini":         0.33,
+	"gpt-5-mini":          0.33,
+	"gpt-5.1-codex-mini":  0.33,
+	"raptor-mini":         0.33,
 
 	// 标准模型（乘数 1）
-	"claude-sonnet-4":   1,
-	"claude-sonnet-4.5": 1,
-	"claude-sonnet-4.6": 1,
-	"gemini-2.5-pro":    1,
-	"gemini-3.1-pro":    1,
-	"gemini-3.5-flash":  1,
-	"gpt-5.1":           1,
-	"gpt-5.2":           1,
-	"gpt-5.2-codex":     1,
-	"gpt-5.3-codex":     1,
-	"gpt-5.4":           1,
+	"gpt-4.1":      1,
+	"gemini-2.5-pro": 1,
 
-	// 高消耗模型（乘数 >1）
-	"claude-opus-4.5": 3,
-	"claude-opus-4.6": 3,
-	"claude-opus-4.7": 3,
-	"claude-opus-4.8": 3,
-	"gpt-5.5":         3,
+	// 中消耗模型（乘数 3）
+	"gpt-5.1":          3,
+	"gpt-5.1-codex":    3,
+	"gpt-5.1-codex-max": 3,
+	"gpt-5.2":          3,
+	"gpt-5.2-codex":    3,
+
+	// 高消耗模型（乘数 6）
+	"claude-sonnet-4.5": 6,
+	"gemini-3-pro":      6,
+	"gemini-3.1-pro":    6,
+	"gpt-5.3-codex":     6,
+	"gpt-5.4":           6,
+	"gpt-5.4-mini":      6,
+
+	// 超高消耗模型（乘数 9+）
+	"claude-sonnet-4.6": 9,
+	"gemini-3.5-flash":  14,
+	"claude-opus-4.5":   15,
+	"claude-opus-4.6":   27,
+	"claude-opus-4.7":   27,
+	"claude-opus-4.8":   27,
+	"gpt-5.5":           57,
 }
 
 // ModelPricing 表示模型的 per-token 定价（每百万 token，USD）。
@@ -550,15 +557,19 @@ func FetchModelDetails(ctx context.Context, httpClient *http.Client, copilotToke
 }
 
 // classifyModel 根据乘数分类模型。
+// 分类阈值基于 GitHub 官方乘数表（2026-06-01）：
+// 0.33 → 低消耗, 1-3 → 标准, 6-9 → 高消耗, 14-57 → 超高消耗
 func classifyModel(multiplier float64) string {
 	switch {
 	case multiplier == 0:
 		return "免费"
 	case multiplier < 1:
 		return "低消耗"
-	case multiplier == 1:
+	case multiplier <= 3:
 		return "标准"
-	default:
+	case multiplier <= 9:
 		return "高消耗"
+	default:
+		return "超高消耗"
 	}
 }
