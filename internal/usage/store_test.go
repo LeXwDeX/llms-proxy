@@ -347,3 +347,282 @@ func TestLookupCost(t *testing.T) {
 		}
 	})
 }
+
+func TestInferOriginalEndpointType(t *testing.T) {
+	tests := []struct {
+		model string
+		want  string
+	}{
+		// ── Global providers ──
+
+		// Anthropic Claude
+		{"claude-sonnet-4-20250514", "claude"},
+		{"claude-opus-4-1", "claude"},
+		{"claude-3-5-haiku-20241022", "claude"},
+		{"Claude_Sonnet_4", "claude"},
+
+		// Google Gemini + Gemma
+		{"gemini-2.0-flash", "gemini"},
+		{"gemini-1.5-pro", "gemini"},
+		{"Gemini_Pro", "gemini"},
+		{"gemma-3-27b-it", "gemini"},
+		{"gemma-4-31b-it", "gemini"},
+
+		// OpenAI (gpt, o-series, dall-e, embedding, tts, whisper, chatgpt, codex)
+		{"gpt-4o", "openai"},
+		{"gpt-5.5", "openai"},
+		{"gpt-4.1-mini", "openai"},
+		{"o1-mini", "openai"},
+		{"o3-mini", "openai"},
+		{"o4-mini", "openai"},
+		{"dall-e-3", "openai"},
+		{"text-embedding-3-large", "openai"},
+		{"tts-1", "openai"},
+		{"tts-1-hd", "openai"},
+		{"whisper-1", "openai"},
+		{"chatgpt-image-latest", "openai"},
+		{"codex-mini", "openai"},
+
+		// Mistral AI (mistral, ministral, codestral)
+		{"mistral-large-2411", "mistral"},
+		{"ministral-3b", "mistral"},
+		{"codestral-2501", "mistral"},
+		{"mistral-nemo", "mistral"},
+
+		// xAI Grok
+		{"grok-3", "grok"},
+		{"grok-4", "grok"},
+		{"grok-code-fast-1", "grok"},
+
+		// Cohere
+		{"cohere-command-r-08-2024", "cohere"},
+		{"cohere-embed-v3-english", "cohere"},
+
+		// Meta Llama
+		{"llama-3.3-70b-instruct", "meta"},
+		{"llama-4-scout-17b-16e-instruct", "meta"},
+		{"meta-llama-3-70b-instruct", "meta"},
+
+		// Microsoft Phi
+		{"phi-3-mini-128k-instruct", "phi"},
+		{"phi-4", "phi"},
+		{"phi-4-reasoning", "phi"},
+
+		// ── Chinese providers ──
+
+		// DeepSeek
+		{"deepseek-v4-pro", "deepseek"},
+		{"deepseek-v4-flash", "deepseek"},
+		{"DeepSeek_Chat", "deepseek"},
+
+		// 智谱AI GLM
+		{"glm-4", "glm"},
+		{"glm-4-plus", "glm"},
+		{"glm-4v", "glm"},
+		{"GLM_4_Flash", "glm"},
+
+		// MiniMax (minimax-*, abab*)
+		{"minimax-text-01", "minimax"},
+		{"abab6.5s-chat", "minimax"},
+		{"abab5.5-chat", "minimax"},
+
+		// 阿里通义千问 Qwen
+		{"qwen-turbo", "qwen"},
+		{"qwen-plus", "qwen"},
+		{"qwen-max", "qwen"},
+		{"qwen3-235b-a22b", "qwen"},
+		{"qwen3.7-max", "qwen"},
+		{"qwen2.5-72b-instruct", "qwen"},
+
+		// 月之暗面 Kimi / Moonshot
+		{"kimi-k2-thinking", "kimi"},
+		{"kimi-k2.5", "kimi"},
+		{"moonshot-v1-8k", "kimi"},
+
+		// 零一万物 Yi
+		{"yi-large", "yi"},
+		{"yi-lightning", "yi"},
+		{"yi-vision", "yi"},
+
+		// 百川智能 Baichuan
+		{"baichuan2-turbo", "baichuan"},
+		{"baichuan4", "baichuan"},
+
+		// 阶跃星辰 Step
+		{"step-1-8k", "step"},
+		{"step-2-16k", "step"},
+
+		// 上海AI Lab 书生 InternLM
+		{"internlm2-chat-7b", "internlm"},
+		{"internlm3-8b-instruct", "internlm"},
+
+		// 字节跳动豆包 Doubao
+		{"doubao-pro-32k", "doubao"},
+		{"doubao-lite-4k", "doubao"},
+
+		// 百度文心 Ernie
+		{"ernie-4.0-8k", "ernie"},
+		{"ernie-speed-128k", "ernie"},
+
+		// 腾讯混元 Hunyuan
+		{"hunyuan-pro", "hunyuan"},
+		{"hunyuan-standard", "hunyuan"},
+
+		// 科大讯飞星火 Spark
+		{"spark-pro", "spark"},
+		{"spark-max", "spark"},
+
+		// Unknown / unmapped
+		{"model-router", ""},
+		{"mai-ds-r1", ""},
+		{"", ""},
+		{"  ", ""},
+	}
+	for _, tt := range tests {
+		got := InferOriginalEndpointType(tt.model)
+		if got != tt.want {
+			t.Errorf("InferOriginalEndpointType(%q) = %q, want %q", tt.model, got, tt.want)
+		}
+	}
+}
+
+func TestLookupCostDualProtocol(t *testing.T) {
+	// Simulate a cost table built by toUsageCostTable with catalog entries
+	// under original endpoint_types (no dual_protocol entries).
+	costs := CostTable{
+		// Claude model under claude endpoint_type
+		"claude:claude-sonnet-4-20250514": {InputPer1MTokens: 3.0, OutputPer1MTokens: 15.0},
+		"claude-sonnet-4-20250514":        {InputPer1MTokens: 5.0, OutputPer1MTokens: 25.0}, // model-only (overwritten by azure_openai)
+		// Same model also under azure_openai (simulating catalog duplicate)
+		"azure_openai:claude-sonnet-4-20250514": {InputPer1MTokens: 5.0, OutputPer1MTokens: 25.0},
+		// GPT model under openai
+		"openai:gpt-4o": {InputPer1MTokens: 2.5, OutputPer1MTokens: 10.0},
+		"gpt-4o":        {InputPer1MTokens: 5.0, OutputPer1MTokens: 20.0}, // overwritten by azure_openai
+		"azure_openai:gpt-4o": {InputPer1MTokens: 5.0, OutputPer1MTokens: 20.0},
+		// DeepSeek model
+		"deepseek:deepseek-v4-pro": {InputPer1MTokens: 0.5, OutputPer1MTokens: 2.0},
+		"deepseek-v4-pro":          {InputPer1MTokens: 0.5, OutputPer1MTokens: 2.0},
+		// Custom dual_protocol override (should take priority)
+		"dual_protocol:claude-opus-4-1": {InputPer1MTokens: 99.0, OutputPer1MTokens: 99.0},
+		"claude:claude-opus-4-1":        {InputPer1MTokens: 15.0, OutputPer1MTokens: 75.0},
+	}
+
+	t.Run("dual_protocol uses original manufacturer pricing over model-only fallback", func(t *testing.T) {
+		// claude-sonnet-4-20250514 via dual_protocol should use claude:* pricing (3.0/15.0)
+		// NOT the model-only fallback (5.0/25.0 which was overwritten by azure_openai)
+		rates, ok := costs.LookupCost("dual_protocol", "claude-sonnet-4-20250514")
+		if !ok {
+			t.Fatal("expected to find rates via dual_protocol smart fallback")
+		}
+		if rates.InputPer1MTokens != 3.0 || rates.OutputPer1MTokens != 15.0 {
+			t.Errorf("expected claude pricing (3.0/15.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("dual_protocol gpt model uses openai pricing", func(t *testing.T) {
+		rates, ok := costs.LookupCost("dual_protocol", "gpt-4o")
+		if !ok {
+			t.Fatal("expected to find rates via dual_protocol smart fallback")
+		}
+		if rates.InputPer1MTokens != 2.5 || rates.OutputPer1MTokens != 10.0 {
+			t.Errorf("expected openai pricing (2.5/10.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("dual_protocol deepseek model uses deepseek pricing", func(t *testing.T) {
+		rates, ok := costs.LookupCost("dual_protocol", "deepseek-v4-pro")
+		if !ok {
+			t.Fatal("expected to find rates via dual_protocol smart fallback")
+		}
+		if rates.InputPer1MTokens != 0.5 || rates.OutputPer1MTokens != 2.0 {
+			t.Errorf("expected deepseek pricing (0.5/2.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("dual_protocol custom override takes priority", func(t *testing.T) {
+		// Custom dual_protocol:claude-opus-4-1 should beat claude:claude-opus-4-1
+		rates, ok := costs.LookupCost("dual_protocol", "claude-opus-4-1")
+		if !ok {
+			t.Fatal("expected to find rates")
+		}
+		if rates.InputPer1MTokens != 99.0 || rates.OutputPer1MTokens != 99.0 {
+			t.Errorf("expected custom dual_protocol pricing (99.0/99.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("dual_protocol qwen model uses qwen pricing", func(t *testing.T) {
+		costsWithQwen := CostTable{
+			"qwen:qwen3.7-max": {InputPer1MTokens: 0.8, OutputPer1MTokens: 2.0},
+			"qwen3.7-max":      {InputPer1MTokens: 1.5, OutputPer1MTokens: 5.0}, // model-only (different)
+		}
+		rates, ok := costsWithQwen.LookupCost("dual_protocol", "qwen3.7-max")
+		if !ok {
+			t.Fatal("expected to find rates via qwen inference")
+		}
+		if rates.InputPer1MTokens != 0.8 || rates.OutputPer1MTokens != 2.0 {
+			t.Errorf("expected qwen pricing (0.8/2.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("dual_protocol glm model uses glm pricing", func(t *testing.T) {
+		costsWithGLM := CostTable{
+			"glm:glm-4-plus": {InputPer1MTokens: 4.0, OutputPer1MTokens: 12.0},
+			"glm-4-plus":     {InputPer1MTokens: 6.0, OutputPer1MTokens: 18.0},
+		}
+		rates, ok := costsWithGLM.LookupCost("dual_protocol", "glm-4-plus")
+		if !ok {
+			t.Fatal("expected to find rates via glm inference")
+		}
+		if rates.InputPer1MTokens != 4.0 || rates.OutputPer1MTokens != 12.0 {
+			t.Errorf("expected glm pricing (4.0/12.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("dual_protocol minimax model uses minimax pricing", func(t *testing.T) {
+		costsWithMM := CostTable{
+			"minimax:abab6.5s-chat": {InputPer1MTokens: 1.0, OutputPer1MTokens: 3.0},
+			"abab6.5s-chat":         {InputPer1MTokens: 2.0, OutputPer1MTokens: 6.0},
+		}
+		rates, ok := costsWithMM.LookupCost("dual_protocol", "abab6.5s-chat")
+		if !ok {
+			t.Fatal("expected to find rates via minimax inference")
+		}
+		if rates.InputPer1MTokens != 1.0 || rates.OutputPer1MTokens != 3.0 {
+			t.Errorf("expected minimax pricing (1.0/3.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("dual_protocol truly unknown model falls back to model-only", func(t *testing.T) {
+		// model-router has no inferred original type, should fall back to model-only
+		costsWithUnknown := CostTable{
+			"model-router": {InputPer1MTokens: 0.5, OutputPer1MTokens: 1.5},
+		}
+		rates, ok := costsWithUnknown.LookupCost("dual_protocol", "model-router")
+		if !ok {
+			t.Fatal("expected to find rates via model-only fallback")
+		}
+		if rates.InputPer1MTokens != 0.5 || rates.OutputPer1MTokens != 1.5 {
+			t.Errorf("expected model-only pricing (0.5/1.5), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+
+	t.Run("non-dual_protocol unchanged", func(t *testing.T) {
+		// Verify that non-dual_protocol lookups are not affected
+		rates, ok := costs.LookupCost("openai", "gpt-4o")
+		if !ok {
+			t.Fatal("expected to find rates for openai:gpt-4o")
+		}
+		if rates.InputPer1MTokens != 2.5 || rates.OutputPer1MTokens != 10.0 {
+			t.Errorf("expected openai pricing (2.5/10.0), got (%.1f/%.1f)",
+				rates.InputPer1MTokens, rates.OutputPer1MTokens)
+		}
+	})
+}
