@@ -80,6 +80,9 @@ type gitHubCopilotUserResponse struct {
 	// quota_reset_date（YYYY-MM-DD）
 	QuotaResetDate string `json:"quota_reset_date"`
 
+	// token_based_billing 标记新计费模式
+	TokenBasedBilling bool `json:"token_based_billing"`
+
 	// 新版 snake_case 格式（实际 API 使用）
 	QuotaSnapshots *quotaSnapshotsSnake `json:"quota_snapshots,omitempty"`
 
@@ -90,18 +93,18 @@ type gitHubCopilotUserResponse struct {
 // snake_case 格式的快照
 type quotaSnapshotsSnake struct {
 	PremiumInteractions *quotaEntrySnake `json:"premium_interactions,omitempty"`
-	AICredits           *quotaEntrySnake `json:"ai_credits,omitempty"`
 	Chat                *quotaEntrySnake `json:"chat,omitempty"`
 }
 
 type quotaEntrySnake struct {
-	PercentRemaining float64 `json:"percent_remaining"`
-	QuotaRemaining   float64 `json:"quota_remaining"`
-	Unlimited        bool    `json:"unlimited"`
-	Entitlement      int     `json:"entitlement"`
-	Remaining        int     `json:"remaining"`
-	OverageCount     int     `json:"overage_count"`
-	OveragePermitted bool    `json:"overage_permitted"`
+	PercentRemaining  float64 `json:"percent_remaining"`
+	QuotaRemaining    float64 `json:"quota_remaining"`
+	Unlimited         bool    `json:"unlimited"`
+	Entitlement       int     `json:"entitlement"`
+	Remaining         int     `json:"remaining"`
+	OverageCount      int     `json:"overage_count"`
+	OveragePermitted  bool    `json:"overage_permitted"`
+	TokenBasedBilling bool    `json:"token_based_billing"`
 }
 
 // camelCase 格式的快照（向后兼容）
@@ -113,46 +116,39 @@ type quotaEntryCamel struct {
 	PercentRemaining float64 `json:"percentRemaining"`
 }
 
-// extractQuotaInfo 从 API 响应中提取额度信息，自动处理新旧格式。
+// extractQuotaInfo 从 API 响应中提取额度信息。
+// GitHub 始终使用 premium_interactions 字段名，通过 token_based_billing 标记区分计费模式。
 func (r *gitHubCopilotUserResponse) extractQuotaInfo() *QuotaInfo {
 	info := &QuotaInfo{
 		CopilotPlan: r.CopilotPlan,
 	}
 
-	// 优先使用 quota_reset_date_utc（精确到时间），其次 quota_reset_date
 	if r.QuotaResetDateUTC != "" {
 		info.ResetAt = r.QuotaResetDateUTC
 	} else if r.QuotaResetDate != "" {
 		info.ResetAt = r.QuotaResetDate
 	}
 
-	// 优先使用新版 snake_case 格式
-	if r.QuotaSnapshots != nil {
-		// 优先尝试 AI Credits schema（2026-06-01 后）
-		if r.QuotaSnapshots.AICredits != nil {
-			ai := r.QuotaSnapshots.AICredits
-			info.PercentRemaining = ai.PercentRemaining
-			info.Unlimited = ai.Unlimited
-			info.Entitlement = ai.Entitlement
-			info.Remaining = ai.Remaining
+	// 使用 snake_case 格式
+	if r.QuotaSnapshots != nil && r.QuotaSnapshots.PremiumInteractions != nil {
+		pi := r.QuotaSnapshots.PremiumInteractions
+		info.PercentRemaining = pi.PercentRemaining
+		info.Unlimited = pi.Unlimited
+		info.Entitlement = pi.Entitlement
+		info.Remaining = pi.Remaining
+		// 通过 token_based_billing 标记判断计费模式
+		if pi.TokenBasedBilling || r.TokenBasedBilling {
 			info.BillingModel = "credits"
-			return info
-		}
-		// 回退到 legacy PRU schema（年付用户）
-		if r.QuotaSnapshots.PremiumInteractions != nil {
-			pi := r.QuotaSnapshots.PremiumInteractions
-			info.PercentRemaining = pi.PercentRemaining
-			info.Unlimited = pi.Unlimited
-			info.Entitlement = pi.Entitlement
-			info.Remaining = pi.Remaining
+		} else {
 			info.BillingModel = "pru"
-			return info
 		}
+		return info
 	}
 
 	// 兜底：旧版 camelCase 格式
 	if r.QuotaSnapshotsCamel != nil && r.QuotaSnapshotsCamel.PremiumInteractions != nil {
 		info.PercentRemaining = r.QuotaSnapshotsCamel.PremiumInteractions.PercentRemaining
+		info.BillingModel = "pru"
 		return info
 	}
 

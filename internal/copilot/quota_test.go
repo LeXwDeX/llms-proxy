@@ -11,14 +11,16 @@ import (
 )
 
 func TestSyncQuotaFromGitHub(t *testing.T) {
-	// 构造新版 snake_case 格式响应（与实际 GitHub API 一致）
+	// 构造新版 snake_case 格式响应（与实际 GitHub API 一致，含 token_based_billing）
 	responseBody := `{
 		"copilot_plan": "individual",
+		"token_based_billing": true,
 		"quota_reset_date_utc": "2026-05-01T00:00:00.000Z",
 		"quota_snapshots": {
 			"premium_interactions": {
 				"percent_remaining": 85.5,
 				"unlimited": false,
+				"token_based_billing": true,
 				"entitlement": 300
 			}
 		}
@@ -71,8 +73,8 @@ func TestSyncQuotaFromGitHub(t *testing.T) {
 	if info.Entitlement != 300 {
 		t.Errorf("Entitlement = %d, want 300", info.Entitlement)
 	}
-	if info.BillingModel != "pru" {
-		t.Errorf("BillingModel = %q, want %q", info.BillingModel, "pru")
+	if info.BillingModel != "credits" {
+		t.Errorf("BillingModel = %q, want %q", info.BillingModel, "credits")
 	}
 }
 
@@ -307,14 +309,16 @@ func TestQuotaManager_Stop(t *testing.T) {
 	}
 }
 
-func TestSyncQuotaFromGitHub_AICredits(t *testing.T) {
+func TestSyncQuotaFromGitHub_TokenBilling(t *testing.T) {
 	responseBody := `{
 		"copilot_plan": "pro",
+		"token_based_billing": true,
 		"quota_reset_date_utc": "2026-07-01T00:00:00.000Z",
 		"quota_snapshots": {
-			"ai_credits": {
+			"premium_interactions": {
 				"percent_remaining": 80.0,
 				"unlimited": false,
+				"token_based_billing": true,
 				"entitlement": 1500,
 				"remaining": 1200
 			}
@@ -347,19 +351,17 @@ func TestSyncQuotaFromGitHub_AICredits(t *testing.T) {
 	}
 }
 
-func TestSyncQuotaFromGitHub_AICreditsPriority(t *testing.T) {
+func TestSyncQuotaFromGitHub_BusinessUnlimited(t *testing.T) {
 	responseBody := `{
-		"copilot_plan": "pro",
+		"copilot_plan": "business",
+		"token_based_billing": true,
 		"quota_snapshots": {
-			"ai_credits": {
-				"percent_remaining": 80.0,
-				"entitlement": 1500,
-				"remaining": 1200
-			},
 			"premium_interactions": {
-				"percent_remaining": 10.0,
-				"entitlement": 300,
-				"remaining": 30
+				"percent_remaining": 100.0,
+				"unlimited": true,
+				"token_based_billing": true,
+				"entitlement": 0,
+				"remaining": 0
 			}
 		}
 	}`
@@ -376,11 +378,54 @@ func TestSyncQuotaFromGitHub_AICreditsPriority(t *testing.T) {
 		t.Fatalf("SyncQuotaFromGitHub() error = %v", err)
 	}
 
-	// ai_credits should take priority
 	if info.BillingModel != "credits" {
 		t.Errorf("BillingModel = %q, want %q", info.BillingModel, "credits")
 	}
-	if info.Entitlement != 1500 {
-		t.Errorf("Entitlement = %d, want 1500 (ai_credits, not premium_interactions)", info.Entitlement)
+	if !info.Unlimited {
+		t.Error("Unlimited = false, want true")
+	}
+	if info.Entitlement != 0 {
+		t.Errorf("Entitlement = %d, want 0", info.Entitlement)
+	}
+	if info.CopilotPlan != "business" {
+		t.Errorf("CopilotPlan = %q, want %q", info.CopilotPlan, "business")
+	}
+}
+
+func TestSyncQuotaFromGitHub_LegacyPRU(t *testing.T) {
+	responseBody := `{
+		"copilot_plan": "pro",
+		"quota_snapshots": {
+			"premium_interactions": {
+				"percent_remaining": 90.0,
+				"entitlement": 300,
+				"remaining": 270
+			}
+		}
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(responseBody))
+	}))
+	defer server.Close()
+
+	mgr := NewQuotaManager(server.Client(), server.URL, nil)
+	info, err := mgr.SyncQuotaFromGitHub(context.Background(), "test-token")
+	if err != nil {
+		t.Fatalf("SyncQuotaFromGitHub() error = %v", err)
+	}
+
+	if info.BillingModel != "pru" {
+		t.Errorf("BillingModel = %q, want %q", info.BillingModel, "pru")
+	}
+	if info.PercentRemaining != 90.0 {
+		t.Errorf("PercentRemaining = %v, want 90.0", info.PercentRemaining)
+	}
+	if info.Entitlement != 300 {
+		t.Errorf("Entitlement = %d, want 300", info.Entitlement)
+	}
+	if info.Remaining != 270 {
+		t.Errorf("Remaining = %d, want 270", info.Remaining)
 	}
 }
