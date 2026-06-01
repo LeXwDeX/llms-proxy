@@ -554,7 +554,13 @@ func (h *Handler) handleListModelCosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) {
-	model := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "model")))
+	// URL-decode path param: Go net/http does not decode %2F in path segments,
+	// so model names like "MiniMax/MiniMax-M3" arrive as "MiniMax%2FMiniMax-M3".
+	rawModel := chi.URLParam(r, "model")
+	if decoded, err := url.PathUnescape(rawModel); err == nil {
+		rawModel = decoded
+	}
+	model := strings.ToLower(strings.TrimSpace(rawModel))
 	if model == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse("missing model"))
 		return
@@ -612,7 +618,11 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleDeleteModelCost(w http.ResponseWriter, r *http.Request) {
-	model := strings.TrimSpace(chi.URLParam(r, "model"))
+	rawModel := chi.URLParam(r, "model")
+	if decoded, err := url.PathUnescape(rawModel); err == nil {
+		rawModel = decoded
+	}
+	model := strings.TrimSpace(rawModel)
 	if model == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse("missing model"))
 		return
