@@ -206,8 +206,8 @@ func TestListAvailableModels(t *testing.T) {
 			freeCount++
 		}
 	}
-	if freeCount != 4 {
-		t.Errorf("免费模型数量 = %d, 期望 4", freeCount)
+	if freeCount != 5 {
+		t.Errorf("免费模型数量 = %d, 期望 5", freeCount)
 	}
 }
 
@@ -234,5 +234,23 @@ func TestIsFreeModel(t *testing.T) {
 				t.Errorf("IsFreeModel(%q) = %v, want %v", tt.model, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetPricing(t *testing.T) {
+	tests := []struct {
+		model string
+		want  ModelPricing
+	}{
+		{"gpt-5.5", ModelPricing{Input: 5.0, Output: 30.0, CacheRead: 0.5}},
+		{"claude-opus-4.7", ModelPricing{Input: 5.0, Output: 25.0, CacheRead: 0.5, CacheWrite: 6.25}},
+		{"unknown-model", ModelPricing{}},
+		{"Copilot gpt-5.5", ModelPricing{Input: 5.0, Output: 30.0, CacheRead: 0.5}},
+	}
+	for _, tt := range tests {
+		got := GetPricing(tt.model)
+		if got != tt.want {
+			t.Errorf("GetPricing(%q) = %+v, want %+v", tt.model, got, tt.want)
+		}
 	}
 }

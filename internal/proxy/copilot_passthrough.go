@@ -146,19 +146,8 @@ func (s *Service) HandleCopilotAuth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleCopilotQuotaSummary 处理 GET /copilot/quota —— 汇总该客户端所在池的 premium request 配额。
-// 仅对已认证客户端可见，返回跨所有账户的剩余和总额之和，以及账号数统计。
-//
-// 响应格式：
-//
-//	{
-//	  "remaining":        133,   // 池内所有活跃账户剩余 premium requests 之和
-//	  "entitlement":      300,   // 池内所有活跃账户月度总额度之和
-//	  "accounts_active":  1,     // 活跃（active + quota_exceeded）账户数
-//	  "accounts_total":   2      // 池内全部账户数（含 disabled/error 等）
-//	}
-//
-// 客户端可据此显示 [accounts_active/accounts_total | remaining/entitlement]。
+// HandleCopilotQuotaSummary 处理 GET /copilot/quota —— 透传 GitHub /copilot_internal/user 响应。
+// 下游 opencode 客户端自行解析 GitHub 原始 schema（quota_snapshots.ai_credits 或 premium_interactions）。
 func (s *Service) HandleCopilotQuotaSummary(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || principal == nil {
@@ -166,54 +155,64 @@ func (s *Service) HandleCopilotQuotaSummary(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if s.copilotService == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "copilot service not configured",
-		})
-		return
-	}
-
-	pool, err := s.copilotService.FindPoolByClient(principal.Name)
+	account, token, baseURL, err := s.copilotPassthroughSetup(w, r, principal)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "copilot pool not found for client",
-		})
 		return
 	}
 
-	accounts, err := s.copilotService.GetAccountStore().ListByPool(pool.Name)
+	requestID := appmiddleware.RequestIDFromContext(r.Context())
+	upstreamURL := baseURL + "/copilot_internal/user"
+
+	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to list accounts",
-		})
+		s.logger.Error("copilot quota: create request failed",
+			"request_id", requestID,
+			"error", err,
+		)
+		http.Error(w, "failed to create upstream request", http.StatusInternalServerError)
 		return
 	}
 
-	totalRemaining := 0
-	totalEntitlement := 0
-	active := 0
-	for _, a := range accounts {
-		if a.Status != nosql.AccountStatusActive && a.Status != nosql.AccountStatusQuotaExceeded {
+	copyHeaders(req.Header, r.Header)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Del("api-key")
+	ensureCopilotHeaders(req.Header)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		s.logger.Error("copilot quota: upstream request failed",
+			"request_id", requestID,
+			"error", err,
+		)
+		http.Error(w, "copilot upstream error", http.StatusBadGateway)
+		s.metrics.totalFailures.Add(1)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 透传响应
+	w.Header().Set("X-Copilot-Account", account.GitHubUsername)
+
+	for key, values := range resp.Header {
+		if _, skip := hopHeaders[key]; skip {
 			continue
 		}
-		active++
-		totalRemaining += a.QuotaRemaining
-		totalEntitlement += a.QuotaEntitlement
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
 	}
+	w.WriteHeader(resp.StatusCode)
+	writer := newStreamingWriter(w)
+	_, _ = io.Copy(writer, resp.Body)
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"remaining":       totalRemaining,
-		"entitlement":     totalEntitlement,
-		"accounts_active": active,
-		"accounts_total":  len(accounts),
-	})
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		s.metrics.totalSuccess.Add(1)
+	} else {
+		s.metrics.totalFailures.Add(1)
+	}
 }
 
 // HandleCopilotModels 处理 GET /copilot/models —— 透传上游 models 列表。

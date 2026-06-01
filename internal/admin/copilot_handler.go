@@ -603,6 +603,7 @@ func (h *Handler) handleGetCopilotQuota(w http.ResponseWriter, r *http.Request) 
 		"quota_remaining":         account.QuotaRemaining,
 		"quota_reset_at":          account.QuotaResetAt,
 		"quota_last_sync_at":      account.QuotaLastSyncAt,
+		"quota_billing_model":     account.QuotaBillingModel,
 	})
 }
 
@@ -648,6 +649,7 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 		account.QuotaEntitlement = quotaInfo.Entitlement
 	}
 	account.QuotaRemaining = quotaInfo.Remaining
+	account.QuotaBillingModel = quotaInfo.BillingModel
 
 	if err := h.copilotAcctStore.Update(id, *account); err != nil {
 		h.writeInternalError(w, "failed to update copilot account quota", err)
@@ -663,6 +665,7 @@ func (h *Handler) handleSyncCopilotQuota(w http.ResponseWriter, r *http.Request)
 		"quota_reset_at":          quotaInfo.ResetAt,
 		"quota_last_sync_at":      account.QuotaLastSyncAt,
 		"copilot_plan":            quotaInfo.CopilotPlan,
+		"quota_billing_model":     quotaInfo.BillingModel,
 	})
 }
 

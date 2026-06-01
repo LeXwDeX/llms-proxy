@@ -58,11 +58,12 @@ const ModelPrefix = "Copilot "
 // 数据来源：https://docs.github.com/en/copilot/concepts/billing/copilot-requests
 // 注意：此表仅用于 SelectAccount 选号时的额度预判，不再用于逐请求扣减。
 var ModelMultipliers = map[string]float64{
-	// 免费模型（乘数 0，paid plan 不消耗 premium request）
-	"gpt-4.1":     0,
-	"gpt-4o":      0,
-	"gpt-5-mini":  0,
-	"raptor-mini": 0,
+	// 免费模型（乘数 0，paid plan 不消耗 premium request / AI credits 极低）
+	"gpt-4.1":      0,
+	"gpt-4o":       0,
+	"gpt-5-mini":   0,
+	"gpt-5.4-nano": 0,
+	"raptor-mini":  0,
 
 	// 低消耗模型（乘数 <1）
 	"grok-code-fast-1": 0.25,
@@ -76,6 +77,7 @@ var ModelMultipliers = map[string]float64{
 	"claude-sonnet-4.6": 1,
 	"gemini-2.5-pro":    1,
 	"gemini-3.1-pro":    1,
+	"gemini-3.5-flash":  1,
 	"gpt-5.1":           1,
 	"gpt-5.2":           1,
 	"gpt-5.2-codex":     1,
@@ -86,6 +88,57 @@ var ModelMultipliers = map[string]float64{
 	"claude-opus-4.5": 3,
 	"claude-opus-4.6": 3,
 	"claude-opus-4.7": 3,
+	"claude-opus-4.8": 3,
+	"gpt-5.5":         3,
+}
+
+// ModelPricing 表示模型的 per-token 定价（每百万 token，USD）。
+// 数据来源：https://docs.github.com/copilot/reference/copilot-billing/models-and-pricing
+type ModelPricing struct {
+	Input      float64 `json:"input"`       // 输入 token 价格
+	Output     float64 `json:"output"`      // 输出 token 价格
+	CacheRead  float64 `json:"cache_read"`  // 缓存读取价格
+	CacheWrite float64 `json:"cache_write"` // 缓存写入价格（仅 Anthropic 模型）
+}
+
+// ModelPricingTable 模型定价表（每百万 token，USD）。
+var ModelPricingTable = map[string]ModelPricing{
+	// OpenAI
+	"gpt-4.1":       {Input: 2.00, Output: 8.00, CacheRead: 0.50},
+	"gpt-5-mini":    {Input: 0.25, Output: 2.00, CacheRead: 0.025},
+	"gpt-5.2":       {Input: 1.75, Output: 14.00, CacheRead: 0.175},
+	"gpt-5.2-codex": {Input: 1.75, Output: 14.00, CacheRead: 0.175},
+	"gpt-5.3-codex": {Input: 1.75, Output: 14.00, CacheRead: 0.175},
+	"gpt-5.4":       {Input: 2.50, Output: 15.00, CacheRead: 0.25},
+	"gpt-5.4-mini":  {Input: 0.75, Output: 4.50, CacheRead: 0.075},
+	"gpt-5.4-nano":  {Input: 0.20, Output: 1.25, CacheRead: 0.02},
+	"gpt-5.5":       {Input: 5.00, Output: 30.00, CacheRead: 0.50},
+	// Anthropic（含 cache_write）
+	"claude-haiku-4.5":  {Input: 1.00, Output: 5.00, CacheRead: 0.10, CacheWrite: 1.25},
+	"claude-sonnet-4":   {Input: 3.00, Output: 15.00, CacheRead: 0.30, CacheWrite: 3.75},
+	"claude-sonnet-4.5": {Input: 3.00, Output: 15.00, CacheRead: 0.30, CacheWrite: 3.75},
+	"claude-sonnet-4.6": {Input: 3.00, Output: 15.00, CacheRead: 0.30, CacheWrite: 3.75},
+	"claude-opus-4.5":   {Input: 5.00, Output: 25.00, CacheRead: 0.50, CacheWrite: 6.25},
+	"claude-opus-4.6":   {Input: 5.00, Output: 25.00, CacheRead: 0.50, CacheWrite: 6.25},
+	"claude-opus-4.7":   {Input: 5.00, Output: 25.00, CacheRead: 0.50, CacheWrite: 6.25},
+	"claude-opus-4.8":   {Input: 5.00, Output: 25.00, CacheRead: 0.50, CacheWrite: 6.25},
+	// Google
+	"gemini-2.5-pro":   {Input: 1.25, Output: 10.00, CacheRead: 0.125},
+	"gemini-3-flash":   {Input: 0.50, Output: 3.00, CacheRead: 0.05},
+	"gemini-3.1-pro":   {Input: 2.00, Output: 12.00, CacheRead: 0.20},
+	"gemini-3.5-flash": {Input: 1.50, Output: 9.00, CacheRead: 0.15},
+	// Fine-tuned
+	"raptor-mini": {Input: 0.25, Output: 2.00, CacheRead: 0.025},
+}
+
+// GetPricing 获取模型定价。未知模型返回零值 ModelPricing。
+func GetPricing(model string) ModelPricing {
+	mapped, _ := MapModelName(model)
+	lower := strings.ToLower(mapped)
+	if p, ok := ModelPricingTable[lower]; ok {
+		return p
+	}
+	return ModelPricing{}
 }
 
 // MapModelName 将下游模型名映射为上游模型名。
@@ -306,6 +359,9 @@ type CopilotModelDetail struct {
 	Multiplier float64 `json:"multiplier"`
 	Category   string  `json:"category"` // 免费/低消耗/标准/高消耗
 
+	// 定价（每百万 token，USD）
+	Pricing *ModelPricing `json:"pricing,omitempty"`
+
 	// Policy
 	PolicyState string `json:"policy_state,omitempty"` // enabled/disabled
 }
@@ -435,6 +491,7 @@ func FetchModelDetails(ctx context.Context, httpClient *http.Client, copilotToke
 		}
 
 		multiplier := GetMultiplier(name)
+		pricing := GetPricing(name)
 		detail := CopilotModelDetail{
 			ID:                     entry.ID,
 			Name:                   entry.Name,
@@ -452,6 +509,7 @@ func FetchModelDetails(ctx context.Context, httpClient *http.Client, copilotToke
 			MaxPromptTokens:        entry.Capabilities.Limits.MaxPromptTokens,
 			Multiplier:             multiplier,
 			Category:               classifyModel(multiplier),
+			Pricing:                &pricing,
 		}
 
 		// Vision limits

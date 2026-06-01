@@ -48,7 +48,8 @@ type CopilotAccount struct {
 	QuotaRemaining        int     `json:"quota_remaining,omitempty"`   // 剩余 premium requests（从 GitHub API 获取）
 	QuotaResetAt          string  `json:"quota_reset_at,omitempty"`
 	QuotaLastSyncAt       string  `json:"quota_last_sync_at,omitempty"`
-	AllowOverage          bool    `json:"allow_overage"` // 允许超额调用（额度耗尽后仍可使用付费模型）
+	QuotaBillingModel     string  `json:"quota_billing_model,omitempty"` // "credits" 或 "pru"
+	AllowOverage          bool    `json:"allow_overage"`                 // 允许超额调用（额度耗尽后仍可使用付费模型）
 
 	// 元数据
 	Notes     string `json:"notes,omitempty"`

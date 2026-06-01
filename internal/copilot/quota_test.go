@@ -71,6 +71,9 @@ func TestSyncQuotaFromGitHub(t *testing.T) {
 	if info.Entitlement != 300 {
 		t.Errorf("Entitlement = %d, want 300", info.Entitlement)
 	}
+	if info.BillingModel != "pru" {
+		t.Errorf("BillingModel = %q, want %q", info.BillingModel, "pru")
+	}
 }
 
 func TestSyncQuotaFromGitHub_NegativeRemaining(t *testing.T) {
@@ -173,7 +176,7 @@ func TestDeductQuota(t *testing.T) {
 	}{
 		{
 			name:              "免费模型不扣减",
-			model:             "gpt-4o",
+			model:             "gpt-4.1",
 			initialPercent:    100.0,
 			expectedPercent:   100.0,
 			shouldBeUnchanged: true,
@@ -214,7 +217,7 @@ func TestDeductQuota(t *testing.T) {
 		},
 		{
 			name:              "带 Copilot 前缀",
-			model:             "Copilot gpt-4o",
+			model:             "Copilot gpt-4.1",
 			initialPercent:    80.0,
 			expectedPercent:   80.0,
 			shouldBeUnchanged: true,
@@ -301,5 +304,83 @@ func TestQuotaManager_Stop(t *testing.T) {
 
 	if !mgr.stopped {
 		t.Error("stopped 应为 true")
+	}
+}
+
+func TestSyncQuotaFromGitHub_AICredits(t *testing.T) {
+	responseBody := `{
+		"copilot_plan": "pro",
+		"quota_reset_date_utc": "2026-07-01T00:00:00.000Z",
+		"quota_snapshots": {
+			"ai_credits": {
+				"percent_remaining": 80.0,
+				"unlimited": false,
+				"entitlement": 1500,
+				"remaining": 1200
+			}
+		}
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(responseBody))
+	}))
+	defer server.Close()
+
+	mgr := NewQuotaManager(server.Client(), server.URL, nil)
+	info, err := mgr.SyncQuotaFromGitHub(context.Background(), "test-token")
+	if err != nil {
+		t.Fatalf("SyncQuotaFromGitHub() error = %v", err)
+	}
+
+	if info.BillingModel != "credits" {
+		t.Errorf("BillingModel = %q, want %q", info.BillingModel, "credits")
+	}
+	if info.Entitlement != 1500 {
+		t.Errorf("Entitlement = %d, want 1500", info.Entitlement)
+	}
+	if info.Remaining != 1200 {
+		t.Errorf("Remaining = %d, want 1200", info.Remaining)
+	}
+	if info.PercentRemaining != 80.0 {
+		t.Errorf("PercentRemaining = %v, want 80.0", info.PercentRemaining)
+	}
+}
+
+func TestSyncQuotaFromGitHub_AICreditsPriority(t *testing.T) {
+	responseBody := `{
+		"copilot_plan": "pro",
+		"quota_snapshots": {
+			"ai_credits": {
+				"percent_remaining": 80.0,
+				"entitlement": 1500,
+				"remaining": 1200
+			},
+			"premium_interactions": {
+				"percent_remaining": 10.0,
+				"entitlement": 300,
+				"remaining": 30
+			}
+		}
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(responseBody))
+	}))
+	defer server.Close()
+
+	mgr := NewQuotaManager(server.Client(), server.URL, nil)
+	info, err := mgr.SyncQuotaFromGitHub(context.Background(), "test-token")
+	if err != nil {
+		t.Fatalf("SyncQuotaFromGitHub() error = %v", err)
+	}
+
+	// ai_credits should take priority
+	if info.BillingModel != "credits" {
+		t.Errorf("BillingModel = %q, want %q", info.BillingModel, "credits")
+	}
+	if info.Entitlement != 1500 {
+		t.Errorf("Entitlement = %d, want 1500 (ai_credits, not premium_interactions)", info.Entitlement)
 	}
 }
