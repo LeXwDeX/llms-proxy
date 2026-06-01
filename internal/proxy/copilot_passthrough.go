@@ -155,13 +155,14 @@ func (s *Service) HandleCopilotQuotaSummary(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	account, token, baseURL, err := s.copilotPassthroughSetup(w, r, principal)
+	account, _, _, err := s.copilotPassthroughSetup(w, r, principal)
 	if err != nil {
 		return
 	}
 
 	requestID := appmiddleware.RequestIDFromContext(r.Context())
-	upstreamURL := baseURL + "/copilot_internal/user"
+	// /copilot_internal/user 始终在 api.github.com 上，不在 Copilot API base 上
+	upstreamURL := copilot.GitHubCopilotUserURL
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 	defer cancel()
@@ -176,9 +177,9 @@ func (s *Service) HandleCopilotQuotaSummary(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	copyHeaders(req.Header, r.Header)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Del("api-key")
+	// /copilot_internal/user 需要 OAuth token（"token" 前缀），不是 Copilot access token
+	req.Header.Set("Authorization", "token "+account.OAuthToken)
+	req.Header.Set("Accept", "application/json")
 	ensureCopilotHeaders(req.Header)
 
 	resp, err := s.httpClient.Do(req)
