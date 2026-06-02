@@ -123,6 +123,9 @@ func (s *Service) buildLocalDeployments(targetFilter map[string]struct{}) []map[
 			continue
 		}
 		target := state.Target()
+		if target.Paused {
+			continue
+		}
 		if targetFilter != nil {
 			targetKey := strings.ToLower(strings.TrimSpace(target.Name))
 			if _, allowed := targetFilter[targetKey]; !allowed {

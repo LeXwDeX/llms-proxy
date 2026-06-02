@@ -1961,6 +1961,68 @@ func TestServiceListsModelsLocallyRespectsRequestedTargetFilter(t *testing.T) {
 	}
 }
 
+func TestServiceListsModelsLocallySkipsPausedTargets(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Bind:                  "127.0.0.1:0",
+			RequestTimeoutSeconds: 5,
+		},
+		Targets: []config.Target{
+			{
+				Name:               "active",
+				Endpoint:           "http://example.com",
+				ResourcePathPrefix: "/openai",
+				APIKey:             "key1",
+				AllowedModels:      []string{"gpt-4o"},
+			},
+			{
+				Name:               "paused",
+				Endpoint:           "http://example2.com",
+				ResourcePathPrefix: "/openai",
+				APIKey:             "key2",
+				AllowedModels:      []string{"gpt-5.2"},
+				Paused:             true,
+			},
+		},
+		Logging: config.LoggingConfig{
+			Level:     "info",
+			AccessLog: "logs/test-access.log",
+			ErrorLog:  "logs/test-error.log",
+		},
+	}
+
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].ID != "gpt-4o" {
+		t.Fatalf("expected only active target model gpt-4o, got: %+v", resp.Data)
+	}
+}
+
 func TestServiceRecordsUsageOnSuccessfulResponse(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
