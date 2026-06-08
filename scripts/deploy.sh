@@ -10,27 +10,51 @@
 #   6. 发布锁：/var/run/llms-proxy-deploy.lock 防止并发
 #
 # 用法:
-#   cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh
+#   cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh           # 生产（8000）
+#   cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh --test    # 测试（8001）
 #
 # 部署文档: docs/部署要求.md
 #
 set -euo pipefail
 
 # ============================================================
-# 常量
+# 解析参数
+# ============================================================
+DEPLOY_MODE="prod"
+for arg in "$@"; do
+  case "$arg" in
+    --test) DEPLOY_MODE="test" ;;
+    --prod) DEPLOY_MODE="prod" ;;
+    *) die "未知参数: $arg（支持 --test / --prod）" ;;
+  esac
+done
+
+# ============================================================
+# 常量（按部署模式自动切换）
 # ============================================================
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="$APP_DIR/config"
 DATA_DIR="$APP_DIR/data"
 LOGS_DIR="$APP_DIR/logs"
 
+if [ "$DEPLOY_MODE" = "test" ]; then
+  COMPOSE_FILE="docker-compose.test.yml"
+  HEALTH_URL="http://localhost:8001/healthz"
+  CONTAINER_NAME="llms-proxy-test"
+  PORT_LABEL="8001"
+else
+  COMPOSE_FILE="docker-compose.yml"
+  HEALTH_URL="http://localhost:8000/healthz"
+  CONTAINER_NAME="llms-proxy"
+  PORT_LABEL="8000"
+fi
+
 # 持久备份路径（避开 /tmp，/tmp 会被系统清理）
 BACKUP_ROOT="/DATA/Backups/llms-proxy"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$BACKUP_ROOT/$TIMESTAMP"
 
-LOCK_FILE="/var/run/llms-proxy-deploy.lock"
-HEALTH_URL="http://localhost:8000/healthz"
+LOCK_FILE="/var/run/llms-proxy-deploy-$DEPLOY_MODE.lock"
 
 # 颜色
 RED='\033[0;31m'
@@ -64,7 +88,7 @@ info "工作目录: $APP_DIR"
 info "预检（检查 DB/目录/git 状态）..."
 
 # 1.1 必须在正确的项目目录
-[ -f "$APP_DIR/docker-compose.yml" ] || die "当前目录不是 llms-proxy 项目根（缺 docker-compose.yml）"
+[ -f "$APP_DIR/$COMPOSE_FILE" ] || die "当前目录不是 llms-proxy 项目根（缺 $COMPOSE_FILE）"
 [ -f "$APP_DIR/scripts/deploy.sh" ] || die "缺 scripts/deploy.sh"
 
 # 1.2 data/ 必须存在，且 DB 文件必须存在（首次部署除外）
@@ -173,8 +197,8 @@ chmod 777 "$CONFIG_DIR" "$DATA_DIR" "$LOGS_DIR"
 # ============================================================
 # 6. 重建并启动容器
 # ============================================================
-info "重建容器..."
-docker compose up --build -d
+info "重建容器（模式: $DEPLOY_MODE，端口: $PORT_LABEL）..."
+docker compose -f "$COMPOSE_FILE" up --build -d
 
 # ============================================================
 # 7. 发布后健康检查
@@ -192,32 +216,32 @@ done
 echo ""
 echo "============================================================"
 if [ "$HEALTHY" = "1" ]; then
-  echo -e "${GREEN}[OK] 部署成功${NC}"
+  echo -e "${GREEN}[OK] 部署成功（${DEPLOY_MODE}）${NC}"
   echo "  新 commit:  $NEW_COMMIT"
   echo "  备份路径:   $BACKUP_DIR"
   echo "  健康检查:   $HEALTH_URL → ok"
   echo ""
   echo "验证清单（请人工确认）："
-  echo "  1. curl http://192.168.33.110:8000/healthz    → {\"status\":\"ok\"}"
-  echo "  2. curl http://192.168.33.110:8000/admin/     → 登录页可访问"
+  echo "  1. curl http://192.168.33.110:$PORT_LABEL/healthz    → {\"status\":\"ok\"}"
+  echo "  2. curl http://192.168.33.110:$PORT_LABEL/admin/     → 登录页可访问"
   echo "  3. 实际调用任一模型对话，确认无异常"
   echo "============================================================"
-  docker compose ps
+  docker compose -f "$COMPOSE_FILE" ps
 else
   echo -e "${RED}[FAIL] 健康检查未通过，容器可能未正常启动！${NC}"
   echo ""
   echo "诊断："
-  docker compose ps || true
+  docker compose -f "$COMPOSE_FILE" ps || true
   echo ""
-  docker compose logs --tail 50 || true
+  docker compose -f "$COMPOSE_FILE" logs --tail 50 || true
   echo ""
   echo -e "${YELLOW}回滚命令：${NC}"
   echo "  cd $APP_DIR"
-  echo "  docker compose down"
+  echo "  docker compose -f $COMPOSE_FILE down"
   echo "  cp -a $BACKUP_DIR/config/. $CONFIG_DIR/"
   echo "  cp -a $BACKUP_DIR/data/. $DATA_DIR/"
   echo "  git reset --hard $CURRENT_COMMIT"
-  echo "  docker compose up --build -d"
+  echo "  docker compose -f $COMPOSE_FILE up --build -d"
   echo "============================================================"
   exit 1
 fi

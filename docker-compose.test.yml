@@ -1,0 +1,19 @@
+services:
+  llms-proxy-test:
+    container_name: llms-proxy-test
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    image: llms-proxy-test:latest
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      - SERVER_BIND=0.0.0.0:8001
+      - LOG_LEVEL=info
+      - TRACE_STORE_ENABLED=true
+    ports:
+      - 8001:8001
+    volumes:
+      - ./config:/etc/llms-proxy
+      - ./data:/var/lib/llms-proxy
+      - ./logs:/var/log/llms-proxy
