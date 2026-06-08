@@ -251,6 +251,8 @@ func (m *Manager) Evaluate(clientName string) {
 
 	// Update exceeded map and collect cancel functions.
 	m.mu.Lock()
+	// Check if client was already exceeded before this evaluation (to avoid repeated log noise).
+	prevExceeded := m.exceeded[clientName].Dimension != ""
 	delete(m.exceeded, clientName) // clear stale entries
 
 	var cancels []context.CancelFunc
@@ -268,10 +270,13 @@ func (m *Manager) Evaluate(clientName string) {
 					cancels = append(cancels, cancel)
 				}
 			}
-			m.logger.Info("quota.Manager: client quota exceeded",
-				"client", clientName, "dimension", r.dim,
-				"limit_usd", r.limit, "used_usd", r.used,
-				"resets_at", r.resetsAt)
+			// Only log on first exceed (state transition), not on every ticker re-evaluation.
+			if !prevExceeded {
+				m.logger.Info("quota.Manager: client quota exceeded",
+					"client", clientName, "dimension", r.dim,
+					"limit_usd", r.limit, "used_usd", r.used,
+					"resets_at", r.resetsAt)
+			}
 			break // record only the first-exceeded dimension
 		}
 	}
