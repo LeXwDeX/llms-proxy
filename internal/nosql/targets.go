@@ -13,6 +13,19 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 )
 
+// legacyTargetJSON is the on-disk bbolt format used to detect and migrate
+// old targets that stored allowed_models (now replaced by model_mappings).
+// It embeds the current config.Target plus the legacy AllowedModels slice.
+// Because Go's standard json.Unmarshal allows the same JSON key to populate
+// both an embedded field and a shadowed sibling, AllowedModels is populated
+// from the pre-migration "allowed_models" JSON array while ModelMappings is
+// populated from the new "model_mappings" array. When AllowedModels is non-empty
+// and ModelMappings is empty, the List() loop migrates the record.
+type legacyTargetJSON struct {
+	config.Target
+	AllowedModels []string `json:"allowed_models"`
+}
+
 var targetOrderKey = []byte("target_order")
 
 // TargetStore manages upstream targets backed by bbolt.
@@ -46,21 +59,38 @@ func (s *TargetStore) List() ([]config.Target, error) {
 			_ = json.Unmarshal(meta.Get(targetOrderKey), &order)
 		}
 		return b.ForEach(func(k, v []byte) error {
+			key := string(k)
 			var target config.Target
 			if err := json.Unmarshal(v, &target); err != nil {
-				return fmt.Errorf("decode target %q: %w", string(k), err)
+				return fmt.Errorf("decode target %q: %w", key, err)
 			}
-			key := string(k)
+			// Migrate legacy allowed_models → model_mappings when the old field
+			// is observed in raw bytes but ModelMappings is empty. The legacy
+			// struct is embedded so json.Unmarshal reads AllowedModels alongside
+			// the new ModelMappings field; we only act when ModelMappings is empty.
+			var legacy legacyTargetJSON
+			migrated := false
+			if err := json.Unmarshal(v, &legacy); err == nil && len(legacy.AllowedModels) > 0 && len(legacy.Target.ModelMappings) == 0 {
+				target = legacy.Target
+				target.ModelMappings = make([]config.ModelMapping, 0, len(legacy.AllowedModels))
+				for _, m := range legacy.AllowedModels {
+					m = strings.TrimSpace(m)
+					if m == "" {
+						continue
+					}
+					target.ModelMappings = append(target.ModelMappings, config.ModelMapping{Upstream: m})
+				}
+				migrated = true
+			}
 			normalized := normalizeTarget(target)
-			if targetJSONChanged(target, normalized) {
+			if migrated || targetJSONChanged(target, normalized) {
 				changed = append(changed, targetWriteback{
 					key:        key,
 					observed:   append([]byte(nil), v...),
 					normalized: normalized,
 				})
 			}
-			target = normalized
-			targetsByKey[key] = target
+			targetsByKey[key] = normalized
 			keys = append(keys, key)
 			return nil
 		})
@@ -294,8 +324,9 @@ func normalizeTarget(target config.Target) config.Target {
 	for i := range target.APIKeys {
 		target.APIKeys[i] = strings.TrimSpace(target.APIKeys[i])
 	}
-	for i := range target.AllowedModels {
-		target.AllowedModels[i] = strings.TrimSpace(target.AllowedModels[i])
+	for i := range target.ModelMappings {
+		target.ModelMappings[i].Upstream = strings.TrimSpace(target.ModelMappings[i].Upstream)
+		target.ModelMappings[i].Fallback = strings.TrimSpace(target.ModelMappings[i].Fallback)
 	}
 	return target
 }
@@ -381,8 +412,8 @@ func cloneTargets(targets []config.Target) []config.Target {
 		if len(targets[i].APIKeys) > 0 {
 			cloned[i].APIKeys = append([]string(nil), targets[i].APIKeys...)
 		}
-		if len(targets[i].AllowedModels) > 0 {
-			cloned[i].AllowedModels = append([]string(nil), targets[i].AllowedModels...)
+		if len(targets[i].ModelMappings) > 0 {
+			cloned[i].ModelMappings = append([]config.ModelMapping(nil), targets[i].ModelMappings...)
 		}
 	}
 	return cloned

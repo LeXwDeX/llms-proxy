@@ -439,7 +439,7 @@ func TestHandlerUpdateTargetPreservesKeyPoolWithExistingRefs(t *testing.T) {
 		"api_key":                  "__existing_key_index__:0",
 		"api_keys":                 []string{"__existing_key_index__:1", "__existing_key_index__:2"},
 		"allow_bearer_passthrough": false,
-		"allowed_models":           []string{"gpt-4o", "gpt-4o-mini"},
+		"model_mappings": []map[string]any{{"upstream": "gpt-4o"}, {"upstream": "gpt-4o-mini"}},
 		"sse_auto_aggregate":       true,
 	}
 	rec := putTarget(t, h, "target-1", body)
@@ -454,9 +454,20 @@ func TestHandlerUpdateTargetPreservesKeyPoolWithExistingRefs(t *testing.T) {
 	if got, want := updated.APIKeys, initialKeys[1:]; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("APIKeys changed: got %#v want %#v", got, want)
 	}
-	if got := strings.Join(updated.AllowedModels, ","); got != "gpt-4o,gpt-4o-mini" {
-		t.Fatalf("allowed_models not updated, got %q", got)
+	if got := modelMappingsUpstreams(updated.ModelMappings); got != "gpt-4o,gpt-4o-mini" {
+		t.Fatalf("model_mappings upstream names not updated, got %q", got)
 	}
+}
+
+// modelMappingsUpstreams joins the upstream names from ModelMappings into a
+// comma-separated string, mirroring the old AllowedModels join format for test
+// assertions.
+func modelMappingsUpstreams(mappings []config.ModelMapping) string {
+	names := make([]string, 0, len(mappings))
+	for _, m := range mappings {
+		names = append(names, m.Upstream)
+	}
+	return strings.Join(names, ",")
 }
 
 func TestHandlerListTargetsReturnsPaused(t *testing.T) {
@@ -491,7 +502,7 @@ func TestHandlerListAndUpdateTargetPreservesImageOperation(t *testing.T) {
 		Endpoint:       "https://image.example.com/v1/images/edits",
 		APIKey:         "sk-primary-real-0001",
 		ImageOperation: config.ImageOperationEdits,
-		AllowedModels:  []string{"gpt-image-2"},
+		ModelMappings: []config.ModelMapping{{Upstream: "gpt-image-2"}},
 	}
 	if err := stores.targetStore.Create(initial); err != nil {
 		t.Fatalf("seed image operation target: %v", err)
@@ -522,7 +533,7 @@ func TestHandlerListAndUpdateTargetPreservesImageOperation(t *testing.T) {
 		"image_operation":          config.ImageOperationEdits,
 		"api_key":                  "__existing_key_index__:0",
 		"allow_bearer_passthrough": false,
-		"allowed_models":           []string{"gpt-image-2"},
+		"model_mappings": []map[string]any{{"upstream": "gpt-image-2"}},
 		"sse_auto_aggregate":       true,
 	}
 	rec = putTarget(t, h, "target-1", body)
@@ -802,7 +813,7 @@ func targetUpdateBody(apiKey string, apiKeys []string) map[string]any {
 		"api_key":                  apiKey,
 		"api_keys":                 apiKeys,
 		"allow_bearer_passthrough": false,
-		"allowed_models":           []string{"gpt-4o"},
+		"model_mappings": []map[string]any{{"upstream": "gpt-4o"}},
 		"sse_auto_aggregate":       true,
 	}
 }
@@ -909,7 +920,7 @@ func testConfig(tempDir string, targetCount int, clientKeys []string) *config.Co
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
-			AllowedModels:      []string{"gpt-4o"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 		})
 	}
 

@@ -762,7 +762,8 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"allow_bearer_passthrough": t.AllowBearer,
 			"auth_mode":                t.AuthMode,
 			"image_operation":          t.ImageOperation,
-			"allowed_models":           t.AllowedModels,
+			"allowed_models":           nil, // kept for backward compat, always nil
+			"model_mappings":           t.ModelMappings,
 			"sse_auto_aggregate":       sseAutoAgg,
 			"openai_prefix":            t.OpenAIPrefix,
 			"anthropic_prefix":         t.AnthropicPrefix,
@@ -783,22 +784,22 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name               string   `json:"name"`
-		EndpointType       string   `json:"endpoint_type"`
-		Endpoint           string   `json:"endpoint"`
-		ResourcePathPrefix string   `json:"resource_path_prefix"`
-		APIKey             string   `json:"api_key"`
-		APIKeys            []string `json:"api_keys"`
-		KeyResetTime       string   `json:"key_reset_time"`
-		Paused             bool     `json:"paused"`
-		AllowBearer        bool     `json:"allow_bearer_passthrough"`
-		AuthMode           string   `json:"auth_mode"`
-		ImageOperation     string   `json:"image_operation"`
-		AllowedModels      []string `json:"allowed_models"`
-		SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"`
-		OpenAIPrefix       string   `json:"openai_prefix"`
-		AnthropicPrefix    string   `json:"anthropic_prefix"`
-		SupportsResponses  bool     `json:"supports_responses"`
+		Name               string               `json:"name"`
+		EndpointType       string               `json:"endpoint_type"`
+		Endpoint           string               `json:"endpoint"`
+		ResourcePathPrefix string               `json:"resource_path_prefix"`
+		APIKey             string               `json:"api_key"`
+		APIKeys            []string             `json:"api_keys"`
+		KeyResetTime       string               `json:"key_reset_time"`
+		Paused             bool                 `json:"paused"`
+		AllowBearer        bool                 `json:"allow_bearer_passthrough"`
+		AuthMode           string               `json:"auth_mode"`
+		ImageOperation     string               `json:"image_operation"`
+		ModelMappings      []config.ModelMapping `json:"model_mappings"`
+		SSEAutoAggregate   *bool                `json:"sse_auto_aggregate,omitempty"`
+		OpenAIPrefix       string               `json:"openai_prefix"`
+		AnthropicPrefix    string               `json:"anthropic_prefix"`
+		SupportsResponses  bool                 `json:"supports_responses"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -832,6 +833,11 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateModelMappings(body.ModelMappings); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+		return
+	}
+
 	cfg, err := h.currentConfig()
 	if err != nil {
 		h.writeInternalError(w, "failed to load config", err)
@@ -857,7 +863,7 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		AllowBearer:        body.AllowBearer,
 		AuthMode:           body.AuthMode,
 		ImageOperation:     body.ImageOperation,
-		AllowedModels:      body.AllowedModels,
+		ModelMappings:      body.ModelMappings,
 		SSEAutoAggregate:   body.SSEAutoAggregate,
 		OpenAIPrefix:       body.OpenAIPrefix,
 		AnthropicPrefix:    body.AnthropicPrefix,
@@ -888,25 +894,32 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		EndpointType       string    `json:"endpoint_type"`
-		Endpoint           string    `json:"endpoint"`
-		ResourcePathPrefix string    `json:"resource_path_prefix"`
-		APIKey             *string   `json:"api_key"`
-		APIKeys            *[]string `json:"api_keys"`
-		KeyResetTime       *string   `json:"key_reset_time"`
-		Paused             *bool     `json:"paused"`
-		AllowBearer        bool      `json:"allow_bearer_passthrough"`
-		AuthMode           *string   `json:"auth_mode"`
-		ImageOperation     *string   `json:"image_operation"`
-		AllowedModels      []string  `json:"allowed_models"`
-		SSEAutoAggregate   *bool     `json:"sse_auto_aggregate,omitempty"`
-		OpenAIPrefix       *string   `json:"openai_prefix"`
-		AnthropicPrefix    *string   `json:"anthropic_prefix"`
-		SupportsResponses  *bool     `json:"supports_responses"`
+		EndpointType       string                `json:"endpoint_type"`
+		Endpoint           string                `json:"endpoint"`
+		ResourcePathPrefix string                `json:"resource_path_prefix"`
+		APIKey             *string               `json:"api_key"`
+		APIKeys            *[]string             `json:"api_keys"`
+		KeyResetTime       *string               `json:"key_reset_time"`
+		Paused             *bool                 `json:"paused"`
+		AllowBearer        bool                  `json:"allow_bearer_passthrough"`
+		AuthMode           *string               `json:"auth_mode"`
+		ImageOperation     *string               `json:"image_operation"`
+		ModelMappings      *[]config.ModelMapping `json:"model_mappings"`
+		SSEAutoAggregate   *bool                 `json:"sse_auto_aggregate,omitempty"`
+		OpenAIPrefix       *string               `json:"openai_prefix"`
+		AnthropicPrefix    *string               `json:"anthropic_prefix"`
+		SupportsResponses  *bool                 `json:"supports_responses"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
 		return
+	}
+
+	if body.ModelMappings != nil {
+		if err := validateModelMappings(*body.ModelMappings); err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+			return
+		}
 	}
 
 	cfg, err := h.currentConfig()
@@ -948,7 +961,9 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 				t.APIKey = resolved
 			}
 			t.AllowBearer = body.AllowBearer
-			t.AllowedModels = body.AllowedModels
+			if body.ModelMappings != nil {
+				t.ModelMappings = *body.ModelMappings
+			}
 			if body.AuthMode != nil {
 				t.AuthMode = strings.TrimSpace(*body.AuthMode)
 			}
@@ -1503,6 +1518,36 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func errorResponse(message string) map[string]string {
 	return map[string]string{"error": message}
+}
+
+// validateModelMappings enforces that each mapping has a non-empty upstream,
+// upstream names are unique (case-insensitively), and fallback aliases do not
+// collide with upstream names or other fallbacks within the same list.
+func validateModelMappings(mappings []config.ModelMapping) error {
+	upstreamSet := make(map[string]bool)
+	fallbackSet := make(map[string]bool)
+	for i, mm := range mappings {
+		up := strings.TrimSpace(mm.Upstream)
+		if up == "" {
+			return fmt.Errorf("model_mappings[%d].upstream must not be empty", i)
+		}
+		upLow := strings.ToLower(up)
+		if upstreamSet[upLow] {
+			return fmt.Errorf("model_mappings[%d].upstream %q is duplicate (case-insensitive)", i, up)
+		}
+		upstreamSet[upLow] = true
+		if fb := strings.TrimSpace(mm.Fallback); fb != "" {
+			fbLow := strings.ToLower(fb)
+			if upstreamSet[fbLow] {
+				return fmt.Errorf("model_mappings[%d].fallback %q conflicts with an upstream name", i, fb)
+			}
+			if fallbackSet[fbLow] {
+				return fmt.Errorf("model_mappings[%d].fallback %q is duplicate (case-insensitive)", i, fb)
+			}
+			fallbackSet[fbLow] = true
+		}
+	}
+	return nil
 }
 
 // maskKey returns a masked version of a key for safe logging.

@@ -133,7 +133,7 @@ func TestTargetWritebackSkipsWhenObservedRawChanged(t *testing.T) {
 		EndpointType:      config.EndpointTypeOpenAI,
 		Endpoint:          "https://updated.example.com/v1",
 		APIKey:            "updated-key",
-		AllowedModels:     []string{"gpt-4o"},
+		ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 		ProviderClass:     "updated-provider",
 		KeyResetTime:      "00:00",
 		SupportsResponses: true,

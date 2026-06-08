@@ -689,6 +689,56 @@
       white-space: pre-wrap;
       word-break: break-all;
     }
+
+    /* ===== Model Mappings Row UI ===== */
+    .model-mapping-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+      align-items: center;
+    }
+    .model-mapping-row .upstream-input,
+    .model-mapping-row .fallback-input {
+      padding: 7px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      transition: border-color var(--transition);
+    }
+    .model-mapping-row .upstream-input { flex: 2; }
+    .model-mapping-row .fallback-input { flex: 2; }
+    .model-mapping-row .upstream-input:focus,
+    .model-mapping-row .fallback-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+    }
+    .model-mapping-row .btn-remove-row {
+      flex: 0 0 auto;
+      padding: 0.25rem 0.5rem;
+      background: var(--danger);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .model-mapping-row .btn-remove-row:hover { background: var(--danger-hover); }
+    .btn-add-row {
+      margin-top: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--success);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn-add-row:hover { background: #16a34a; }
   </style>
 </head>
 <body>
@@ -1425,8 +1475,9 @@
           <small style="color:var(--text-muted)">开启后，当客户端请求 non-streaming 但上游返回 SSE 时自动聚合为标准 JSON</small>
         </div>
         <div class="form-group">
-          <label>允许模型 (逗号分隔)</label>
-          <input class="form-control" id="tgtModels" placeholder="gpt-4o, gpt-4.5-mini">
+          <label>允许模型（逐行配置）</label>
+          <div id="model-mappings-container"></div>
+          <button type="button" id="add-model-mapping" class="btn-add-row">+ 添加模型</button>
           <div id="tgtModelSuggestions" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;"></div>
         </div>
       </div>
@@ -1943,8 +1994,12 @@
           return;
         }
         tb.innerHTML = state.targets.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(t) {
-          var models = Array.isArray(t.allowed_models) && t.allowed_models.length > 0
-            ? esc(t.allowed_models.join(", ")) : "<span style='color:var(--text-muted)'>不限</span>";
+          var modelsMappings = Array.isArray(t.model_mappings) ? t.model_mappings : [];
+          var models = modelsMappings.length > 0
+            ? esc(modelsMappings.map(function(m) {
+                return m.fallback ? m.upstream + " (" + m.fallback + ")" : m.upstream;
+              }).join(", "))
+            : "<span style='color:var(--text-muted)'>不限</span>";
           var extraKeyCount = Array.isArray(t.api_keys) ? t.api_keys.length : 0;
           var totalKeyCount = (t.has_api_key ? 1 : 0) + extraKeyCount;
           var keyStatus = t.has_api_key
@@ -2104,13 +2159,13 @@
           tag.textContent = m.model || m.display_name || "";
           tag.title = m.display_name || m.model;
           tag.addEventListener("click", function() {
-            var input = document.getElementById("tgtModels");
-            var current = input.value ? input.value.split(",").map(function(s){return s.trim();}).filter(Boolean) : [];
             var modelName = m.model;
-            if (current.indexOf(modelName) === -1) {
-              current.push(modelName);
-              input.value = current.join(", ");
+            // Skip if this model already exists in some row
+            var existingInputs = document.querySelectorAll("#model-mappings-container .upstream-input");
+            for (var i = 0; i < existingInputs.length; i++) {
+              if (existingInputs[i].value.trim() === modelName) return;
             }
+            addModelMappingRow(modelName, "");
           });
           container.appendChild(tag);
         });
@@ -2118,6 +2173,54 @@
           container.innerHTML = "<span style='color:var(--text-muted);font-size:12px;'>无匹配模型</span>";
         }
       }
+      // addModelMappingRow creates a new row in the model-mappings editor.
+      // Uses DOM API (createElement + .value) to prevent XSS from special characters.
+      function addModelMappingRow(upstream, fallback) {
+        var container = document.getElementById("model-mappings-container");
+        var row = document.createElement("div");
+        row.className = "model-mapping-row";
+
+        var upstreamInput = document.createElement("input");
+        upstreamInput.type = "text";
+        upstreamInput.className = "upstream-input";
+        upstreamInput.placeholder = "上游名称（必填）";
+        upstreamInput.value = upstream || "";
+
+        var fallbackInput = document.createElement("input");
+        fallbackInput.type = "text";
+        fallbackInput.className = "fallback-input";
+        fallbackInput.placeholder = "下游兜底（可选）";
+        fallbackInput.value = fallback || "";
+
+        var removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn-remove-row";
+        removeBtn.textContent = "\u00d7";
+        removeBtn.addEventListener("click", function() { row.remove(); });
+
+        row.appendChild(upstreamInput);
+        row.appendChild(fallbackInput);
+        row.appendChild(removeBtn);
+        container.appendChild(row);
+      }
+
+      // collectModelMappings reads all non-empty rows from the editor.
+      // Returns array suitable for the model_mappings API field.
+      function collectModelMappings() {
+        var mappings = [];
+        var rows = document.querySelectorAll("#model-mappings-container .model-mapping-row");
+        rows.forEach(function(row) {
+          var upstream = row.querySelector(".upstream-input").value.trim();
+          var fallback = row.querySelector(".fallback-input").value.trim();
+          if (upstream) {
+            var mapping = { upstream: upstream };
+            if (fallback) { mapping.fallback = fallback; }
+            mappings.push(mapping);
+          }
+        });
+        return mappings;
+      }
+
       function openTargetModal(t) {
         state.editingTarget = t || null;
         document.getElementById("targetModalTitle").textContent = t ? "编辑目标" : "新增目标";
@@ -2132,7 +2235,16 @@
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
         document.getElementById("tgtImageOperation").value = t ? (t.image_operation || "generations") : "generations";
         document.getElementById("tgtSSEAutoAgg").checked = t ? (t.sse_auto_aggregate !== false) : true;
-        document.getElementById("tgtModels").value = t && Array.isArray(t.allowed_models) ? t.allowed_models.join(", ") : "";
+        // 模型映射：清空容器后按 model_mappings 填充行，无数据时给一行空行
+        var mappingsContainer = document.getElementById("model-mappings-container");
+        mappingsContainer.innerHTML = "";
+        if (t && Array.isArray(t.model_mappings) && t.model_mappings.length > 0) {
+          t.model_mappings.forEach(function(m) {
+            addModelMappingRow(m.upstream || "", m.fallback || "");
+          });
+        } else {
+          addModelMappingRow("", "");
+        }
         // API Keys：构建卡片列表（合并 api_key + api_keys + key_statuses）
         tgtKeyList = [];
         var keyStatuses = (t && Array.isArray(t.key_statuses)) ? t.key_statuses : [];
@@ -2157,17 +2269,19 @@
       }
       document.getElementById("tgtType").addEventListener("change", updateTargetFormVisibility);
       var tgtModelDebounce = null;
-      document.getElementById("tgtModels").addEventListener("input", function() {
-        clearTimeout(tgtModelDebounce);
-        var self = this;
-        tgtModelDebounce = setTimeout(function() {
-          var epType = document.getElementById("tgtType").value;
-          // extract the last segment after the last comma as the search keyword
-          var raw = self.value;
-          var parts = raw.split(",");
-          var lastPart = parts.length > 0 ? parts[parts.length - 1].trim() : "";
-          renderTgtModelSuggestions(epType, lastPart);
-        }, 250);
+      // Delegated input listener: filter suggestions based on any upstream-input being typed
+      document.getElementById("model-mappings-container").addEventListener("input", function(e) {
+        if (e.target && e.target.classList && e.target.classList.contains("upstream-input")) {
+          clearTimeout(tgtModelDebounce);
+          var val = e.target.value;
+          tgtModelDebounce = setTimeout(function() {
+            var epType = document.getElementById("tgtType").value;
+            renderTgtModelSuggestions(epType, val);
+          }, 250);
+        }
+      });
+      document.getElementById("add-model-mapping").addEventListener("click", function() {
+        addModelMappingRow("", "");
       });
       document.getElementById("newTargetBtn").addEventListener("click", function() { openTargetModal(null); });
       document.getElementById("refreshTargetsBtn").addEventListener("click", function() { loadTargets(); });
@@ -2181,7 +2295,7 @@
         var authMode = document.getElementById("tgtAuthMode").value;
         var imageOperation = document.getElementById("tgtImageOperation").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
-        var models = document.getElementById("tgtModels").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
+        var modelMappings = collectModelMappings();
         // 统一 keypool：从卡片列表读取，第一个为 api_key，其余为 api_keys
         var allKeys = tgtKeyList.map(function(item){return item.ref || item.value;}).filter(Boolean);
         var apiKey = allKeys.length > 0 ? allKeys[0] : "";
@@ -2201,7 +2315,7 @@
               allow_bearer_passthrough: allowBearer,
               auth_mode: authMode,
               image_operation: imageOperation,
-              allowed_models: models,
+              model_mappings: modelMappings,
               sse_auto_aggregate: sseAutoAgg,
               api_key: apiKey,
               api_keys: apiKeys,
@@ -2216,7 +2330,7 @@
               paused: paused,
               allow_bearer_passthrough: allowBearer, auth_mode: authMode,
               image_operation: imageOperation,
-              allowed_models: models, sse_auto_aggregate: sseAutoAgg,
+              model_mappings: modelMappings, sse_auto_aggregate: sseAutoAgg,
               api_keys: apiKeys, key_reset_time: keyResetTime
             }});
             toast("目标已创建", "success");

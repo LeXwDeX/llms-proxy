@@ -143,11 +143,25 @@ func (s *Service) selectTarget(
 		return state, selectionExplicit, nil
 	}
 
-	// 连接粘连：优先复用上次成功路由的目标
+	// 连接粘连：优先复用上次成功路由的目标。
+	// 粘连 key 统一使用 upstream 模型名（而非 alias），让不同 alias 指向同一上游模型的客户端
+	// 命中同一粘连记录。Get 兼容两代 key：优先查 alias（兼容旧记录 + 无 mapping 场景），未命中则
+	// 尝试用上游名查找（修复后写入的 key）。
 	hadAffinity := false
 	if principal != nil && len(attempted) == 0 {
+		// 优先用 alias（覆盖大部分无 mapping 或 alias==upstream 的场景）
 		aKey := affinityKey(clientIP, principal.Name, model)
-		if affinityTarget, ok := s.affinity.Get(aKey, now); ok {
+		affinityTarget, affOK := s.affinity.Get(aKey, now)
+		// 未命中且存在 model mappings → 尝试用 upstream key 查找
+		upstreamForAffinity := ""
+		if !affOK {
+			upstreamForAffinity = resolveAliasToUpstream(model, allowed, attempted, s.targetSnapshot())
+			if upstreamForAffinity != model {
+				uKey := affinityKey(clientIP, principal.Name, upstreamForAffinity)
+				affinityTarget, affOK = s.affinity.Get(uKey, now)
+			}
+		}
+		if affOK {
 			hadAffinity = true
 			if state, exists := s.targetByName(affinityTarget); exists {
 				t := state.Target()
@@ -204,6 +218,45 @@ func (s *Service) targetSnapshot() []*targetState {
 	snapshot := make([]*targetState, len(s.targetOrder))
 	copy(snapshot, s.targetOrder)
 	return snapshot
+}
+
+// resolveAliasToUpstream 把客户端传入的 model 名（可能是 alias、可能是 upstream）
+// 通过扫描所有目标映射表解析成真正的上游模型名。
+//
+// 策略：遍历 snapshot 中可访问且未尝试过的 target，只要有一个 target 能解析出 upstream
+// 就返回该 upstream。若没有任何 target 解析成功（例如 target 没配 ModelMappings，或
+// model 本身就是上游名），原样返回 model。
+//
+// 用于 Get side 粘连 key 的生成——和 Set side 使用的 upstreamModel 保持一致，
+// 让使用不同 alias 但指向同一上游的请求命中同一条粘连记录。
+func resolveAliasToUpstream(model string, allowed map[string]struct{}, attempted map[string]struct{}, snapshot []*targetState) string {
+	if model == "" {
+		return model
+	}
+	for _, state := range snapshot {
+		if state == nil || state.Target() == nil {
+			continue
+		}
+		t := state.Target()
+		if t.Paused {
+			continue
+		}
+		name := strings.ToLower(t.Name)
+		if attempted != nil {
+			if _, seen := attempted[name]; seen {
+				continue
+			}
+		}
+		if allowed != nil {
+			if _, ok := allowed[name]; !ok {
+				continue
+			}
+		}
+		if up, ok := resolveUpstreamModel(t, model); ok && up != "" {
+			return up
+		}
+	}
+	return model
 }
 
 func (s *Service) findAvailableTarget(allowed map[string]struct{}, attempted map[string]struct{}, now time.Time) (*targetState, *targetState) {
@@ -370,18 +423,6 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 		return make(map[string]*targetState), nil, nil
 	}
 
-	normalizeModels := func(list []string) []string {
-		normalized := make([]string, 0, len(list))
-		for _, m := range list {
-			m = strings.ToLower(strings.TrimSpace(m))
-			if m == "" {
-				continue
-			}
-			normalized = append(normalized, m)
-		}
-		return normalized
-	}
-
 	parsed := make(map[string]*targetState, len(targets))
 	order := make([]*targetState, 0, len(targets))
 	for idx, t := range targets {
@@ -394,14 +435,7 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			return nil, nil, fmt.Errorf("proxy: invalid endpoint for target %q: missing scheme or host", t.Name)
 		}
 
-		models := normalizeModels(t.AllowedModels)
-		var modelSet map[string]struct{}
-		if len(models) > 0 {
-			modelSet = make(map[string]struct{}, len(models))
-			for _, m := range models {
-				modelSet[m] = struct{}{}
-			}
-		}
+		modelIndex := buildModelIndex(t.ModelMappings)
 
 		// 合并 api_key + api_keys 为有序池（去重，api_key 排第一）
 		primaryKey := strings.TrimSpace(t.APIKey)
@@ -424,23 +458,23 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 		}
 
 		info := &Target{
-			Name:               strings.TrimSpace(t.Name),
-			EndpointType:       config.NormalizeEndpointType(t.EndpointType),
-			Endpoint:           endpoint,
+			Name:              strings.TrimSpace(t.Name),
+			EndpointType:      config.NormalizeEndpointType(t.EndpointType),
+			Endpoint:          endpoint,
 			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
-			APIKey:             primaryKey,
-			APIKeys:            mergedKeys,
-			KeyResetTime:       t.KeyResetTime,
-			Paused:             t.Paused,
-			AllowBearer:        t.AllowBearer,
-			AuthMode:           t.AuthMode,
-			ImageOperation:     config.NormalizeImageOperation(t.ImageOperation),
-			AllowedModels:      models,
-			SSEAutoAggregate:   t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
-			OpenAIPrefix:       t.OpenAIPrefix,
-			AnthropicPrefix:    t.AnthropicPrefix,
-			SupportsResponses:  t.SupportsResponses,
-			allowedModelsSet:   modelSet,
+			APIKey:            primaryKey,
+			APIKeys:           mergedKeys,
+			KeyResetTime:      t.KeyResetTime,
+			Paused:            t.Paused,
+			AllowBearer:       t.AllowBearer,
+			AuthMode:          t.AuthMode,
+			ImageOperation:    config.NormalizeImageOperation(t.ImageOperation),
+			ModelMappings:     t.ModelMappings,
+			SSEAutoAggregate:  t.SSEAutoAggregate == nil || *t.SSEAutoAggregate,
+			OpenAIPrefix:      t.OpenAIPrefix,
+			AnthropicPrefix:   t.AnthropicPrefix,
+			SupportsResponses: t.SupportsResponses,
+			allowedModelIdx:   modelIndex,
 		}
 		if info.Name == "" {
 			return nil, nil, fmt.Errorf("proxy: target name at index %d must not be empty", idx)
@@ -471,4 +505,29 @@ func normalizePrefix(prefix string) string {
 		prefix = "/" + prefix
 	}
 	return strings.TrimRight(prefix, "/")
+}
+
+// buildModelIndex creates a lowercase lookup map from upstream name (or fallback
+// alias) to the upstream name preserving its original case. Fallback keys that
+// collide (case-insensitively) with an upstream name already in the index are
+// skipped; the later upstream wins the key slot. Empty upstream and fallback
+// values are ignored.
+func buildModelIndex(mappings []config.ModelMapping) map[string]string {
+	if len(mappings) == 0 {
+		return nil
+	}
+	idx := make(map[string]string, len(mappings)*2)
+	for _, m := range mappings {
+		upKey := strings.ToLower(strings.TrimSpace(m.Upstream))
+		if upKey == "" {
+			continue
+		}
+		idx[upKey] = m.Upstream
+		if fb := strings.ToLower(strings.TrimSpace(m.Fallback)); fb != "" {
+			if _, exists := idx[fb]; !exists {
+				idx[fb] = m.Upstream
+			}
+		}
+	}
+	return idx
 }

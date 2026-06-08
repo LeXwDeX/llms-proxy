@@ -68,13 +68,13 @@ type Target struct {
 	AllowBearer        bool
 	AuthMode           string
 	ImageOperation     string
-	AllowedModels      []string
+	ModelMappings      []config.ModelMapping
 	SSEAutoAggregate   bool
 	// dual_protocol 专用字段
 	OpenAIPrefix      string // OpenAI 路径前缀
 	AnthropicPrefix   string // Anthropic 路径前缀
 	SupportsResponses bool   // 是否支持 /v1/responses
-	allowedModelsSet  map[string]struct{}
+	allowedModelIdx   map[string]string // lowercase(upstream OR fallback) → upstream (original case)
 }
 
 // SupportsPath 检查 target 是否支持给定的请求路径。
@@ -334,7 +334,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	attempt := 0
 	model := strings.ToLower(extractModel(r, bodyBytes))
 	if model == "" && s.anyTargetRequiresModel() {
-		http.Error(w, "model required when allowed_models are configured", http.StatusBadRequest)
+		http.Error(w, "model required when model_mappings are configured", http.StatusBadRequest)
 		s.metrics.totalFailures.Add(1)
 		requestOutcomeRecorded = true
 		return
@@ -369,8 +369,9 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := s.ensureModelAllowed(target, model); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		upstreamModel, modelErr := s.ensureModelAllowed(target, model)
+		if modelErr != nil {
+			http.Error(w, modelErr.Error(), http.StatusBadRequest)
 			s.metrics.totalFailures.Add(1)
 			requestOutcomeRecorded = true
 			return
@@ -382,12 +383,27 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		attempted[targetKey] = struct{}{}
 
+		// Resolve the upstream model name (with original case preserved) and, when
+		// the client requested a fallback alias, rewrite it everywhere it appears
+		// in the forwarded URL path and JSON/multipart body.
+		forwardBody := bodyBytes
+		if upstreamModel != "" && !strings.EqualFold(upstreamModel, model) {
+			forwardPath := replaceModelInURLPath(r.URL.Path, upstreamModel, model)
+			// Swap the request path for the duration of the forward call so that
+			// buildURL sees the upstream name.
+			origPath := r.URL.Path
+			r.URL.Path = forwardPath
+			defer func() { r.URL.Path = origPath }()
+			// Replace the model name in JSON and multipart bodies too.
+			bodyBytes = replaceModelInBody(bodyBytes, upstreamModel, model)
+			forwardBody = bodyBytes
+		}
+
 		// 查找 provider profile（用于 body 预处理策略）。
 		profile := s.providerRegistry.Lookup(target.EndpointType)
 
 		// Body sanitize: 按 provider 的 BodyPolicy.SanitizeFunc 净化请求体。
 		// 目前仅 Azure 使用：白名单过滤不兼容字段。
-		forwardBody := bodyBytes
 		if profile != nil && profile.Body.SanitizeFunc != nil {
 			if !sanitizedComputed {
 				sanitizedBody, strippedFields = profile.Body.SanitizeFunc(r, bodyBytes)
@@ -627,11 +643,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.writeResponse(w, r, state, resp, cancel, attempt, model, forwardBody, startedAt, keyIndex)
+		s.writeResponse(w, r, state, resp, cancel, attempt, upstreamModel, forwardBody, startedAt, keyIndex)
 		// 更新连接粘连：仅在粘连命中（刷新 TTL）或首次轮询（建立粘连）时更新。
 		// Failover（原粘连目标暂不可用）和显式指定目标时不更新，避免劫持粘连。
+		// 粘连 key 使用 upstreamModel（真实上游模型名，保留原始大小写），让不同 alias
+		// 指向同一上游的请求归到同一条粘连记录，也与 selectTarget 中 Get side 的上游
+		// 查找 key 保持一致。
 		if principal != nil && target != nil && (selKind == selectionAffinityHit || selKind == selectionRoundRobin) {
-			s.affinity.Set(affinityKey(clientIP(r), principal.Name, model), strings.ToLower(target.Name), time.Now())
+			s.affinity.Set(affinityKey(clientIP(r), principal.Name, upstreamModel), strings.ToLower(target.Name), time.Now())
 		}
 		requestOutcomeRecorded = true
 		return

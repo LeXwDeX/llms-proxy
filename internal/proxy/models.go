@@ -132,28 +132,27 @@ func (s *Service) buildLocalDeployments(targetFilter map[string]struct{}) []map[
 				continue
 			}
 		}
-		models := target.AllowedModels
-		for _, m := range models {
-			m = strings.TrimSpace(m)
-			if m == "" {
+		for _, m := range target.ModelMappings {
+			upstream := strings.TrimSpace(m.Upstream)
+			if upstream == "" {
 				continue
 			}
-			key := strings.ToLower(m)
+			key := strings.ToLower(upstream)
 			if _, exists := seen[key]; exists {
 				continue
 			}
 			seen[key] = struct{}{}
 			item := map[string]any{
 				"object":   "model",
-				"id":       m,
-				"model":    m,
+				"id":       upstream,
+				"model":    upstream,
 				"created":  time.Now().Unix(),
 				"owned_by": "target:" + strings.ToLower(strings.TrimSpace(target.Name)),
 			}
 
 			// 从 catalog 查询模型属性，补充 context_length / max_output_tokens / capabilities
 			if cat := getLocalCatalog(); cat != nil {
-				if entry := cat.Lookup(target.EndpointType, m); entry != nil {
+				if entry := cat.Lookup(target.EndpointType, upstream); entry != nil {
 					if entry.ContextWindow > 0 {
 						item["context_length"] = entry.ContextWindow
 					}

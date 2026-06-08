@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 // ---------- sanitizeRequestBodyForAzure ----------
@@ -283,15 +285,15 @@ func TestSanitizeRequestBodyForAzure_DeploymentPath_Matches(t *testing.T) {
 
 func TestEnsureModelAllowed_NoRestrictions(t *testing.T) {
 	s := &Service{}
-	target := &Target{Name: "t1", AllowedModels: nil}
-	if err := s.ensureModelAllowed(target, "gpt-4o"); err != nil {
+	target := &Target{Name: "t1"}
+	if _, err := s.ensureModelAllowed(target, "gpt-4o"); err != nil {
 		t.Errorf("expected nil error for no restrictions, got %v", err)
 	}
 }
 
 func TestEnsureModelAllowed_NilTarget(t *testing.T) {
 	s := &Service{}
-	if err := s.ensureModelAllowed(nil, "gpt-4o"); err != nil {
+	if _, err := s.ensureModelAllowed(nil, "gpt-4o"); err != nil {
 		t.Errorf("expected nil error for nil target, got %v", err)
 	}
 }
@@ -300,10 +302,10 @@ func TestEnsureModelAllowed_ModelAllowed(t *testing.T) {
 	s := &Service{}
 	target := &Target{
 		Name:            "t1",
-		AllowedModels:   []string{"gpt-4o", "gpt-3.5-turbo"},
-		allowedModelsSet: map[string]struct{}{"gpt-4o": {}, "gpt-3.5-turbo": {}},
+		ModelMappings:   []config.ModelMapping{{Upstream: "gpt-4o"}, {Upstream: "gpt-3.5-turbo"}},
+		allowedModelIdx: map[string]string{"gpt-4o": "gpt-4o", "gpt-3.5-turbo": "gpt-3.5-turbo"},
 	}
-	if err := s.ensureModelAllowed(target, "gpt-4o"); err != nil {
+	if _, err := s.ensureModelAllowed(target, "gpt-4o"); err != nil {
 		t.Errorf("expected nil error for allowed model, got %v", err)
 	}
 }
@@ -312,10 +314,10 @@ func TestEnsureModelAllowed_ModelNotAllowed(t *testing.T) {
 	s := &Service{}
 	target := &Target{
 		Name:            "t1",
-		AllowedModels:   []string{"gpt-4o"},
-		allowedModelsSet: map[string]struct{}{"gpt-4o": {}},
+		ModelMappings:   []config.ModelMapping{{Upstream: "gpt-4o"}},
+		allowedModelIdx: map[string]string{"gpt-4o": "gpt-4o"},
 	}
-	err := s.ensureModelAllowed(target, "gpt-3.5-turbo")
+	_, err := s.ensureModelAllowed(target, "gpt-3.5-turbo")
 	if err == nil {
 		t.Fatal("expected error for disallowed model")
 	}
@@ -325,10 +327,10 @@ func TestEnsureModelAllowed_EmptyModel_WithRestrictions(t *testing.T) {
 	s := &Service{}
 	target := &Target{
 		Name:            "t1",
-		AllowedModels:   []string{"gpt-4o"},
-		allowedModelsSet: map[string]struct{}{"gpt-4o": {}},
+		ModelMappings:   []config.ModelMapping{{Upstream: "gpt-4o"}},
+		allowedModelIdx: map[string]string{"gpt-4o": "gpt-4o"},
 	}
-	err := s.ensureModelAllowed(target, "")
+	_, err := s.ensureModelAllowed(target, "")
 	if err == nil {
 		t.Fatal("expected error for empty model with restrictions")
 	}
@@ -394,8 +396,8 @@ func TestModelAllowed_NoRestrictions(t *testing.T) {
 func TestModelAllowed_EmptyModel_WithRestrictions(t *testing.T) {
 	target := &Target{
 		Name:            "t1",
-		AllowedModels:   []string{"gpt-4o"},
-		allowedModelsSet: map[string]struct{}{"gpt-4o": {}},
+		ModelMappings:   []config.ModelMapping{{Upstream: "gpt-4o"}},
+		allowedModelIdx: map[string]string{"gpt-4o": "gpt-4o"},
 	}
 	if modelAllowed(target, "") {
 		t.Error("expected false for empty model with restrictions")
@@ -405,8 +407,8 @@ func TestModelAllowed_EmptyModel_WithRestrictions(t *testing.T) {
 func TestModelAllowed_CaseInsensitive(t *testing.T) {
 	target := &Target{
 		Name:            "t1",
-		AllowedModels:   []string{"GPT-4o"},
-		allowedModelsSet: map[string]struct{}{"gpt-4o": {}},
+		ModelMappings:   []config.ModelMapping{{Upstream: "GPT-4o"}},
+		allowedModelIdx: map[string]string{"gpt-4o": "GPT-4o"},
 	}
 	if !modelAllowed(target, "gpt-4o") {
 		t.Error("expected case-insensitive match")
@@ -414,15 +416,24 @@ func TestModelAllowed_CaseInsensitive(t *testing.T) {
 }
 
 func TestModelAllowed_FallbackToLinearScan(t *testing.T) {
-	// When allowedModelsSet is nil, should fall back to linear scan
+	// When allowedModelIdx is nil (no mappings configured), any model is allowed,
+	// including empty model (since there are no restrictions).
 	target := &Target{
-		Name:          "t1",
-		AllowedModels: []string{"gpt-4o", "gpt-3.5-turbo"},
+		Name: "t1",
 	}
 	if !modelAllowed(target, "gpt-4o") {
-		t.Error("expected match via linear scan")
+		t.Error("expected any model allowed when no restrictions")
+	}
+	// With mappings configured, unknown models are rejected.
+	target = &Target{
+		Name:            "t1",
+		ModelMappings:   []config.ModelMapping{{Upstream: "gpt-4o"}, {Upstream: "gpt-3.5-turbo"}},
+		allowedModelIdx: map[string]string{"gpt-4o": "gpt-4o", "gpt-3.5-turbo": "gpt-3.5-turbo"},
+	}
+	if !modelAllowed(target, "gpt-4o") {
+		t.Error("expected known model allowed")
 	}
 	if modelAllowed(target, "gpt-5") {
-		t.Error("expected no match via linear scan")
+		t.Error("expected unknown model rejected when restrictions exist")
 	}
 }

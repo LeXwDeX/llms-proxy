@@ -457,6 +457,9 @@ func (b *releaseOnCloseBody) Close() error {
 	return b.ReadCloser.Close()
 }
 
+// writeResponse 写回上游响应给客户端，并记录用量、trace。
+// upstreamModel 必须是已解析的上游模型名（来自 ensureModelAllowed），
+// 用于生成粘连 key、记录用量事件和 trace——确保内部存储的模型名是上游真实名，而非客户端 alias。
 func (s *Service) writeResponse(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -464,7 +467,7 @@ func (s *Service) writeResponse(
 	resp *http.Response,
 	cancel context.CancelFunc,
 	attempt int,
-	model string,
+	upstreamModel string,
 	requestBody []byte,
 	startedAt time.Time,
 	keyIndex int,
@@ -515,7 +518,7 @@ func (s *Service) writeResponse(
 					state.MarkSuccess(time.Now())
 					s.metrics.totalSuccess.Add(1)
 					// record usage from aggregated body
-					s.recordUsageEvent(r, target, resp.StatusCode, model, newCT, aggregated, state, keyIndex)
+					s.recordUsageEvent(r, target, resp.StatusCode, upstreamModel, newCT, aggregated, state, keyIndex)
 					return
 				}
 				s.logger.Warn("SSE aggregation failed, falling back to raw response",
@@ -584,7 +587,7 @@ func (s *Service) writeResponse(
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		s.recordUsageEvent(r, target, resp.StatusCode, model, resp.Header.Get("Content-Type"), capture.Bytes(), state, keyIndex)
+		s.recordUsageEvent(r, target, resp.StatusCode, upstreamModel, resp.Header.Get("Content-Type"), capture.Bytes(), state, keyIndex)
 	}
 
 	// 上游 4xx/5xx：写结构化错误日志（旁路 access/error log，便于事后 grep）。
@@ -595,7 +598,7 @@ func (s *Service) writeResponse(
 
 	// DEBUG 模式：记录完整 trace（请求/响应 META + body）
 	if s.traceStore != nil {
-		s.recordTrace(r, target, resp, requestBody, capture.Bytes(), startedAt, keyIndex, model)
+		s.recordTrace(r, target, resp, requestBody, capture.Bytes(), startedAt, keyIndex, upstreamModel)
 	}
 }
 
@@ -652,7 +655,10 @@ func writeUpstreamErrorLog(r *http.Request, target *Target, resp *http.Response,
 }
 
 // recordTrace 记录完整的请求/响应 trace（DEBUG 模式）。
-func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Response, requestBody, responseBody []byte, startedAt time.Time, keyIndex int, model string) {
+// recordTrace 记录完整的请求/响应 trace（DEBUG 模式）。
+// upstreamModel 必须是真实的上游模型名（非客户端 alias），确保 TraceRecord.Model
+// 存储的是上游实际模型名，便于事后排查时与上游日志对齐。
+func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Response, requestBody, responseBody []byte, startedAt time.Time, keyIndex int, upstreamModel string) {
 	if s.traceStore == nil {
 		return
 	}
@@ -731,7 +737,7 @@ func (s *Service) recordTrace(r *http.Request, target *Target, resp *http.Respon
 		// META: 路由决策
 		Target:       targetName(target),
 		EndpointType: targetEndpointType(target),
-		Model:        model,
+		Model:        upstreamModel,
 		KeyIndex:     keyIndex,
 		KeyMask:      keyMask,
 
@@ -825,7 +831,11 @@ func targetEndpointType(target *Target) string {
 	return target.EndpointType
 }
 
-func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode int, model string, contentType string, body []byte, state *targetState, keyIndex int) {
+// recordUsageEvent 记录用量事件。
+// upstreamModel 必须是已解析的上游模型名（来自 ensureModelAllowed 或 writeResponse 透传），
+// 不再调用 catalog.ResolveAlias 做二次规范化——调用方已保证传入的是真实上游名。
+// 仅当 caller 传入空串时（极端边界），以响应体中的 model 字段作为兜底。
+func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode int, upstreamModel string, contentType string, body []byte, state *targetState, keyIndex int) {
 	recorder := s.currentUsageRecorder()
 	if recorder == nil || r == nil {
 		return
@@ -847,9 +857,9 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 		state.keyPool.recordTokens(keyIndex, totalTokens)
 	}
 
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" {
-		model = parsedModel
+	upstreamModel = strings.ToLower(strings.TrimSpace(upstreamModel))
+	if upstreamModel == "" {
+		upstreamModel = parsedModel // 仅在 caller 未传时兜底到响应体中的 model
 	}
 
 	var endpointType string
@@ -857,18 +867,11 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 		endpointType = target.EndpointType
 	}
 
-	// 规范化模型名：把客户端传入的 alias 解析为 catalog 中的规范名，
-	// 让用量统计、价格匹配全链路按规范名聚合。
-	// 找不到 catalog 或 model 不是别名时，ResolveAlias 原样返回。
-	if cat := getLocalCatalog(); cat != nil && model != "" {
-		model = cat.ResolveAlias(endpointType, model)
-	}
-
 	evt := usage.Event{
 		Timestamp:    time.Now().UTC(),
 		ClientName:   principal.Name,
 		EndpointType: endpointType,
-		Model:        model,
+		Model:        upstreamModel,
 		InputTokens:  tokens.InputTokens,
 		OutputTokens: tokens.OutputTokens,
 		CachedTokens: tokens.CachedTokens,
@@ -1015,6 +1018,146 @@ func targetName(t *Target) string {
 		return ""
 	}
 	return t.Name
+}
+
+// replaceModelInURLPath performs a case-insensitive replacement of the model
+// segment in the URL path. It recognizes Azure's /deployments/{model}/ shape
+// and Gemini's /models/{model}: shape. Other paths are returned unchanged.
+func replaceModelInURLPath(path, upstream, model string) string {
+	if strings.EqualFold(upstream, model) || path == "" {
+		return path
+	}
+	pathLower := strings.ToLower(path)
+
+	// Azure: /openai/deployments/{model}/...
+	const deploymentsSegment = "/deployments/"
+	if idx := strings.Index(pathLower, deploymentsSegment); idx >= 0 {
+		modelStart := idx + len(deploymentsSegment)
+		rest := path[modelStart:]
+		restLower := pathLower[modelStart:]
+		slashIdx := strings.Index(restLower, "/")
+		var seg string
+		if slashIdx < 0 {
+			seg = rest
+		} else {
+			seg = rest[:slashIdx]
+		}
+		if len(seg) > 0 && strings.EqualFold(seg, model) {
+			// Preserve any query/fragment after segment: rebuild up to modelStart+slashIdx
+			if slashIdx < 0 {
+				return path[:modelStart] + upstream
+			}
+			return path[:modelStart] + upstream + path[modelStart+slashIdx:]
+		}
+	}
+
+	// Gemini: /v1beta/models/{model}:{action} (also /v1alpha/models/, /v1/models/)
+	const modelsSegment = "/models/"
+	if idx := strings.Index(pathLower, modelsSegment); idx >= 0 {
+		modelStart := idx + len(modelsSegment)
+		rest := path[modelStart:]
+		restLower := pathLower[modelStart:]
+		colonIdx := strings.Index(restLower, ":")
+		slashIdx := strings.Index(restLower, "/")
+		endIdx := len(rest)
+		if colonIdx >= 0 && (slashIdx < 0 || colonIdx < slashIdx) {
+			endIdx = colonIdx
+		} else if slashIdx >= 0 {
+			endIdx = slashIdx
+		}
+		seg := rest[:endIdx]
+		if len(seg) > 0 && strings.EqualFold(seg, model) {
+			return path[:modelStart] + upstream + path[modelStart+endIdx:]
+		}
+	}
+
+	return path
+}
+
+// replaceModelInBody performs a case-insensitive replacement of a model name
+// in JSON bodies and multipart form data. The replacement scope is limited to
+// the "model" value, so we marshal/unmarshal for JSON safely, and do string
+// substitution inside multipart boundaries for other content types.
+func replaceModelInBody(body []byte, upstream, model string) []byte {
+	if strings.EqualFold(upstream, model) || len(body) == 0 {
+		return body
+	}
+	return replaceModelInBytesInsensitive(body, upstream, model)
+}
+
+// replaceModelInBytesInsensitive performs a case-insensitive byte-level
+// replacement of old with new, bounded to token boundaries to prevent partial
+// replacement inside unrelated values (e.g. a user's message text).
+func replaceModelInBytesInsensitive(data []byte, new, old string) []byte {
+	if old == "" || strings.EqualFold(old, new) {
+		return data
+	}
+	oldLow := []byte(strings.ToLower(old))
+	newBytes := []byte(new)
+	out := make([]byte, 0, len(data))
+	i := 0
+	for i < len(data) {
+		remaining := len(data) - i
+		if remaining < len(oldLow) {
+			out = append(out, data[i:]...)
+			break
+		}
+		// Case-insensitive match attempt.
+		match := true
+		for j := 0; j < len(oldLow); j++ {
+			if toLowByte(data[i+j]) != oldLow[j] {
+				match = false
+				break
+			}
+		}
+		if !match {
+			out = append(out, data[i])
+			i++
+			continue
+		}
+		// Boundary check: avoid partial token replacement.
+		if i > 0 && isTokenByte(data[i-1]) {
+			out = append(out, data[i])
+			i++
+			continue
+		}
+		endIdx := i + len(oldLow)
+		if endIdx < len(data) && isTokenByte(data[endIdx]) {
+			out = append(out, data[i])
+			i++
+			continue
+		}
+		out = append(out, newBytes...)
+		i += len(oldLow)
+	}
+	return out
+}
+
+func toLowByte(b byte) byte {
+	if 'A' <= b && b <= 'Z' {
+		return b + 32
+	}
+	return b
+}
+
+// isTokenByte reports whether b is an unquoted token character that would make
+// the surrounding bytes "part of the same token", so we avoid partial match.
+// Model names are alphanumeric + dash/dot/underscore/slash.
+func isTokenByte(b byte) bool {
+	if 'a' <= b && b <= 'z' {
+		return true
+	}
+	if 'A' <= b && b <= 'Z' {
+		return true
+	}
+	if '0' <= b && b <= '9' {
+		return true
+	}
+	switch b {
+	case '-', '_', '.', '/', ':':
+		return true
+	}
+	return false
 }
 
 // isUpstreamFailureStatus 判定上游响应状态码是否应触发 MarkFailure（进而 mute + 下次请求 fallback）。

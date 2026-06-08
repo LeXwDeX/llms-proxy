@@ -174,6 +174,16 @@ type ServerConfig struct {
 	RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
 }
 
+// ModelMapping maps an upstream model name to an optional downstream fallback alias.
+//
+// When a client requests a model by its fallback alias, the proxy resolves it
+// to the upstream name before forwarding. The upstream name is always preserved
+// (original case) in the forwarded request.
+type ModelMapping struct {
+	Upstream string `json:"upstream"`             // 必填，上游名称
+	Fallback string `json:"fallback,omitempty"`   // 可选，下游兜底别名
+}
+
 // Target represents one upstream endpoint (Azure OpenAI, OpenAI, Claude, Gemini, OpenAI Image, etc.).
 type Target struct {
 	Name               string   `json:"name"`
@@ -188,7 +198,7 @@ type Target struct {
 	AllowBearer        bool     `json:"allow_bearer_passthrough"`
 	AuthMode           string   `json:"auth_mode,omitempty"` // "bearer" | "" (default: x-api-key for claude types)
 	ImageOperation     string   `json:"image_operation,omitempty"`
-	AllowedModels      []string `json:"allowed_models"`
+	ModelMappings      []ModelMapping `json:"model_mappings,omitempty"`
 	SSEAutoAggregate   *bool    `json:"sse_auto_aggregate,omitempty"` // nil defaults to true
 	// dual_protocol 专用字段
 	OpenAIPrefix      string `json:"openai_prefix,omitempty"`      // OpenAI 路径前缀，如 "/compatible-mode"
@@ -462,9 +472,29 @@ func (c *Config) Validate() error {
 		if !hasAnyKey && !target.AllowBearer {
 			problems = append(problems, prefix+" api_key must not be empty when allow_bearer_passthrough is false")
 		}
-		for j, m := range target.AllowedModels {
-			if strings.TrimSpace(m) == "" {
-				problems = append(problems, fmt.Sprintf("%s allowed_models[%d] must not be empty", prefix, j))
+		upstreamSet := make(map[string]bool)
+		fallbackSet := make(map[string]bool)
+		for j, mm := range target.ModelMappings {
+			up := strings.TrimSpace(mm.Upstream)
+			if up == "" {
+				problems = append(problems, fmt.Sprintf("%s model_mappings[%d].upstream must not be empty", prefix, j))
+				continue
+			}
+			upLow := strings.ToLower(up)
+			if upstreamSet[upLow] {
+				problems = append(problems, fmt.Sprintf("%s model_mappings[%d].upstream %q is duplicate (case-insensitive)", prefix, j, up))
+			}
+			upstreamSet[upLow] = true
+			if fb := strings.TrimSpace(mm.Fallback); fb != "" {
+				fbLow := strings.ToLower(fb)
+				// Fallback may not be empty (already trimmed)
+				if upstreamSet[fbLow] {
+					problems = append(problems, fmt.Sprintf("%s model_mappings[%d].fallback %q conflicts with an upstream name", prefix, j, fb))
+				}
+				if fallbackSet[fbLow] {
+					problems = append(problems, fmt.Sprintf("%s model_mappings[%d].fallback %q is duplicate (case-insensitive)", prefix, j, fb))
+				}
+				fallbackSet[fbLow] = true
 			}
 		}
 	}
@@ -510,11 +540,11 @@ func (c *Config) Clone() *Config {
 		clone.Targets = make([]Target, len(c.Targets))
 		for i := range c.Targets {
 			clone.Targets[i] = c.Targets[i]
-			if len(c.Targets[i].AllowedModels) > 0 {
-				clone.Targets[i].AllowedModels = append([]string(nil), c.Targets[i].AllowedModels...)
-			}
 			if len(c.Targets[i].APIKeys) > 0 {
 				clone.Targets[i].APIKeys = append([]string(nil), c.Targets[i].APIKeys...)
+			}
+			if len(c.Targets[i].ModelMappings) > 0 {
+				clone.Targets[i].ModelMappings = append([]ModelMapping(nil), c.Targets[i].ModelMappings...)
 			}
 		}
 	}

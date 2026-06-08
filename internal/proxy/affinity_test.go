@@ -80,14 +80,14 @@ func TestAffinityFailoverDoesNotHijack(t *testing.T) {
 				Endpoint:           targetA.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-a",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 			{
 				Name:               "target-b",
 				Endpoint:           targetB.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-b",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -170,4 +170,65 @@ func TestAffinityFailoverDoesNotHijack(t *testing.T) {
 
 	_ = aURL
 	_ = bURL
+}
+
+// TestAffinityKeyUsesUpstreamModelWhenAliasRequested 验证粘连 key 使用上游模型名
+// 而非客户端 alias：当目标配置了 ModelMappings fallback（alias→upstream），
+// 客户端用 alias 请求时，set/get 都应使用上游模型名作为 key，让不同 alias 但指向
+// 同一上游的请求命中同一条粘连记录。
+func TestAffinityKeyUsesUpstreamModelWhenAliasRequested(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"mock":"ok"}`))
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
+		Targets: []config.Target{{
+			Name:          "t1",
+			Endpoint:      srv.URL,
+			APIKey:        "key",
+			ModelMappings: []config.ModelMapping{{Upstream: "Real-Model-Name", Fallback: "shortcut"}},
+		}},
+		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
+	}
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, ok := store.Authenticate("token")
+	if !ok {
+		t.Fatal("expected principal")
+	}
+
+	// 客户端用 alias "shortcut" 请求
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"shortcut","messages":[{"role":"user","content":"hi"}]}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	now := time.Now()
+	// 断言 1：粘连 key 应该使用上游名（保留原始大小写）。
+	upKey := affinityKey("192.0.2.1", "tester", "Real-Model-Name")
+	_, upOK := service.affinity.Get(upKey, now)
+	if !upOK {
+		t.Error("expected affinity entry under upstream model name key, but not found")
+	}
+
+	// 断言 2：粘连 key 不应该在 alias 名下（避免 Set 用 upstream、Get 用 alias 导致的 key 不匹配）。
+	aliasKey := affinityKey("192.0.2.1", "tester", "shortcut")
+	_, aliasOK := service.affinity.Get(aliasKey, now)
+	if aliasOK {
+		t.Error("affinity entry unexpectedly stored under alias key — Set should use upstream model name")
+	}
 }

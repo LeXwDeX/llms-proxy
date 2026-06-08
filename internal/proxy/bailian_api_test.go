@@ -145,7 +145,7 @@ func newDualProtocolService(t *testing.T, endpoint string) *Service {
 			EndpointType:      config.EndpointTypeDualProtocol,
 			Endpoint:          endpoint,
 			APIKey:            "sk-dashscope",
-			AllowedModels:     []string{"qwen-plus"},
+			ModelMappings: []config.ModelMapping{{Upstream: "qwen-plus"}},
 			OpenAIPrefix:      "/compatible-mode",
 			AnthropicPrefix:   "/apps/anthropic",
 			SupportsResponses: true,

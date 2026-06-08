@@ -17,7 +17,7 @@ func TestConfigValidateSuccess(t *testing.T) {
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
-			AllowedModels:      []string{"gpt-4o"},
+			ModelMappings: []ModelMapping{{Upstream: "gpt-4o"}},
 		}},
 		DataStore: DataStore{DBPath: "test.db"},
 		AdminSession: AdminSessionConfig{
@@ -78,7 +78,7 @@ func TestConfigValidateAllowsOmittedAPIVersionField(t *testing.T) {
 			Endpoint:           "https://example.com",
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
-			AllowedModels:      []string{"gpt-4o"},
+			ModelMappings: []ModelMapping{{Upstream: "gpt-4o"}},
 		}},
 		DataStore: DataStore{DBPath: "test.db"},
 		AdminSession: AdminSessionConfig{
@@ -122,7 +122,7 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
 			Paused:             true,
-			AllowedModels:      []string{"gpt-4o"},
+			ModelMappings: []ModelMapping{{Upstream: "gpt-4o"}},
 		}},
 		DataStore: DataStore{DBPath: "test.db"},
 		DataFiles: DataFiles{
@@ -144,7 +144,7 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 
 	cloned.Server.Bind = "127.0.0.1:9999"
 	cloned.Targets[0].Name = "secondary"
-	cloned.Targets[0].AllowedModels[0] = "other"
+	cloned.Targets[0].ModelMappings[0].Upstream = "other"
 	cloned.DataFiles.ClientsFile = "other/clients.json"
 	cloned.DataStore.DBPath = "other.db"
 
@@ -154,8 +154,8 @@ func TestConfigCloneProducesDeepCopy(t *testing.T) {
 	if cfg.Targets[0].Name != "primary" {
 		t.Errorf("original target mutated: %s", cfg.Targets[0].Name)
 	}
-	if cfg.Targets[0].AllowedModels[0] != "gpt-4o" {
-		t.Errorf("original target allowed models mutated: %v", cfg.Targets[0].AllowedModels)
+	if cfg.Targets[0].ModelMappings[0].Upstream != "gpt-4o" {
+		t.Errorf("original target model mappings mutated: %v", cfg.Targets[0].ModelMappings)
 	}
 	if !cfg.Targets[0].Paused || !cloned.Targets[0].Paused {
 		t.Fatalf("expected paused to be preserved in clone")

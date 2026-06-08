@@ -65,14 +65,14 @@ func TestServiceRoundRobinLoadBalancing(t *testing.T) {
 				Endpoint:           target1.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-1",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 			{
 				Name:               "target-2",
 				Endpoint:           target2.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-2",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -167,14 +167,14 @@ func TestServiceLeastTokenLoadBalancing(t *testing.T) {
 				Endpoint:           target1.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-1",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 			{
 				Name:               "target-light",
 				Endpoint:           target2.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-2",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -277,14 +277,14 @@ func TestServiceAffinityByIPAndKey(t *testing.T) {
 				Endpoint:           target1.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-1",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 			{
 				Name:               "target-2",
 				Endpoint:           target2.URL,
 				ResourcePathPrefix: "/",
 				APIKey:             "key-2",
-				AllowedModels:      []string{"qwen3.7-max"},
+				ModelMappings: []config.ModelMapping{{Upstream: "qwen3.7-max"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -405,13 +405,13 @@ func TestServiceModelAwareRoundRobin(t *testing.T) {
 		// 只有索引 9 和 10 支持 qwen3.7-max
 		if i == 9 {
 			// target-9 有 4 个 key（1 个 api_key + 3 个 api_keys）
-			targets[i].AllowedModels = []string{"qwen3.7-max"}
+			targets[i].ModelMappings = []config.ModelMapping{{Upstream: "qwen3.7-max"}}
 			targets[i].APIKeys = []string{"key-9-2", "key-9-3", "key-9-4"}
 		} else if i == 10 {
 			// target-10 有 1 个 key（只有 api_key）
-			targets[i].AllowedModels = []string{"qwen3.7-max"}
+			targets[i].ModelMappings = []config.ModelMapping{{Upstream: "qwen3.7-max"}}
 		} else {
-			targets[i].AllowedModels = []string{"other-model"}
+			targets[i].ModelMappings = []config.ModelMapping{{Upstream: "other-model"}}
 		}
 	}
 
@@ -499,7 +499,7 @@ func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 		targetConfigs []struct {
 			name     string
 			keyCount int
-			models   []string
+			models []config.ModelMapping
 		}
 		requestCount int
 		expectedDist map[string]float64 // target name -> expected percentage
@@ -510,10 +510,10 @@ func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 			targetConfigs: []struct {
 				name     string
 				keyCount int
-				models   []string
+				models []config.ModelMapping
 			}{
-				{"target-heavy", 10, []string{"qwen3.7-max"}},
-				{"target-light", 1, []string{"qwen3.7-max"}},
+				{"target-heavy", 10, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-light", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
 			},
 			requestCount: 22,
 			expectedDist: map[string]float64{
@@ -527,11 +527,11 @@ func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 			targetConfigs: []struct {
 				name     string
 				keyCount int
-				models   []string
+				models []config.ModelMapping
 			}{
-				{"target-a", 3, []string{"qwen3.7-max"}},
-				{"target-b", 2, []string{"qwen3.7-max"}},
-				{"target-c", 1, []string{"qwen3.7-max"}},
+				{"target-a", 3, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-b", 2, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-c", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
 			},
 			requestCount: 30,
 			expectedDist: map[string]float64{
@@ -546,13 +546,13 @@ func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 			targetConfigs: []struct {
 				name     string
 				keyCount int
-				models   []string
+				models []config.ModelMapping
 			}{
-				{"target-1", 1, []string{"qwen3.7-max"}},
-				{"target-2", 1, []string{"qwen3.7-max"}},
-				{"target-3", 1, []string{"qwen3.7-max"}},
-				{"target-4", 1, []string{"qwen3.7-max"}},
-				{"target-5", 1, []string{"qwen3.7-max"}},
+				{"target-1", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-2", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-3", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-4", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-5", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
 			},
 			requestCount: 25,
 			expectedDist: map[string]float64{
@@ -569,9 +569,9 @@ func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 			targetConfigs: []struct {
 				name     string
 				keyCount int
-				models   []string
+				models []config.ModelMapping
 			}{
-				{"target-only", 5, []string{"qwen3.7-max"}},
+				{"target-only", 5, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
 			},
 			requestCount: 10,
 			expectedDist: map[string]float64{
@@ -584,12 +584,12 @@ func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 			targetConfigs: []struct {
 				name     string
 				keyCount int
-				models   []string
+				models []config.ModelMapping
 			}{
-				{"target-a", 2, []string{"qwen3.7-max"}},
-				{"target-b", 3, []string{"other-model"}}, // should be filtered out
-				{"target-c", 1, []string{"qwen3.7-max"}},
-				{"target-d", 4, []string{"another-model"}}, // should be filtered out
+				{"target-a", 2, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-b", 3, []config.ModelMapping{{Upstream: "other-model"}}}, // should be filtered out
+				{"target-c", 1, []config.ModelMapping{{Upstream: "qwen3.7-max"}}},
+				{"target-d", 4, []config.ModelMapping{{Upstream: "another-model"}}}, // should be filtered out
 			},
 			requestCount: 15,
 			expectedDist: map[string]float64{
@@ -621,7 +621,7 @@ func TestServiceModelAwareRoundRobinVariousScenarios(t *testing.T) {
 					Endpoint:           servers[i].URL,
 					ResourcePathPrefix: "/",
 					APIKey:             fmt.Sprintf("key-%d", i),
-					AllowedModels:      tc.models,
+					ModelMappings: tc.models,
 				}
 				// 添加额外的 keys
 				if tc.keyCount > 1 {
@@ -886,8 +886,8 @@ func TestServiceSkipsPausedTargetForAutomaticSelection(t *testing.T) {
 	service, err := NewService(&config.Config{
 		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
 		Targets: []config.Target{
-			{Name: "paused", Endpoint: paused.URL, ResourcePathPrefix: "/openai", APIKey: "key1", Paused: true, AllowedModels: []string{"gpt-paused"}},
-			{Name: "active", Endpoint: active.URL, ResourcePathPrefix: "/openai", APIKey: "key2", AllowedModels: []string{"gpt-paused"}},
+			{Name: "paused", Endpoint: paused.URL, ResourcePathPrefix: "/openai", APIKey: "key1", Paused: true, ModelMappings: []config.ModelMapping{{Upstream: "gpt-paused"}}},
+			{Name: "active", Endpoint: active.URL, ResourcePathPrefix: "/openai", APIKey: "key2", ModelMappings: []config.ModelMapping{{Upstream: "gpt-paused"}}},
 		},
 		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
 	}, newTestLogger())
@@ -933,8 +933,8 @@ func TestServiceAffinitySkipsPausedTarget(t *testing.T) {
 	service, err := NewService(&config.Config{
 		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
 		Targets: []config.Target{
-			{Name: "paused", Endpoint: paused.URL, ResourcePathPrefix: "/openai", APIKey: "key1", Paused: true, AllowedModels: []string{"gpt-paused"}},
-			{Name: "active", Endpoint: active.URL, ResourcePathPrefix: "/openai", APIKey: "key2", AllowedModels: []string{"gpt-paused"}},
+			{Name: "paused", Endpoint: paused.URL, ResourcePathPrefix: "/openai", APIKey: "key1", Paused: true, ModelMappings: []config.ModelMapping{{Upstream: "gpt-paused"}}},
+			{Name: "active", Endpoint: active.URL, ResourcePathPrefix: "/openai", APIKey: "key2", ModelMappings: []config.ModelMapping{{Upstream: "gpt-paused"}}},
 		},
 		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
 	}, newTestLogger())
@@ -976,7 +976,7 @@ func TestServiceRejectsExplicitPausedTarget(t *testing.T) {
 
 	service, err := NewService(&config.Config{
 		Server:  config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
-		Targets: []config.Target{{Name: "paused", Endpoint: upstream.URL, ResourcePathPrefix: "/openai", APIKey: "key", Paused: true, AllowedModels: []string{"gpt-paused"}}},
+		Targets: []config.Target{{Name: "paused", Endpoint: upstream.URL, ResourcePathPrefix: "/openai", APIKey: "key", Paused: true, ModelMappings: []config.ModelMapping{{Upstream: "gpt-paused"}}}},
 		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
 	}, newTestLogger())
 	if err != nil {
@@ -1156,7 +1156,7 @@ func TestServiceRejectsDisallowedModel(t *testing.T) {
 				Endpoint:           upstream.URL,
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1224,7 +1224,7 @@ func TestServiceStripsAPIVersionAndInternalQueryParams(t *testing.T) {
 				Endpoint:           upstream.URL,
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1299,7 +1299,7 @@ func TestServiceStripsUnsupportedFieldsForResponses(t *testing.T) {
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
-			AllowedModels:      []string{"gpt-5.2"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.2"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -1368,7 +1368,7 @@ func TestServiceStripsUnsupportedFieldsForChatCompletions(t *testing.T) {
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
-			AllowedModels:      []string{"gpt-5.2"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.2"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -1433,14 +1433,14 @@ func TestServiceRoutesByModelToSupportingTarget(t *testing.T) {
 				Endpoint:           target1.URL,
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           target2.URL,
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key2",
-				AllowedModels:      []string{"gpt-5.1"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.1"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1491,7 +1491,7 @@ func TestServiceReturnsErrorWhenModelMissingAndAllowlistsConfigured(t *testing.T
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1549,14 +1549,14 @@ func TestServiceRoundsRobinAcrossMatchingTargets(t *testing.T) {
 				Endpoint:           s1.URL,
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-5.1"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.1"}},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           s2.URL,
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key2",
-				AllowedModels:      []string{"gpt-5.1"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.1"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1614,14 +1614,14 @@ func TestServiceListsDeploymentsLocally(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o", "gpt-5.1"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}, {Upstream: "gpt-5.1"}},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key2",
-				AllowedModels:      []string{"gpt-5.1", "gpt-4o-mini"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.1"}, {Upstream: "gpt-4o-mini"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1685,7 +1685,7 @@ func TestServiceListsModelsLocally(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1759,7 +1759,7 @@ func TestServiceLocalModelsDoNotExposeCopilotModels(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1851,14 +1851,14 @@ func TestServiceListsModelsLocallyRespectsAllowedTargets(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key2",
-				AllowedModels:      []string{"gpt-5.2"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.2"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1912,14 +1912,14 @@ func TestServiceListsModelsLocallyRespectsRequestedTargetFilter(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 			{
 				Name:               "t2",
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key2",
-				AllowedModels:      []string{"gpt-5.2"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.2"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -1973,14 +1973,14 @@ func TestServiceListsModelsLocallySkipsPausedTargets(t *testing.T) {
 				Endpoint:           "http://example.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key1",
-				AllowedModels:      []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 			{
 				Name:               "paused",
 				Endpoint:           "http://example2.com",
 				ResourcePathPrefix: "/openai",
 				APIKey:             "key2",
-				AllowedModels:      []string{"gpt-5.2"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.2"}},
 				Paused:             true,
 			},
 		},
@@ -2165,6 +2165,71 @@ func TestServiceUsageEventRecordsModel(t *testing.T) {
 	}
 	if got := events[0].Model; got != "deepseek-v4-flash" {
 		t.Fatalf("expected model deepseek-v4-flash, got %q", got)
+	}
+}
+
+// TestServiceUsageEventRecordsUpstreamModelWhenAliasUsed 红线：当客户端用 fallback alias
+// 请求时，用量事件的 Model 字段必须是真实的上游模型名（来自 ensureModelAllowed 解析），
+// 而不是客户端传入的 alias。这保证 CostTable 能正确匹配价格、用量统计按上游模型聚合。
+func TestServiceUsageEventRecordsUpstreamModelWhenAliasUsed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"usage":{"prompt_tokens":5,"completion_tokens":3}}`))
+	}))
+	defer upstream.Close()
+
+	tmpDir := t.TempDir()
+	db, err := nosql.OpenDB(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	usageStore := nosql.NewUsageStore(db)
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
+		Targets: []config.Target{{
+			Name:            "t1",
+			Endpoint:        upstream.URL,
+			APIKey:          "key",
+			ModelMappings:   []config.ModelMapping{{Upstream: "GPT-4o-2024-11-20", Fallback: "my-shortcut"}},
+		}},
+		DataStore: config.DataStore{DBPath: filepath.Join(tmpDir, "test.db")},
+		Logging:   config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
+	}
+	service, err := NewService(cfg, newTestLogger())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	service.SetUsageRecorder(usageStore)
+
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(testAuthClients("tester", "token")); err != nil {
+		t.Fatalf("load clients: %v", err)
+	}
+	principal, _ := store.Authenticate("token")
+
+	// 客户端用 alias（fallback）请求，应该解析到上游名 GPT-4o-2024-11-20
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"my-shortcut","messages":[{"role":"user","content":"hi"}]}`))
+	req = req.WithContext(auth.WithPrincipal(req.Context(), principal))
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	events, err := usageStore.List(usage.Filter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list usage events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 usage event, got %d", len(events))
+	}
+	// 关键断言：usage event 记录的必须是上游名（小写化后），不是 alias
+	expected := "gpt-4o-2024-11-20"
+	if events[0].Model != expected {
+		t.Errorf("usage event Model: want %q (upstream), got %q (was alias recorded?)", expected, events[0].Model)
 	}
 }
 
@@ -2354,7 +2419,7 @@ func TestServiceOpenAITargetSendsBearerAuth(t *testing.T) {
 			EndpointType:  "openai",
 			Endpoint:      upstream.URL,
 			APIKey:        "sk-test-key",
-			AllowedModels: []string{"gpt-4o"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -2420,7 +2485,7 @@ func TestServiceClaudeTargetSendsXAPIKey(t *testing.T) {
 			EndpointType:  "claude",
 			Endpoint:      upstream.URL,
 			APIKey:        "sk-ant-test",
-			AllowedModels: []string{"claude-sonnet-4-20250514"},
+			ModelMappings: []config.ModelMapping{{Upstream: "claude-sonnet-4-20250514"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -2479,14 +2544,14 @@ func TestServiceRoutesSameModelByRequestSchema(t *testing.T) {
 				EndpointType:  "openai",
 				Endpoint:      upstream.URL,
 				APIKey:        "sk-openai",
-				AllowedModels: []string{"shared-model"},
+				ModelMappings: []config.ModelMapping{{Upstream: "shared-model"}},
 			},
 			{
 				Name:          "claude-shared",
 				EndpointType:  "claude",
 				Endpoint:      upstream.URL,
 				APIKey:        "sk-claude",
-				AllowedModels: []string{"shared-model"},
+				ModelMappings: []config.ModelMapping{{Upstream: "shared-model"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -2548,7 +2613,7 @@ func TestServiceRoutesResponsesToResponsesCapableTarget(t *testing.T) {
 				EndpointType:      "dual_protocol",
 				Endpoint:          upstream.URL,
 				APIKey:            "sk-dual-token",
-				AllowedModels:     []string{"shared-model"},
+				ModelMappings: []config.ModelMapping{{Upstream: "shared-model"}},
 				OpenAIPrefix:      "/compatible-mode",
 				AnthropicPrefix:   "/apps/anthropic",
 				SupportsResponses: true,
@@ -2558,7 +2623,7 @@ func TestServiceRoutesResponsesToResponsesCapableTarget(t *testing.T) {
 				EndpointType:      "dual_protocol",
 				Endpoint:          upstream.URL,
 				APIKey:            "sk-dual-api",
-				AllowedModels:     []string{"shared-model"},
+				ModelMappings: []config.ModelMapping{{Upstream: "shared-model"}},
 				OpenAIPrefix:      "/compatible-mode",
 				AnthropicPrefix:   "/apps/anthropic",
 				SupportsResponses: true,
@@ -2617,7 +2682,7 @@ func TestServiceRejectsModelWhenNoTargetSupportsRequestSchema(t *testing.T) {
 			EndpointType:  "claude",
 			Endpoint:      upstream.URL,
 			APIKey:        "sk-claude",
-			AllowedModels: []string{"shared-model"},
+			ModelMappings: []config.ModelMapping{{Upstream: "shared-model"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -2680,7 +2745,7 @@ func TestServiceOpenAITargetSkipsSanitize(t *testing.T) {
 			EndpointType:  "openai",
 			Endpoint:      upstream.URL,
 			APIKey:        "sk-test",
-			AllowedModels: []string{"gpt-5.2"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-5.2"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -2742,7 +2807,7 @@ func TestServiceGeminiTargetSendsGoogAPIKey(t *testing.T) {
 			EndpointType:  "gemini",
 			Endpoint:      upstream.URL,
 			APIKey:        "AIza-test-key",
-			AllowedModels: []string{"gemini-2.5-pro"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gemini-2.5-pro"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -2925,7 +2990,7 @@ func TestService503PassThroughNoRetry(t *testing.T) {
 			Endpoint:           upstream.URL,
 			ResourcePathPrefix: "/openai",
 			APIKey:             "key",
-			AllowedModels:      []string{"gpt-image-1"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-image-1"}},
 		}},
 		Logging: config.LoggingConfig{
 			Level:     "info",
@@ -3214,14 +3279,14 @@ func TestSelectTargetPathFiltering(t *testing.T) {
 				EndpointType:  "openai",
 				Endpoint:      t1.URL,
 				APIKey:        "key1",
-				AllowedModels: []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 			{
 				Name:            "dual-proto-t2",
 				EndpointType:    "dual_protocol",
 				Endpoint:        t2.URL,
 				APIKey:          "key2",
-				AllowedModels:   []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 				AnthropicPrefix: "/anthropic",
 			},
 		},
@@ -3294,14 +3359,14 @@ func TestSelectTargetAffinity(t *testing.T) {
 				EndpointType:  "openai",
 				Endpoint:      s1.URL,
 				APIKey:        "key1",
-				AllowedModels: []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 			{
 				Name:          "t2",
 				EndpointType:  "openai",
 				Endpoint:      s2.URL,
 				APIKey:        "key2",
-				AllowedModels: []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -3364,7 +3429,7 @@ func TestSelectTargetExplicitPathIncompatible(t *testing.T) {
 				EndpointType:  "openai_image",
 				Endpoint:      "http://example.com/v1/images/generations",
 				APIKey:        "key",
-				AllowedModels: []string{"gpt-4o"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4o"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -3437,8 +3502,8 @@ func TestServiceSelectsOpenAIImageTargetByOperation(t *testing.T) {
 	service, err := NewService(&config.Config{
 		Server: config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
 		Targets: []config.Target{
-			{Name: "image-generations", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: generation.URL + "/v1/images/generations", ImageOperation: config.ImageOperationGenerations, APIKey: "key", AllowedModels: []string{"gpt-image-2"}},
-			{Name: "image-edits", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: edit.URL + "/v1/images/edits", ImageOperation: config.ImageOperationEdits, APIKey: "key", AllowedModels: []string{"gpt-image-2"}},
+			{Name: "image-generations", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: generation.URL + "/v1/images/generations", ImageOperation: config.ImageOperationGenerations, APIKey: "key", ModelMappings: []config.ModelMapping{{Upstream: "gpt-image-2"}}},
+			{Name: "image-edits", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: edit.URL + "/v1/images/edits", ImageOperation: config.ImageOperationEdits, APIKey: "key", ModelMappings: []config.ModelMapping{{Upstream: "gpt-image-2"}}},
 		},
 		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
 	}, newTestLogger())
@@ -3478,7 +3543,7 @@ func TestServiceRejectsExplicitOpenAIImageWrongOperation(t *testing.T) {
 	defer upstream.Close()
 	service, err := NewService(&config.Config{
 		Server:  config.ServerConfig{Bind: "127.0.0.1:0", RequestTimeoutSeconds: 5},
-		Targets: []config.Target{{Name: "image-generations", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: upstream.URL + "/v1/images/generations", ImageOperation: config.ImageOperationGenerations, APIKey: "key", AllowedModels: []string{"gpt-image-2"}}},
+		Targets: []config.Target{{Name: "image-generations", EndpointType: config.EndpointTypeOpenAIImage, Endpoint: upstream.URL + "/v1/images/generations", ImageOperation: config.ImageOperationGenerations, APIKey: "key", ModelMappings: []config.ModelMapping{{Upstream: "gpt-image-2"}}}},
 		Logging: config.LoggingConfig{Level: "info", AccessLog: "logs/test-access.log", ErrorLog: "logs/test-error.log"},
 	}, newTestLogger())
 	if err != nil {
@@ -3540,13 +3605,13 @@ func TestServiceKeyPoolStatus(t *testing.T) {
 				Endpoint:      "http://example.com",
 				APIKey:        "key1",
 				APIKeys:       []string{"key2", "key3"},
-				AllowedModels: []string{"gpt-4"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4"}},
 			},
 			{
 				Name:          "no-pool",
 				Endpoint:      "http://example.com",
 				APIKey:        "single-key",
-				AllowedModels: []string{"gpt-4"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -3595,7 +3660,7 @@ func TestServiceBlockUnblockKey(t *testing.T) {
 				Endpoint:      "http://example.com",
 				APIKey:        "key1",
 				APIKeys:       []string{"key2", "key3"},
-				AllowedModels: []string{"gpt-4"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -3715,7 +3780,7 @@ func TestServiceUpdateTargets(t *testing.T) {
 				Name:          "target1",
 				Endpoint:      "http://example1.com",
 				APIKey:        "key1",
-				AllowedModels: []string{"gpt-4"},
+				ModelMappings: []config.ModelMapping{{Upstream: "gpt-4"}},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -3736,13 +3801,13 @@ func TestServiceUpdateTargets(t *testing.T) {
 			Name:          "target2",
 			Endpoint:      "http://example2.com",
 			APIKey:        "key2",
-			AllowedModels: []string{"gpt-3.5"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-3.5"}},
 		},
 		{
 			Name:          "target3",
 			Endpoint:      "http://example3.com",
 			APIKey:        "key3",
-			AllowedModels: []string{"gpt-4"},
+			ModelMappings: []config.ModelMapping{{Upstream: "gpt-4"}},
 		},
 	}
 

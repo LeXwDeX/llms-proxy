@@ -252,27 +252,34 @@ func extractMultipartModel(body []byte, boundary string) string {
 	}
 }
 
+// resolveUpstreamModel resolves a client-supplied model name (either an upstream
+// name or a fallback alias) to the upstream name preserving its original case.
+// Returns ok=true when the model is allowed (or when the target has no mapping
+// restrictions, indicated by an empty index).
+func resolveUpstreamModel(t *Target, model string) (upstream string, ok bool) {
+	if t == nil {
+		return "", false
+	}
+	if len(t.allowedModelIdx) == 0 {
+		return model, true
+	}
+	key := strings.ToLower(strings.TrimSpace(model))
+	if key == "" {
+		return "", false
+	}
+	up, ok := t.allowedModelIdx[key]
+	return up, ok
+}
+
+// modelAllowed reports whether the given target accepts the model.
+// An empty model is rejected when the target has model restrictions.
+// A nil target always rejects.
 func modelAllowed(t *Target, model string) bool {
 	if t == nil {
 		return false
 	}
-	if len(t.AllowedModels) == 0 {
-		return true
-	}
-	modelKey := strings.ToLower(strings.TrimSpace(model))
-	if modelKey == "" {
-		return false
-	}
-	if t.allowedModelsSet != nil {
-		_, ok := t.allowedModelsSet[modelKey]
-		return ok
-	}
-	for _, m := range t.AllowedModels {
-		if strings.EqualFold(m, modelKey) {
-			return true
-		}
-	}
-	return false
+	_, ok := resolveUpstreamModel(t, model)
+	return ok
 }
 
 func (s *Service) anyTargetRequiresModel() bool {
@@ -281,27 +288,36 @@ func (s *Service) anyTargetRequiresModel() bool {
 		if state == nil || state.Target() == nil {
 			continue
 		}
-		if len(state.Target().AllowedModels) > 0 {
+		if len(state.Target().allowedModelIdx) > 0 {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Service) ensureModelAllowed(target *Target, model string) error {
-	if target == nil || len(target.AllowedModels) == 0 {
-		return nil
+// ensureModelAllowed returns an error if target has model restrictions and model
+// is either empty or not allowed. On success it returns the upstream model name
+// (preserving original case) which callers must use when forwarding.
+func (s *Service) ensureModelAllowed(target *Target, model string) (string, error) {
+	if target == nil {
+		return model, nil
+	}
+	if len(target.allowedModelIdx) == 0 {
+		return model, nil
 	}
 
-	if model == "" {
-		return errors.New("model required when allowed_models is configured")
+	if strings.TrimSpace(model) == "" {
+		return "", errors.New("model required when model_mappings is configured")
 	}
-	if modelAllowed(target, model) {
-		return nil
+	upstream, ok := resolveUpstreamModel(target, model)
+	if !ok {
+		return "", fmt.Errorf("model %q not allowed for target %q", model, target.Name)
 	}
-	return fmt.Errorf("model %q not allowed for target %q", model, target.Name)
+	return upstream, nil
 }
 
+// normalizeAllowed lowercases and deduplicates a list, skipping empties.
+// Retained for compatibility with tests that exercise the helper directly.
 func normalizeAllowed(list []string) map[string]struct{} {
 	m := make(map[string]struct{}, len(list))
 	for _, item := range list {
