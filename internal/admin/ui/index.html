@@ -930,12 +930,13 @@
                     <th>允许目标</th>
                     <th>近30天 Token</th>
                     <th>近30天费用</th>
+                    <th>USD 限额</th>
                     <th>操作</th>
                   </tr>
                 </thead>
-                <tbody id="clientsTableBody">
-                  <tr class="empty-row"><td colspan="6">加载中...</td></tr>
-                </tbody>
+<tbody id="clientsTableBody">
+                   <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+                 </tbody>
               </table>
             </div>
           </div>
@@ -1325,6 +1326,23 @@
         <div class="form-group">
           <label>允许目标（点击选择，不选则允许全部）</label>
           <div id="clientTargetTags" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;max-height:180px;overflow-y:auto;"></div>
+        </div>
+        <div style="border-top:1px solid var(--line);margin:12px 0;padding-top:12px;">
+          <label style="font-weight:600;margin-bottom:8px;">USD 配额限额（留 0 或空表示不限）</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:12px;">日限额 ($)</label>
+              <input class="form-control" id="clientQuotaDaily" type="number" min="0" step="0.01" placeholder="0 = 不限">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:12px;">周限额 ($)</label>
+              <input class="form-control" id="clientQuotaWeekly" type="number" min="0" step="0.01" placeholder="0 = 不限">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:12px;">月限额 ($)</label>
+              <input class="form-control" id="clientQuotaMonthly" type="number" min="0" step="0.01" placeholder="0 = 不限">
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -2369,7 +2387,7 @@
       function renderClients() {
         var tb = document.getElementById("clientsTableBody");
         if (!state.clients.length) {
-          tb.innerHTML = "<tr class='empty-row'><td colspan='6'>暂无客户端</td></tr>";
+          tb.innerHTML = "<tr class='empty-row'><td colspan='7'>暂无客户端</td></tr>";
           return;
         }
         tb.innerHTML = state.clients.slice().sort(function(a,b){return String(a.name||"").localeCompare(String(b.name||""));}).map(function(c) {
@@ -2378,11 +2396,22 @@
           var usage = state.clientUsage[c.name] || {};
           var tok = totalTok(usage);
           var cost = Number(usage.estimated_cost || 0);
+          var quotaLabel = "";
+          if ((c.quota_daily_usd && c.quota_daily_usd > 0) || (c.quota_weekly_usd && c.quota_weekly_usd > 0) || (c.quota_monthly_usd && c.quota_monthly_usd > 0)) {
+            var parts = [];
+            if (c.quota_daily_usd > 0) parts.push("日$" + c.quota_daily_usd);
+            if (c.quota_weekly_usd > 0) parts.push("周$" + c.quota_weekly_usd);
+            if (c.quota_monthly_usd > 0) parts.push("月$" + c.quota_monthly_usd);
+            quotaLabel = parts.join(" / ");
+          } else {
+            quotaLabel = "不限";
+          }
           return "<tr><td>"+esc(c.name)+"</td>"
             + "<td><span class='key-mask'>"+esc(maskKey(c.access_key))+"</span></td>"
             + "<td>"+esc(targets)+"</td>"
             + "<td>"+fmtNum(tok)+"</td>"
             + "<td>"+fmtMoney(cost)+"</td>"
+            + "<td>"+quotaLabel+"</td>"
             + "<td><div class='btn-group'>"
             + "<button class='btn btn-sm' data-edit-client='"+esc(c.name)+"'>编辑</button>"
             + "<button class='btn btn-danger btn-sm' data-del-client='"+esc(c.name)+"'>删除</button>"
@@ -2413,6 +2442,9 @@
         document.getElementById("clientName").readOnly = !!c;
         document.getElementById("clientAccessKey").value = c ? c.access_key : "";
         renderClientTargetTags(c && c.allowed_targets ? c.allowed_targets : []);
+        document.getElementById("clientQuotaDaily").value = c && c.quota_daily_usd ? c.quota_daily_usd : "";
+        document.getElementById("clientQuotaWeekly").value = c && c.quota_weekly_usd ? c.quota_weekly_usd : "";
+        document.getElementById("clientQuotaMonthly").value = c && c.quota_monthly_usd ? c.quota_monthly_usd : "";
         openModal("clientModal");
       }
       function renderClientTargetTags(selected) {
@@ -2463,6 +2495,13 @@
         var targets = getSelectedClientTargets();
         if (!name || !key) { toast("请填写名称和 Access Key", "error"); return; }
         var payload = { name: name, access_key: key, allowed_targets: targets };
+        // Quota fields: send 0 if empty/blank (means no limit)
+        var qd = parseFloat(document.getElementById("clientQuotaDaily").value) || 0;
+        var qw = parseFloat(document.getElementById("clientQuotaWeekly").value) || 0;
+        var qm = parseFloat(document.getElementById("clientQuotaMonthly").value) || 0;
+        if (qd > 0) payload.quota_daily_usd = qd;
+        if (qw > 0) payload.quota_weekly_usd = qw;
+        if (qm > 0) payload.quota_monthly_usd = qm;
         try {
           if (state.editingClient) {
             await api("/admin/data/clients/"+encodeURIComponent(name), { method: "PUT", body: payload });
