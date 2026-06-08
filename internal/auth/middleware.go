@@ -108,7 +108,7 @@ func extractAPIKeyFromQuery(rawQuery string) string {
 			continue
 		}
 		key, val := strings.TrimSpace(kv[0]), kv[1]
-		if !strings.EqualFold(key, "api-key") {
+		if !strings.EqualFold(key, "api-key") && !strings.EqualFold(key, "key") {
 			continue
 		}
 		decoded, err := url.PathUnescape(strings.TrimSpace(val))

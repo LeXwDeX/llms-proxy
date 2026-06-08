@@ -7,6 +7,72 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 )
 
+func TestNormalizeForwardQuery(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string // raw query string (without '?')
+		want  string // expected encoded query string after normalization
+	}{
+		{
+			name:  "strips key parameter",
+			input: "key=sk-st0868&foo=bar",
+			want:  "foo=bar",
+		},
+		{
+			name:  "strips KEY uppercase",
+			input: "KEY=sk-st0868&foo=bar",
+			want:  "foo=bar",
+		},
+		{
+			name:  "strips Key mixed case",
+			input: "Key=sk-st0868&foo=bar",
+			want:  "foo=bar",
+		},
+		{
+			name:  "strips mixed query auth params",
+			input: "KEY=xxx&api-key=yyy&model=gemini-3-pro-image",
+			want:  "model=gemini-3-pro-image",
+		},
+		{
+			name:  "strips all proxy-internal params including key",
+			input: "target=gemini-1&api-key=abc&key=xyz&api-version=2024-01-01&model=gpt-4",
+			want:  "model=gpt-4",
+		},
+		{
+			name:  "key only param results in empty string",
+			input: "key=sk-st0868",
+			want:  "",
+		},
+		{
+			name:  "no key param preserves original",
+			input: "foo=bar&baz=qux",
+			want:  "baz=qux&foo=bar", // url.Values.Encode sorts keys
+		},
+		{
+			name:  "empty query",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "nil url",
+			input: "",
+			want:  "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			u := &url.URL{RawQuery: tc.input}
+			if tc.name == "nil url" {
+				u = nil
+			}
+			got := normalizeForwardQuery(u)
+			if got != tc.want {
+				t.Errorf("normalizeForwardQuery(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDeduplicateV1Path(t *testing.T) {
 	cases := []struct {
 		input string

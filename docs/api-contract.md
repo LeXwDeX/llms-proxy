@@ -5,6 +5,10 @@ This document describes the externally visible HTTP contract that the proxy expo
 ## Authentication
 - Client requests **must** include `Authorization: Bearer <access-key>`.
 - Also supports Azure-style client auth: `api-key: <access-key>` (header) or `?api-key=<access-key>` (query).
+- Also accepts Google Gemini native query parameter `?key=<access-key>` (case-insensitive), equivalent to `?api-key=`. Example:
+  ```
+  GET /v1beta/models/gemini-2.5-pro:generateContent?key=<access-key>
+  ```
 - Tokens map 1:1 to entries in the bbolt database (managed via `/admin/data/clients`).
 - On authentication failure the proxy returns `401 Unauthorized` and a `WWW-Authenticate: Bearer` header.
 - Requests receive an `X-Request-ID` header (generated when missing) that propagates through logs.

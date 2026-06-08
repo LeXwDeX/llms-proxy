@@ -102,6 +102,7 @@ func normalizeForwardQuery(original *url.URL) string {
 	deleteQueryKeyCaseInsensitive(query, "api-version")
 	deleteQueryKeyCaseInsensitive(query, "api_version")
 	deleteQueryKeyCaseInsensitive(query, "api-key")
+	deleteQueryKeyCaseInsensitive(query, "key") // Google Gemini native query auth
 
 	return query.Encode()
 }

@@ -34,6 +34,9 @@ func TestMiddlewareAcceptsAzureStyleAuth(t *testing.T) {
 		{name: "x-api-key header ok (Anthropic native)", headerKey: "x-api-key", headerVal: "x-api-key-value", wantStatus: http.StatusOK},
 		{name: "api-key query ok", queryValue: "apikey-value", wantStatus: http.StatusOK},
 		{name: "api-key query preserves plus", rawQuery: "api-key=abc+def", wantStatus: http.StatusOK},
+		{name: "key query ok (Gemini native)", rawQuery: "key=apikey-value", wantStatus: http.StatusOK},
+		{name: "key query with plus", rawQuery: "key=abc+def", wantStatus: http.StatusOK},
+		{name: "KEY query uppercase", rawQuery: "KEY=apikey-value", wantStatus: http.StatusOK},
 		{name: "missing", wantStatus: http.StatusUnauthorized},
 		{name: "bad bearer scheme", headerKey: "Authorization", headerVal: "Basic token", wantStatus: http.StatusUnauthorized},
 	}
