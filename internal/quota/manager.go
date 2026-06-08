@@ -181,8 +181,11 @@ func (m *Manager) Evaluate(clientName string) {
 		return
 	}
 
-	// No quota configured at all → skip.
+	// No quota configured at all → clear exceeded record and skip.
 	if client.QuotaDailyUSD <= 0 && client.QuotaWeeklyUSD <= 0 && client.QuotaMonthlyUSD <= 0 {
+		m.mu.Lock()
+		delete(m.exceeded, clientName)
+		m.mu.Unlock()
 		return
 	}
 

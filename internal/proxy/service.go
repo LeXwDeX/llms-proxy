@@ -292,18 +292,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Quota 准入检查（docs/quota-design.md §10）：auth 通过后立即检查配额超限。
-	// 仅在 quotaManager 非 nil 时生效；超限时返回 OpenAI 兼容 429 JSON 错误体。
-	// 隔离约束 §1.2：/copilot/* 路由不经过 proxy.Service.ServeHTTP，天然不受影响。
-	if s.quotaManager != nil {
-		if info, exceeded := s.quotaManager.Check(principal.Name); exceeded {
-			writeQuotaExceededResponse(w, info)
-			requestOutcomeRecorded = true
-			s.metrics.totalFailures.Add(1)
-			return
-		}
-	}
-
 	// Fast-path: if no upstream targets are configured, inform the caller.
 	s.mu.RLock()
 	hasTargets := len(s.targetOrder) > 0
@@ -361,6 +349,20 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.metrics.totalFailures.Add(1)
 		requestOutcomeRecorded = true
 		return
+	}
+
+	// Quota 准入检查（docs/quota-design.md §10）：auth + model 提取后检查配额超限。
+	// 仅在 quotaManager 非 nil 时生效；超限时返回 OpenAI 兼容 429 JSON 错误体。
+	// 隔离约束：Copilot 模型（前缀 "Copilot "）豁免——Copilot 有独立 quota 系统，
+	// 与 USD 计费体系不同；/copilot/* 路由由 chi router 单独挂载不经过 ServeHTTP。
+	isCopilotRequest := strings.HasPrefix(model, strings.ToLower(copilot.ModelPrefix))
+	if s.quotaManager != nil && !isCopilotRequest {
+		if info, exceeded := s.quotaManager.Check(principal.Name); exceeded {
+			writeQuotaExceededResponse(w, info)
+			requestOutcomeRecorded = true
+			s.metrics.totalFailures.Add(1)
+			return
+		}
 	}
 
 	for {
