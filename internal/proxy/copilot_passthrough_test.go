@@ -355,6 +355,49 @@ func TestCopilotPassthrough_ResponseHeaders(t *testing.T) {
 	}
 }
 
+// ---------- Query Parameter Stripping ----------
+
+func TestCopilotPassthrough_StripsClientQuery(t *testing.T) {
+	tests := []struct {
+		name        string
+		requestURL  string
+	}{
+		{"strips_api-key", "/copilot/chat/completions?api-key=secret-token"},
+		{"strips_key", "/copilot/chat/completions?key=google-native-key"},
+		{"strips_target_and_custom", "/copilot/chat/completions?target=my-copilot-pool&foo=bar"},
+		{"empty_query_remains_empty", "/copilot/chat/completions"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedRawQuery string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturedRawQuery = r.URL.RawQuery
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}))
+			defer upstream.Close()
+
+			svc := setupPassthroughTestEnv(t, upstream.URL)
+
+			r := reqWithPrincipal(t, http.MethodPost, tt.requestURL, strings.NewReader(`{"model":"test"}`), "test-client")
+			w := httptest.NewRecorder()
+
+			svc.HandleCopilotPassthrough(w, r)
+
+			resp := w.Result()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+			}
+
+			if capturedRawQuery != "" {
+				t.Fatalf("expected upstream RawQuery to be empty, got %q", capturedRawQuery)
+			}
+		})
+	}
+}
+
 // ---------- HandleCopilotModels ----------
 
 func TestHandleCopilotModels_Success(t *testing.T) {

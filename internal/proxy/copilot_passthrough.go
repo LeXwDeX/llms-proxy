@@ -341,10 +341,10 @@ func (s *Service) HandleCopilotPassthrough(w http.ResponseWriter, r *http.Reques
 		upstreamPath = "/"
 	}
 
+	// 故意不转发客户端 query 参数至 Copilot 上游：
+	// GitHub Copilot API 通过 Authorization header 认证，无需 query 参数；
+	// 丢弃可避免 api-key/key/target/api-version 等代理内部参数泄漏到上游访问日志。
 	upstreamURL := baseURL + upstreamPath
-	if r.URL.RawQuery != "" {
-		upstreamURL += "?" + r.URL.RawQuery
-	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.getRequestTimeout())
 	defer cancel()
