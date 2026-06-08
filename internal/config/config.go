@@ -208,9 +208,12 @@ type Target struct {
 
 // Client describes a consumer and its access rights.
 type Client struct {
-	Name           string   `json:"name"`
-	AccessKey      string   `json:"access_key"`
-	AllowedTargets []string `json:"allowed_targets"`
+	Name            string   `json:"name"`
+	AccessKey       string   `json:"access_key"`
+	AllowedTargets  []string `json:"allowed_targets"`
+	QuotaDailyUSD   float64  `json:"quota_daily_usd,omitempty"`
+	QuotaWeeklyUSD  float64  `json:"quota_weekly_usd,omitempty"`
+	QuotaMonthlyUSD float64  `json:"quota_monthly_usd,omitempty"`
 }
 
 // LoggingConfig contains logging level and file paths.

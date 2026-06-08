@@ -4,6 +4,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/copilot"
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
+	"github.com/ycgame/llms-proxy/internal/quota"
 	"github.com/ycgame/llms-proxy/internal/tracestore"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
@@ -49,6 +51,9 @@ type Service struct {
 	traceStore *tracestore.Store
 
 	providerRegistry *ProviderRegistry // endpoint_type → ProviderProfile 映射
+
+	// quotaManager 配额管理器（nil = 未启用配额准入；docs/quota-design.md §10）
+	quotaManager *quota.Manager
 
 	metrics   requestMetrics
 	startTime time.Time
@@ -255,6 +260,12 @@ func (s *Service) SetCopilotService(svc *copilot.CopilotService) {
 	s.copilotService = svc
 }
 
+// SetQuotaManager 注入 quota manager，启用准入阶段配额检查与 SSE 流打断。
+// m 为 nil 时跳过配额检查，请求不受影响。
+func (s *Service) SetQuotaManager(m *quota.Manager) {
+	s.quotaManager = m
+}
+
 func (s *Service) currentUsageRecorder() usage.Recorder {
 	s.usageMu.RLock()
 	defer s.usageMu.RUnlock()
@@ -279,6 +290,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		requestOutcomeRecorded = true
 		s.metrics.totalFailures.Add(1)
 		return
+	}
+
+	// Quota 准入检查（docs/quota-design.md §10）：auth 通过后立即检查配额超限。
+	// 仅在 quotaManager 非 nil 时生效；超限时返回 OpenAI 兼容 429 JSON 错误体。
+	// 隔离约束 §1.2：/copilot/* 路由不经过 proxy.Service.ServeHTTP，天然不受影响。
+	if s.quotaManager != nil {
+		if info, exceeded := s.quotaManager.Check(principal.Name); exceeded {
+			writeQuotaExceededResponse(w, info)
+			requestOutcomeRecorded = true
+			s.metrics.totalFailures.Add(1)
+			return
+		}
 	}
 
 	// Fast-path: if no upstream targets are configured, inform the caller.
@@ -677,6 +700,30 @@ func deferCancel(cancel context.CancelFunc) {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// writeQuotaExceededResponse 渲染 429 超限响应（OpenAI 兼容 JSON；docs/quota-design.md §10.2）。
+// 字段：error.message / error.type / error.code / error.quota.{dimension, limit_usd, used_usd, resets_at}。
+func writeQuotaExceededResponse(w http.ResponseWriter, info quota.ExceededInfo) {
+	body := map[string]any{
+		"error": map[string]any{
+			"message": fmt.Sprintf("Quota exceeded (%s). Limit: $%.2f, used: $%.2f. Resets at %s",
+				info.Dimension, info.Limit, info.Used, info.ResetsAt.UTC().Format(time.RFC3339)),
+			"type": "quota_exceeded",
+			"code": "429",
+			"quota": map[string]any{
+				"dimension": info.Dimension,
+				"limit_usd": info.Limit,
+				"used_usd":  info.Used,
+				"resets_at": info.ResetsAt.UTC().Format(time.RFC3339),
+			},
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(body)
 }
 
 // MetricsSnapshot returns a copy of the service-level metrics counters.

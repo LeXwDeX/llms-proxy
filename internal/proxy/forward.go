@@ -2,6 +2,7 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -576,6 +577,51 @@ func (s *Service) writeResponse(
 
 	writer := newStreamingWriter(w)
 	capture := &limitedCaptureWriter{limit: 2 * 1024 * 1024}
+
+	// SSE Hijack 分支（docs/quota-design.md §9.3）：
+	// 仅当响应是 text/event-stream 且 quotaManager 已启用时尝试劫持。
+	// 劫持成功后：通过 monitorActiveStream 注册 cancel；Manager 超限时触发 TCP RST。
+	// 劫持失败（ResponseWriter 不支持 Hijacker）：降级到原 io.Copy 路径（§15 风险缓解）。
+	respCT := resp.Header.Get("Content-Type")
+	if s.quotaManager != nil && strings.Contains(respCT, "text/event-stream") {
+		principal, _ := auth.PrincipalFromContext(r.Context())
+		clientName := ""
+		if principal != nil {
+			clientName = principal.Name
+		}
+		// Flush headers to wire before hijacking. WriteHeader 已写入内部 buffer；
+		// 显式 Flush 确保 headers 已发送到网络连接上，Hijack 后才不会出现重复头。
+		if fl, ok := w.(http.Flusher); ok {
+			fl.Flush()
+		}
+		conn, hjErr := hijackForQuotaMonitor(w)
+		if hjErr != nil {
+			// Hijacker 接口不可达（如 httptest.ResponseRecorder）：降级到 io.Copy 路径。
+			s.logger.Warn("quota hijack not supported, falling back to io.Copy",
+				"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+				"target", targetName(target),
+				"error", hjErr,
+			)
+		} else {
+			// Hijack 成功：接管底层连接，开始配额监控。
+			cancel := s.monitorActiveStream(r.Context(), clientName, conn)
+			defer cancel()
+			connWriter := newConnFlushWriter(conn)
+			if _, err := io.Copy(connWriter, io.TeeReader(resp.Body, capture)); err != nil &&
+				!errors.Is(err, context.Canceled) &&
+				!errors.Is(err, context.DeadlineExceeded) {
+				s.logger.Warn("SSE hijacked stream copy failed",
+					"request_id", appmiddleware.RequestIDFromContext(r.Context()),
+					"target", targetName(target),
+					"error", err,
+				)
+			}
+			_ = conn.Close() // FIN after stream end or error
+			// SSE 流结束：继续执行后续 usage 记录等逻辑
+			goto recordUsage
+		}
+	}
+
 	if _, err := io.Copy(writer, io.TeeReader(resp.Body, capture)); err != nil &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded) {
@@ -585,6 +631,8 @@ func (s *Service) writeResponse(
 			"error", err,
 		)
 	}
+
+recordUsage:
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		s.recordUsageEvent(r, target, resp.StatusCode, upstreamModel, resp.Header.Get("Content-Type"), capture.Bytes(), state, keyIndex)
@@ -996,6 +1044,28 @@ func (w *streamingWriter) Write(p []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(p)
 	if err == nil && w.flusher != nil {
 		w.flusher.Flush()
+	}
+	return n, err
+}
+
+// connFlushWriter 将 io.Writer 操作写入 Hijack 后的 net.Conn，每次 Write 后 Flush 到 TCP。
+// 仅在 SSE Hijack 路径使用（docs/quota-design.md §9.3），非 SSE 请求走 streamingWriter。
+type connFlushWriter struct {
+	conn net.Conn
+	buf  *bufio.Writer
+}
+
+func newConnFlushWriter(conn net.Conn) *connFlushWriter {
+	return &connFlushWriter{
+		conn: conn,
+		buf:  bufio.NewWriter(conn),
+	}
+}
+
+func (cw *connFlushWriter) Write(p []byte) (int, error) {
+	n, err := cw.buf.Write(p)
+	if err == nil {
+		err = cw.buf.Flush()
 	}
 	return n, err
 }

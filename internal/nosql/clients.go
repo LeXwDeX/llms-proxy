@@ -202,3 +202,32 @@ func cloneClients(clients []config.Client) []config.Client {
 	}
 	return cloned
 }
+
+// ListWithQuota 返回所有至少一个 quota 字段 > 0 的 client。
+// 用于配额检查时只需扫描有限集合（已配额的 client 通常是少量）。
+func (s *ClientStore) ListWithQuota() ([]config.Client, error) {
+	var result []config.Client
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketClients))
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var c config.Client
+			if err := json.Unmarshal(v, &c); err != nil {
+				return fmt.Errorf("unmarshal client %q: %w", string(k), err)
+			}
+			if c.QuotaDailyUSD > 0 || c.QuotaWeeklyUSD > 0 || c.QuotaMonthlyUSD > 0 {
+				result = append(result, cloneClients([]config.Client{c})...)
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		result = []config.Client{}
+	}
+	return result, nil
+}

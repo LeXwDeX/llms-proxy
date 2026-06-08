@@ -19,8 +19,10 @@ import (
 	"github.com/ycgame/llms-proxy/internal/auth"
 	"github.com/ycgame/llms-proxy/internal/catalog"
 	"github.com/ycgame/llms-proxy/internal/config"
+	"github.com/ycgame/llms-proxy/internal/costutil"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/proxy"
+	"github.com/ycgame/llms-proxy/internal/quota"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -84,7 +86,7 @@ func TestHandlerUIEntry(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 
 	for _, route := range []string{"/", "/ui"} {
 		t.Run(route, func(t *testing.T) {
@@ -129,7 +131,7 @@ func TestHandlerUIEntryWhenMountedUnderAuth(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	adminHandler := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	adminHandler := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 	protected := chi.NewRouter()
 	protected.Use(auth.Middleware(store, logger))
 	protected.Mount("/admin", adminHandler)
@@ -170,7 +172,7 @@ func TestHandlerHealthz(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/healthz", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -219,7 +221,7 @@ func TestHandlerMetrics(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/metrics", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -265,7 +267,7 @@ func TestHandlerReloadConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 
 	// Update config with 2 targets and new client.
 	// Also update the bbolt client store to have k2 instead of k1.
@@ -340,7 +342,7 @@ func TestHandlerReloadConfigRejectsInvalidProxyConfig(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 
 	invalid := testConfig(tempDir, 1, []string{"k2"})
 	invalid.Targets[0].Endpoint = "not-a-valid-url"
@@ -389,7 +391,7 @@ func TestHandlerDataClientsCRUD(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/data/clients", nil))
@@ -773,7 +775,7 @@ func newTargetUpdateTestHandlerWithService(t *testing.T, tempDir string, keys []
 	if err != nil {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 	return h, manager, stores, service
 }
 
@@ -801,7 +803,7 @@ func newNamedTargetUpdateTestHandler(t *testing.T, tempDir, name string, keys []
 	if err != nil {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 	return h, stores, service
 }
 
@@ -872,7 +874,7 @@ func TestHandlerUsageSummary(t *testing.T) {
 		t.Fatalf("failed to init proxy service: %v", err)
 	}
 
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 
 	body := bytes.NewBufferString(`{"input_per_1m_tokens":10,"output_per_1m_tokens":20,"cached_input_per_1m_tokens":0}`)
 	rec := httptest.NewRecorder()
@@ -965,7 +967,7 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 	}
 
 	// Scenario 1: catalog only (no custom costs) — should use catalog default_cost
-	table := toUsageCostTable(nil, cat)
+	table := costutil.ToCostTable(nil, cat)
 	rate, ok := table.LookupCost("openai", "gpt-4o")
 	if !ok {
 		t.Fatal("expected catalog default cost for openai:gpt-4o, got not found")
@@ -979,7 +981,7 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 	customCosts := []nosql.ModelCost{
 		{EndpointType: "openai", Model: "gpt-4o", InputPer1MTokens: 999, OutputPer1MTokens: 888},
 	}
-	table = toUsageCostTable(customCosts, cat)
+	table = costutil.ToCostTable(customCosts, cat)
 	rate, ok = table.LookupCost("openai", "gpt-4o")
 	if !ok {
 		t.Fatal("expected cost for openai:gpt-4o after custom override")
@@ -998,7 +1000,7 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 	}
 
 	// Scenario 4: nil catalog — only custom costs
-	table = toUsageCostTable(customCosts, nil)
+	table = costutil.ToCostTable(customCosts, nil)
 	rate, ok = table.LookupCost("openai", "gpt-4o")
 	if !ok || rate.InputPer1MTokens != 999 {
 		t.Fatalf("expected custom rate with nil catalog, got ok=%v rate=%+v", ok, rate)
@@ -1034,7 +1036,7 @@ func TestHandlerEndpointTypesEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init proxy service: %v", err)
 	}
-	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, logger)
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/data/endpoint-types", nil)
 	rec := httptest.NewRecorder()
@@ -1071,5 +1073,218 @@ func TestHandlerEndpointTypesEndpoint(t *testing.T) {
 		if !found {
 			t.Errorf("API 未返回 %s", code)
 		}
+	}
+}
+
+// ---------- Quota Status Endpoint ----------
+
+// TestHandlerQuotaStatus_QuotaManagerNil_503 验证 quotaManager 未配置时返回 503。
+func TestHandlerQuotaStatus_QuotaManagerNil_503(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg := testConfig(tempDir, 1, []string{"k1"})
+	clients := testClients([]string{"k1"})
+	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	manager := config.NewManager(configPath)
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("init auth store: %v", err)
+	}
+	service, err := proxy.NewService(cfg, logger)
+	if err != nil {
+		t.Fatalf("init proxy service: %v", err)
+	}
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, nil, logger)
+
+	// 请求无 quotaManager 时应返回 503
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/data/quota/k1", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d. body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v. body=%s", err, rec.Body.String())
+	}
+	if !strings.Contains(body.Error, "quota") {
+		t.Errorf("expected error mention 'quota', got %q", body.Error)
+	}
+}
+
+// TestHandlerQuotaStatus_ClientNotFound_ReturnsEmpty 验证未知 client 返回空 Status JSON（非 404）。
+func TestHandlerQuotaStatus_ClientNotFound_ReturnsEmpty(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg := testConfig(tempDir, 1, []string{"k1"})
+	clients := testClients([]string{"k1"})
+	writeConfigFile(t, configPath, cfg)
+
+	stores := setupTestStores(t, tempDir)
+	seedClients(t, stores.clientStore, clients)
+
+	// 创建一个空 quota manager（client store 为空 → Status 返回空结构）
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cat, _ := catalog.New()
+	qm, err := quota.New(quota.Options{
+		Catalog:     cat,
+		ClientStore: stores.clientStore,
+		UsageStore:  stores.usageStore,
+		CostStore:   stores.modelCostStore,
+		Logger:      logger,
+		Interval:    time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("quota.New: %v", err)
+	}
+
+	manager := config.NewManager(configPath)
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("init auth store: %v", err)
+	}
+	service, err := proxy.NewService(cfg, logger)
+	if err != nil {
+		t.Fatalf("init proxy service: %v", err)
+	}
+	h := NewHandler(manager, store, service, stores.auditStore, stores.userStore, stores.clientStore, stores.targetStore, stores.modelCostStore, stores.usageStore, nil, stores.copilotPoolStore, nil, nil, nil, qm, logger)
+
+	// 不存在的 client：返回 200 + 空 quotas（QuotaStatus 中 Exceeded=nil）
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/data/quota/unknown", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. body=%s", rec.Code, rec.Body.String())
+	}
+
+	var status quota.QuotaStatus
+	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v. body=%s", err, rec.Body.String())
+	}
+	if status.Client != "unknown" {
+		t.Errorf("expected client 'unknown', got %q", status.Client)
+	}
+	if status.Exceeded != nil {
+		t.Errorf("expected Exceeded=nil for unknown client, got %+v", status.Exceeded)
+	}
+}
+
+// TestHandlerQuotaStatus_ClientExceeded 验证 client 超限时返回 200 + Exceeded 非空。
+// 使用独立的 bbolt DB 以便直接写入 usage_agg_hourly 数据。
+func TestHandlerQuotaStatus_ClientExceeded(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg := testConfig(tempDir, 1, []string{"k1"})
+	clients := testClients([]string{"k1"})
+	writeConfigFile(t, configPath, cfg)
+
+	// 自建 db + stores（不依赖 setupTestStores，方便暴露 db 给 BackfillUsageAgg）
+	dbPath := filepath.Join(tempDir, "quota-test.db")
+	db, err := nosql.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	cStore := nosql.NewClientStore(db)
+	mCostStore := nosql.NewModelCostStore(db)
+	uStore := nosql.NewUsageStore(db)
+	aStore := nosql.NewAuditStore(db)
+	usStore := nosql.NewUserStore(db)
+	tsStore := nosql.NewTargetStore(db)
+	cpStore := nosql.NewCopilotPoolStore(db)
+
+	// 创建配额 $1 的 client
+	if err := cStore.Create(config.Client{
+		Name:          "alice",
+		AccessKey:     "k-alice",
+		QuotaDailyUSD: 1.0,
+	}); err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	// 创建模型费用
+	if err := mCostStore.Upsert(nosql.ModelCost{
+		Model:             "gpt-4",
+		InputPer1MTokens:  30.0,
+		OutputPer1MTokens: 60.0,
+	}); err != nil {
+		t.Fatalf("upsert cost: %v", err)
+	}
+	// 写入 usage event
+	if err := uStore.Record(usage.Event{
+		Timestamp:    time.Now().UTC(),
+		ClientName:   "alice",
+		EndpointType: "openai",
+		Model:        "gpt-4",
+		InputTokens:  200_000,
+		StatusCode:   200,
+	}); err != nil {
+		t.Fatalf("record usage: %v", err)
+	}
+	if err := nosql.BackfillUsageAgg(db); err != nil {
+		t.Fatalf("BackfillUsageAgg: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cat, _ := catalog.New()
+	qm, err := quota.New(quota.Options{
+		Catalog:     cat,
+		ClientStore: cStore,
+		UsageStore:  uStore,
+		CostStore:   mCostStore,
+		Logger:      logger,
+		Interval:    time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("quota.New: %v", err)
+	}
+	qm.Evaluate("alice")
+
+	info, exceeded := qm.Check("alice")
+	if !exceeded {
+		t.Fatalf("setup: alice not exceeded after Evaluate; info=%+v", info)
+	}
+
+	manager := config.NewManager(configPath)
+	store := auth.NewStore()
+	if err := store.LoadFromConfig(clients); err != nil {
+		t.Fatalf("init auth store: %v", err)
+	}
+	service, err := proxy.NewService(cfg, logger)
+	if err != nil {
+		t.Fatalf("init proxy service: %v", err)
+	}
+	h := NewHandler(manager, store, service, aStore, usStore, cStore, tsStore, mCostStore, uStore, nil, cpStore, nil, nil, nil, qm, logger)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/data/quota/alice", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. body=%s", rec.Code, rec.Body.String())
+	}
+
+	var status quota.QuotaStatus
+	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v. body=%s", err, rec.Body.String())
+	}
+	if status.Client != "alice" {
+		t.Errorf("expected client 'alice', got %q", status.Client)
+	}
+	if status.Exceeded == nil {
+		t.Fatal("expected Exceeded to be non-nil for exceeded client")
+	}
+	if status.Exceeded.Dimension == "" {
+		t.Error("expected Exceeded.Dimension populated")
+	}
+	if status.Exceeded.Limit <= 0 || status.Exceeded.Used <= 0 {
+		t.Errorf("expected Exceeded.Limit/Used > 0, got limit=%v used=%v", status.Exceeded.Limit, status.Exceeded.Used)
 	}
 }

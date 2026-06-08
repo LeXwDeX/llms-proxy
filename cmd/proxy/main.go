@@ -26,6 +26,7 @@ import (
 	appmiddleware "github.com/ycgame/llms-proxy/internal/middleware"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/proxy"
+	"github.com/ycgame/llms-proxy/internal/quota"
 )
 
 func main() {
@@ -267,6 +268,32 @@ func main() {
 	// Inject copilot service into proxy.
 	proxyService.SetCopilotService(copilotService)
 
+	// Initialize client quota manager（docs/quota-design.md §3）。
+	// 周期性评估所有配置了 quota 的 client；超限时在请求准入阶段返回 429，并在 SSE 流期间触发 TCP RST 中断。
+	// 构造失败时降级为 nil Manager，s.quotaManager == nil 跳过检查，不影响主链路。
+	quotaMgr, quotaMgrErr := quota.New(quota.Options{
+		Catalog:     modelCatalog,
+		CostStore:   modelCostStore,
+		UsageStore:  usageStore,
+		ClientStore: clientStore,
+		Logger:      appLogger,
+		Interval:    5 * time.Second,
+	})
+	if quotaMgrErr != nil {
+		appLogger.Warn("failed to initialize quota manager, quota checks disabled", "error", quotaMgrErr)
+		quotaMgr = nil
+	}
+	if quotaMgr != nil {
+		quotaCtx, quotaCancel := context.WithCancel(context.Background())
+		defer quotaCancel()
+		if err := quotaMgr.Start(quotaCtx); err != nil {
+			appLogger.Warn("quota manager start failed, quota checks disabled", "error", err)
+		} else {
+			proxyService.SetQuotaManager(quotaMgr)
+			defer quotaMgr.Stop()
+		}
+	}
+
 	// Start periodic quota sync.
 	quotaSyncCtx, quotaSyncCancel := context.WithCancel(context.Background())
 	defer quotaSyncCancel()
@@ -288,7 +315,7 @@ func main() {
 
 	adminRouter := chi.NewRouter()
 	adminRouter.Use(sessionManager.Middleware)
-	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, userStore, clientStore, targetStore, modelCostStore, usageStore, modelCatalog, copilotPoolStore, copilotService, copilotAcctStore, copilotQuotaMgr, appLogger))
+	adminRouter.Mount("/", admin.NewHandler(manager, authStore, proxyService, auditStore, userStore, clientStore, targetStore, modelCostStore, usageStore, modelCatalog, copilotPoolStore, copilotService, copilotAcctStore, copilotQuotaMgr, quotaMgr, appLogger))
 	router.Mount("/admin", adminRouter)
 
 	protected := chi.NewRouter()

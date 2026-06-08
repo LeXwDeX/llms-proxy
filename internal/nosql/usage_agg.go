@@ -260,3 +260,71 @@ func BackfillUsageAgg(db *bolt.DB) error {
 
 	return nil
 }
+
+// UsageTotals 单模型 token 累计。
+type UsageTotals struct {
+	InputTokens  int64
+	OutputTokens int64
+	CachedTokens int64
+}
+
+// SumByClientRange 按 endpoint_type:model 分组聚合指定 client + 时间范围的小时格。
+// 用 Cursor Seek 做范围扫描（禁止 ForEach 全量扫后过滤，避免 O(N) 遍历整 bucket）。
+// 返回的 map key = "<endpoint_type>:<model>"，legacy 空 endpoint_type 表现为 ":<model>"。
+//
+// 见 docs/quota-design.md §7.1。
+func (s *UsageStore) SumByClientRange(client string, from, to time.Time) (map[string]UsageTotals, error) {
+	client = strings.TrimSpace(client)
+	result := make(map[string]UsageTotals)
+	from = from.UTC().Truncate(time.Hour)
+	to = to.UTC().Truncate(time.Hour)
+	if to.Before(from) {
+		return result, nil
+	}
+
+	fromHour := from.Format(hourLayout)
+	toHour := to.Format(hourLayout)
+
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketUsageAggHourly))
+		if b == nil {
+			return nil
+		}
+		curs := b.Cursor()
+		// Upper-bound: same sentinel pattern as aggIter — "}" (ASCII 125) sits strictly
+		// after "|" (ASCII 124), so endPrefix+"}" is greater than every key "endPrefix|...".
+		endStop := append([]byte(toHour), '}')
+
+		for k, v := curs.Seek([]byte(fromHour)); k != nil; k, v = curs.Next() {
+			if string(k) > string(endStop) {
+				break
+			}
+			hour, et, kClient, model, ok := parseAggKey(k)
+			if !ok {
+				continue
+			}
+			kHour := hour.Format(hourLayout)
+			if kHour < fromHour || kHour > toHour {
+				if kHour > toHour {
+					break
+				}
+				continue
+			}
+			if kClient != client {
+				continue
+			}
+			var cell AggCell
+			if err := json.Unmarshal(v, &cell); err != nil {
+				continue
+			}
+			groupKey := et + ":" + model
+			totals := result[groupKey]
+			totals.InputTokens += cell.InputTokens
+			totals.OutputTokens += cell.OutputTokens
+			totals.CachedTokens += cell.CachedTokens
+			result[groupKey] = totals
+		}
+		return nil
+	})
+	return result, err
+}

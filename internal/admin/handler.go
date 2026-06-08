@@ -17,8 +17,10 @@ import (
 	"github.com/ycgame/llms-proxy/internal/catalog"
 	"github.com/ycgame/llms-proxy/internal/config"
 	"github.com/ycgame/llms-proxy/internal/copilot"
+	"github.com/ycgame/llms-proxy/internal/costutil"
 	"github.com/ycgame/llms-proxy/internal/nosql"
 	"github.com/ycgame/llms-proxy/internal/proxy"
+	"github.com/ycgame/llms-proxy/internal/quota"
 	"github.com/ycgame/llms-proxy/internal/usage"
 )
 
@@ -38,6 +40,7 @@ type Handler struct {
 	copilotService   *copilot.CopilotService    // nil = copilot 未配置
 	copilotAcctStore *nosql.CopilotAccountStore // nil = copilot 未配置
 	copilotQuotaMgr  *copilot.QuotaManager      // nil = copilot 未配置
+	quotaManager     *quota.Manager             // nil = 配额管理未启用
 	logger           *slog.Logger
 }
 
@@ -57,6 +60,7 @@ func NewHandler(
 	copilotService *copilot.CopilotService,
 	copilotAcctStore *nosql.CopilotAccountStore,
 	copilotQuotaMgr *copilot.QuotaManager,
+	quotaMgr *quota.Manager,
 	logger *slog.Logger,
 ) http.Handler {
 	h := &Handler{
@@ -74,6 +78,7 @@ func NewHandler(
 		copilotService:   copilotService,
 		copilotAcctStore: copilotAcctStore,
 		copilotQuotaMgr:  copilotQuotaMgr,
+		quotaManager:     quotaMgr,
 		logger:           logger,
 	}
 
@@ -137,6 +142,9 @@ func NewHandler(
 		// Model catalog
 		r.Get("/catalog", h.handleListCatalog)
 		r.Get("/catalog/{endpoint_type}", h.handleListCatalogByType)
+
+		// Quota status（docs/quota-design.md §11）
+		r.Get("/quota/{client}", h.handleQuotaStatus)
 
 		// Endpoint type metadata（单一信息源，UI 下拉/徽章数据）
 		r.Get("/endpoint-types", h.handleListEndpointTypes)
@@ -295,7 +303,7 @@ func (h *Handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		h.writeInternalError(w, "failed to list model costs", err)
 		return
 	}
-	summary, err := h.usageStore.Summary(now, toUsageCostTable(costs, h.modelCatalog))
+	summary, err := h.usageStore.Summary(now, costutil.ToCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to summarize usage", err)
 		return
@@ -679,7 +687,7 @@ func (h *Handler) handleAggregateUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.usageStore.Aggregate(filter, r.URL.Query().Get("group_by"), toUsageCostTable(costs, h.modelCatalog))
+	result, err := h.usageStore.Aggregate(filter, r.URL.Query().Get("group_by"), costutil.ToCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to aggregate usage", err)
 		return
@@ -695,7 +703,7 @@ func (h *Handler) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.usageStore.Summary(time.Now().UTC(), toUsageCostTable(costs, h.modelCatalog))
+	result, err := h.usageStore.Summary(time.Now().UTC(), costutil.ToCostTable(costs, h.modelCatalog))
 	if err != nil {
 		h.writeInternalError(w, "failed to summarize usage", err)
 		return
@@ -1458,50 +1466,24 @@ func parseTimeValue(raw string) (*time.Time, error) {
 	return &t, nil
 }
 
-// toUsageCostTable builds a cost lookup table.
-// Priority: custom model_costs override > catalog embedded default prices.
-func toUsageCostTable(costs []nosql.ModelCost, cat *catalog.Catalog) usage.CostTable {
-	table := make(usage.CostTable)
 
-	// Layer 1: Fill catalog default prices as baseline.
-	if cat != nil {
-		for _, entry := range cat.ListAll() {
-			if entry.DefaultCost == nil || entry.Model == "" {
-				continue
-			}
-			model := strings.ToLower(strings.TrimSpace(entry.Model))
-			epType := strings.ToLower(strings.TrimSpace(entry.EndpointType))
-			rates := usage.CostRates{
-				InputPer1MTokens:      entry.DefaultCost.InputPer1MTokens,
-				OutputPer1MTokens:     entry.DefaultCost.OutputPer1MTokens,
-				CachedInputPer1MToken: entry.DefaultCost.CachedInputPer1MToken,
-			}
-			if epType != "" {
-				table[epType+":"+model] = rates
-			}
-			table[model] = rates
-		}
+
+// handleQuotaStatus 返回指定 client 的配额使用状态（docs/quota-design.md §11.2）。
+//   - quotaManager 为 nil 时返回 503 Service Unavailable。
+//   - client 缺失返回 400 Bad Request。
+//   - 正常返回 200 + quota.QuotaStatus JSON（无论是否超限）。
+func (h *Handler) handleQuotaStatus(w http.ResponseWriter, r *http.Request) {
+	clientName := chi.URLParam(r, "client")
+	if clientName == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse("client name required"))
+		return
 	}
-
-	// Layer 2: Custom model_costs override (higher priority).
-	for _, cost := range costs {
-		model := strings.ToLower(strings.TrimSpace(cost.Model))
-		epType := strings.ToLower(strings.TrimSpace(cost.EndpointType))
-		if model == "" {
-			continue
-		}
-		rates := usage.CostRates{
-			InputPer1MTokens:      cost.InputPer1MTokens,
-			OutputPer1MTokens:     cost.OutputPer1MTokens,
-			CachedInputPer1MToken: cost.CachedInputPer1MToken,
-		}
-		if epType != "" {
-			table[epType+":"+model] = rates
-		}
-		table[model] = rates
+	if h.quotaManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse("quota manager not configured"))
+		return
 	}
-
-	return table
+	status := h.quotaManager.Status(clientName)
+	writeJSON(w, http.StatusOK, status)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
