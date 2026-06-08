@@ -52,7 +52,7 @@ type clientCounters struct {
 	dims map[string]*dimCounter // keyed by DimensionDaily/Weekly/Monthly
 }
 
-// Manager manages quota evaluation and stream cancellation.
+// Manager manages quota evaluation.
 // Decision source: in-memory counters + exceeded map.
 type Manager struct {
 	catalog     *catalog.Catalog
@@ -61,11 +61,9 @@ type Manager struct {
 	clientStore *nosql.ClientStore
 	logger      *slog.Logger
 
-	mu            sync.RWMutex
-	exceeded      map[string]ExceededInfo
-	counters      map[string]*clientCounters // clientName → per-dim counters
-	activeStreams map[string]map[int64]context.CancelFunc
-	nextStreamID  atomic.Int64
+	mu       sync.RWMutex
+	exceeded map[string]ExceededInfo
+	counters map[string]*clientCounters // clientName → per-dim counters
 
 	// hourly calibration timer
 	calTimer *time.Timer
@@ -80,14 +78,13 @@ func New(opts Options) (*Manager, error) {
 		logger = slog.Default()
 	}
 	return &Manager{
-		catalog:       opts.Catalog,
-		costStore:     opts.CostStore,
-		usageStore:    opts.UsageStore,
-		clientStore:   opts.ClientStore,
-		logger:        logger,
-		exceeded:      make(map[string]ExceededInfo),
-		counters:      make(map[string]*clientCounters),
-		activeStreams: make(map[string]map[int64]context.CancelFunc),
+		catalog:     opts.Catalog,
+		costStore:   opts.CostStore,
+		usageStore:  opts.UsageStore,
+		clientStore: opts.ClientStore,
+		logger:      logger,
+		exceeded:    make(map[string]ExceededInfo),
+		counters:    make(map[string]*clientCounters),
 	}, nil
 }
 
@@ -157,7 +154,7 @@ func (m *Manager) calibrateAll() {
 	}
 }
 
-// Stop halts calibration timer and clears active stream map.
+// Stop halts calibration timer.
 func (m *Manager) Stop() {
 	if !m.started.Swap(false) {
 		return
@@ -168,9 +165,6 @@ func (m *Manager) Stop() {
 	if m.stopCh != nil {
 		close(m.stopCh)
 	}
-	m.mu.Lock()
-	m.activeStreams = make(map[string]map[int64]context.CancelFunc)
-	m.mu.Unlock()
 }
 
 // Increment adds cost to a client's in-memory counters and updates exceeded state.
@@ -240,21 +234,7 @@ func (m *Manager) Increment(clientName string, epType string, model string, inpu
 						"resets_at", dc.resetsAt)
 				}
 
-				// Cancel in-flight SSE streams.
-				var cancels []context.CancelFunc
-				if cancelSet, ok := m.activeStreams[clientName]; ok {
-					for _, cancel := range cancelSet {
-						cancels = append(cancels, cancel)
-					}
-				}
 				m.mu.Unlock()
-				if len(cancels) > 0 {
-					go func(cs []context.CancelFunc) {
-						for _, c := range cs {
-							c()
-						}
-					}(cancels)
-				}
 				return
 			}
 		}
@@ -442,7 +422,6 @@ func (m *Manager) Evaluate(clientName string) {
 	m.mu.Lock()
 	prevExceeded := m.exceeded[clientName].Dimension != ""
 
-	var cancels []context.CancelFunc
 	var firstExceeded *ExceededInfo
 	for _, dimOrder := range []string{DimensionDaily, DimensionWeekly, DimensionMonthly} {
 		dc := cc.dims[dimOrder]
@@ -457,12 +436,6 @@ func (m *Manager) Evaluate(clientName string) {
 				ResetsAt:  dc.resetsAt,
 			}
 			firstExceeded = &info
-			// Collect cancel functions.
-			if cancelSet, ok := m.activeStreams[clientName]; ok {
-				for _, cancel := range cancelSet {
-					cancels = append(cancels, cancel)
-				}
-			}
 			break // only record first exceeded dimension
 		}
 	}
@@ -483,15 +456,6 @@ func (m *Manager) Evaluate(clientName string) {
 	m.counters[clientName] = cc
 
 	m.mu.Unlock()
-
-	// Invoke cancels outside lock.
-	if len(cancels) > 0 {
-		go func(cs []context.CancelFunc) {
-			for _, c := range cs {
-				c()
-			}
-		}(cancels)
-	}
 }
 
 // Check returns whether the client's quota is exceeded.
@@ -523,28 +487,6 @@ func (m *Manager) Check(clientName string) (ExceededInfo, bool) {
 		return ExceededInfo{}, false
 	}
 	return info, true
-}
-
-// RegisterActiveStream registers a stream's cancel function under a client.
-// Returns an unregister closure.
-func (m *Manager) RegisterActiveStream(clientName string, cancel context.CancelFunc) func() {
-	id := m.nextStreamID.Add(1)
-	m.mu.Lock()
-	if m.activeStreams[clientName] == nil {
-		m.activeStreams[clientName] = make(map[int64]context.CancelFunc)
-	}
-	m.activeStreams[clientName][id] = cancel
-	m.mu.Unlock()
-	return func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		if set, ok := m.activeStreams[clientName]; ok {
-			delete(set, id)
-			if len(set) == 0 {
-				delete(m.activeStreams, clientName)
-			}
-		}
-	}
 }
 
 // Status returns the quota usage report for a client.

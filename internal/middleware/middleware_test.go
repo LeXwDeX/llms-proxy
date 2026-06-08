@@ -11,10 +11,8 @@ import (
 )
 
 // TestResponseRecorder_ImplementsHijacker verifies that responseRecorder exposes
-// the http.Hijacker interface so that quota TCP RST interruption works through
-// the AccessLogger middleware wrapper. Without this, hijackForQuotaMonitor in
-// quota_hijack.go falls back to io.Copy and quota-enforced SSE streams cannot
-// be forcibly terminated.
+// the http.Hijacker interface so that the AccessLogger middleware wrapper does not
+// block Hijacker passthrough for scenarios requiring underlying connection access.
 func TestResponseRecorder_ImplementsHijacker(t *testing.T) {
 	// Use httptest.NewServer to get a real HTTP connection whose underlying
 	// ResponseWriter implements http.Hijacker (as opposed to httptest.NewRecorder).
@@ -24,8 +22,8 @@ func TestResponseRecorder_ImplementsHijacker(t *testing.T) {
 		// Wrap with responseRecorder exactly as AccessLogger does.
 		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 
-		// 1. The type assertion that quota_hijack.go performs must succeed.
-		// quota_hijack.go receives http.ResponseWriter (interface) and asserts
+		// 1. The type assertion for http.Hijacker must succeed.
+		// responseRecorder wraps http.ResponseWriter (interface) and asserts
 		// w.(http.Hijacker), so we replicate that exact pattern here.
 		var wIface http.ResponseWriter = rec
 		hj, ok := wIface.(http.Hijacker)

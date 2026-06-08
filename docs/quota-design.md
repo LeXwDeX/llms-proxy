@@ -41,10 +41,8 @@ quota Manager 的 `Check` / 超限标记 / SSE 中断链路**不得**介入 Copi
 > 与 `AGENTS.md` 全局协议对齐：
 
 - **性能零妥协**：配额评估不在请求热路径（不在 ServeHTTP 同步链路中调用），不读 DB，不计算费用。
-- **异步观察者模型**：配额系统作为外挂层存在，对主转发仅暴露 2 个接口：`Check(client) bool`（查内存标记）与 `RegisterActiveStream`（注册 SSE 中断回调）。
-- **延迟生效优先于强一致**：超限在"下次请求"或"当前 SSE 流中段"才生效，允许本次请求在临近极限时跑完并产生超额。
-- **打断走 TCP RST，不走协议层**：中断信号通过 `SetLinger(0)` + `Close()` 强制 RST，不解析 SSE / event 协议，对 OpenAI / Anthropic / Gemini 通杀；客户端感知为"连接被重置"，下次请求收到 429。
-- **不侵入 io.Copy 主循环**：SSE 打断通过 Hijack + 外层 goroutine 监控 cancel 实现，主转发循环（io.Copy）保持原状。
+- **异步观察者模型**：配额系统作为外挂层存在，对主转发仅暴露 1 个接口：`Check(client) bool`（查内存标记）。
+- **延迟生效优先于强一致**：超限在"下次请求"时才生效，允许当前 SSE 流自然跑完并产生轻微超额。
 - **DB 是配置的单一来源**：Client 配额配置只存 DB；超限标记只存内存，重启从 DB 读取 + 重算标记。
 - **自然周期自动重置**：日/周/月边界到来时内存标记自动失效，无需定时器或人工解封。
 
@@ -57,7 +55,6 @@ quota Manager 的 `Check` / 超限标记 / SSE 中断链路**不得**介入 Copi
 | 职责 | 方法 | 调用方 | 时机 |
 |---|---|---|---|
 | 准入检查 | `Check(clientName) (ExceededInfo, bool)` | `proxy.Service.ServeHTTP` | 认证通过后，进入 selectTarget 之前 |
-| 活跃流注册 | `RegisterActiveStream(clientName, cancel context.CancelFunc) func()` | `proxy.Service.writeResponse`（SSE 分支） | SSE 流开始；返回 unregister 闭包，defer 调用 |
 | 异步评估 | `Evaluate(clientName)` | 内部定时器 + 启动时批量 | 由 Manager 内部调度，外部不主动调用 |
 | 配额进度查询 | `Status(clientName) QuotaStatus` | `admin.Handler` 的 `/admin/data/quota/{client}` | 按需 |
 
@@ -126,18 +123,6 @@ map[clientName] → ExceededInfo{
 - 标记可被 `Evaluate` 更新（如日重置后月仍然超，则替换为月）。
 - 标记可被 `Check` 自动清除（检测到 `ResetsAt ≤ now`）。
 
-### 5.3 内存活跃流映射（不持久化）
-
-Manager 内部维护：
-
-```
-map[clientName] → set[context.CancelFunc]
-```
-
-- 每个进行中的 SSE 请求向 Manager 注册其 context 的 cancel 函数。
-- 当 Manager 判定该 client 超限时，**立即调用该集合中所有 cancel 函数**。
-- 集合为空或 client 不存在 → 不做操作。
-
 ---
 
 ## 6. 自然周期计算规范（功能模块约束）
@@ -187,96 +172,36 @@ groupCost = Σ( for each (ep,model) :
 
 ## 8. 评估触发与时序（设计模式约束）
 
-### 8.1 独立定时器
+架构：**memory-first + event-driven + hourly DB calibration**。无 5 秒轮询，无全量重算 ticker。
 
-Manager 启动时启动一个内部 goroutine，**每 5 秒**执行一次：
+### 8.1 内存优先增量 + 惰性周期翻转
 
-```
-每 5 秒：
-  clients = ClientStore.ListWithQuota()  // 仅返回任一 quota_*_usd > 0 的 client
-  for each client in clients:
-    Evaluate(client.Name)
-```
+- **Increment**：请求完成时把本次费用累加到内存计数器（零 DB 命中），超限即更新内存 exceeded 标记。
+- **Check**：准入时只读内存 exceeded 标记（零 DB 命中）。
+- **Lazy period flip**：Increment / Check 检测到 `ResetsAt ≤ now` 时立即清零该维度计数器，消除"周期边界到来"与"下次校准"之间的亚秒级空窗。
+
+### 8.2 每小时 DB 校准 + 启动预加载
+
+- **Evaluate**：单 client 的权威 DB 聚合（基于 `usage_agg_hourly`），用于三处：启动预加载、admin 配置变更、每小时校准。
+- **Hourly calibration**：通过 `time.AfterFunc` 对齐自然小时边界（00:00、01:00…），每个边界对所有 `quota_*_usd > 0` 的 client 执行 `Evaluate`。日/周/月周期边界都落在小时边界上，故校准天然处理周期重置并修正累积漂移。
+- **启动预加载**：`Manager.Start()` 阶段 `ClientStore.ListWithQuota()` 取全部配置配额的 client，串行 `Evaluate` 建立初始标记；超时上限 10s，超过记 WARN 并继续启动（不阻塞进程）。
 
 **约束**：
-- 定时器为 Manager 独占，不共享、不借用。
-- 周期 5s 为硬编码常量，后续如需调整通过配置项开放。
-- 评估本身允许并发，但单 client 不得并发 Evaluate（内部按 client 加轻量锁）。
-
-### 8.2 启动时批量预加载
-
-Manager.Start() 阶段：
-1. `ClientStore.ListWithQuota()` 取全部配置了配额的 client；
-2. 串行对每个 client 执行一次 `Evaluate(client.Name)`，建立初始标记；
-3. 启动定时器 goroutine。
-
-**约束**：启动阶段超时上限 10s，超过则记录 WARN 并继续启动（不阻塞进程）。
+- 校准定时器为 Manager 独占，不共享、不借用。
+- 单 client 不得并发 Evaluate（内部按 client 加轻量锁）。
 
 ### 8.3 Shutdown
 
 Manager.Stop()：
-- 停止定时器；
-- 清空活跃流映射（不调用 cancel，让调用方自然结束）。
+- 停止定时器和校准定时器。
 
 ---
 
-## 9. 中断协议 — TCP RST（功能模块约束）
+## 9. 中断机制（已废弃）
 
-### 9.1 中断手段
-
-当 Manager 判定 client 超限且该 client 有活跃流时，Manager 调用其注册的 `context.CancelFunc`。代理转发层在检测到 cancel 触发的"连接被中断"语义后，**强制发出 TCP RST**（而非优雅 FIN）断开连接。
-
-**实现路径**（由 proxy 层实现，quota 只负责 cancel）：
-
-```
-1. 在 writeResponse 入口处 Hijack 底层 net.Conn（仅 SSE 分支）
-2. Hijack 后 conn 写入 SetLinger(0) + 注册到 Manager 活跃流映射
-3. Manager 调用 cancel → 外层监控 goroutine 执行 conn.Close()
-4. SetLinger(0) 使得 Close 发送 RST 而非 FIN
-```
-
-### 9.2 不使用 SSE 错误事件
-
-**明确拒绝**以下备选方案：
-
-| 方案 | 拒绝理由 |
-|---|---|
-| 注入 `event: error` + close | 需要协议层知识，三家 SSE 协议（OpenAI / Anthropic / Gemini）行为不一致；某些 SDK 会把 `data:` 行当合法 chunk 处理 |
-| HTTP trailer header 携带错误 | 客户端普遍不读 trailer |
-| GoAway / HTTP/2 RST_STREAM | 当前服务 HTTP/1.1 为主，HTTP/2 走 stdlib wrapper 不便精细控制 |
-
-**TCP RST 的客户端感知**：`connection reset by peer` / `EOF` / `broken pipe`，所有 SDK（OpenAI / Anthropic / Gemini / cURL）均能捕获并向上抛出异常。客户端通过下次请求（429）得到明确的限速语义。
-
-### 9.3 侵入面
-
-**不替换 io.Copy 主循环**。侵入方式：
-
-| 位置 | 改动 | 范围 |
-|---|---|---|
-| `proxy/forward.go::writeResponse`（SSE 分支） | Hijack `net.Conn`，替换原 `streamingWriter` 写入路径；Hijack 后仍走 `io.Copy`，目标改为 hijacked conn 的 writer | 仅 SSE 检测为真时 |
-| `proxy/forward.go` 新增 | `monitorActiveStream(ctx, clientName, conn, quotaManager)` 函数：外层 goroutine，监听 ctx.Done() 后执行 `conn.SetLinger(0); conn.Close()` | 新增函数 |
-| 非 SSE 响应 | 不变 | — |
-
-**严格约束**：
-- Hijack 仅在 Content-Type 为 `text/event-stream` 或 body 检测为 SSE 特征时执行。
-- Hijack 后 `http.ResponseWriter` 不再可用（`w` 失效），response headers 必须在 Hijack 前写完。
-- `capture` 仍需在 Hijack 后通过 `io.TeeReader` 工作，确保 `recordUsageEvent` 能拿到完整已接收数据。
-- Hijack 失败（接口不可达）时退化为原 `io.Copy` 路径，不阻断请求（记录 WARN 日志）。
-
-### 9.4 Hijack 时机细节
-
-在 `writeResponse` 中，Hijack 必须在写完以下 headers 之后、首次写 body 之前执行：
-
-```
-Content-Type: text/event-stream
-X-Proxy-Target: <target>
-X-Azure-Target: <target>
-... 其他 hop headers
-```
-
-写入 headers 后立即 `Flush()` 触发 headers 发送，然后 `Hijack()` 拿到 conn。后续 body 通过 `conn.Write` 直发客户端，每次 chunk 后调用 `conn.Flush()`（若实现 `bufio.ReadWriter`）。
-
-**约束**：Hijack 之前不允许已调用过 `streamingWriter.Write`（避免 headers 与 body 顺序错乱）。
+> 本节描述的 SSE 流中途 TCP RST 中断机制已于 2026-06-08 废弃。
+> 当前策略：quota 超限仅通过准入检查（请求前 429）拦截，已在跑的 SSE 流让其自然跑完。
+> 原 §9 的 Hijack + activeStreams + TCP RST 相关代码（`quota_hijack.go`、`forward.go` SSE Hijack 分支、`Manager.RegisterActiveStream`、`nextStreamID`）已删除。
 
 ---
 
@@ -389,10 +314,9 @@ GET /admin/data/quota/{client}
 
 | 文件 | 改动 |
 |---|---|
-| `proxy/forward.go::writeResponse` | SSE 分支增加 Hijack 路径 + `monitorActiveStream` 外层 goroutine（cancel 触发 TCP RST） |
 | `proxy/service.go::ServeHTTP` | 加一行 Check 判断 429 早返回 |
 
-> 注：`io.Copy` 的调用语义保持等价（仍用 TeeReader 同步 capture），但 SSE 分支的目标从 `http.ResponseWriter` 替换为 hijacked `net.Conn`。非 SSE 分支完全不变。
+> 注：quota 系统仅作为准入检查外挂，不侵入转发链路（io.Copy 调用语义完全不变）。
 
 ---
 
@@ -420,7 +344,6 @@ GET /admin/data/quota/{client}
 ### Phase 4：接入主链路
 
 - `proxy/service.go` 注入 Manager，加 429 早返回 + 集成测试；
-- `proxy/forward.go` SSE 分支 Hijack + `monitorActiveStream` 外层 goroutine + TCP RST 端到端中断测试；
 - `admin.Handler` 新增 `/quota/{client}` + 测试。
 
 ### Phase 5：灰度与观察
@@ -439,11 +362,10 @@ GET /admin/data/quota/{client}
 
 ### 功能
 
-- 任一维度超限 → 当前活跃 SSE 流在 ≤ 5s 内被 TCP RST 强制中断，客户端感知为 `connection reset` / `broken pipe`。
 - 超限 client 的下次请求返回 429 + 标准 JSON 错误体。
+- 已在跑的 SSE 流不受 quota 影响，让其自然跑完（quota 是软限制）。
 - 自然周期切换瞬间内存标记自动失效，下次请求放行。
 - 服务重启后 10s 内，所有应超的 client 标记被重建。
-- Hijack 失败时退化为原路径（记录 WARN），请求不受阻断。
 
 ### 数据正确性
 
@@ -461,14 +383,10 @@ GET /admin/data/quota/{client}
 
 | 风险 | 缓解 |
 |---|---|
-| **TCP RST 破坏客户端体验**：客户端 SDK 收到 `connection reset` 而非结构化错误（如"quota exceeded"），错误信息不友好 | 下次请求的 429 响应体提供完整结构化错误信息，SDK 重试逻辑会拿到；客户端可在 SDK 外层捕获 reset 并提示用户 |
-| **Hijack 在某些 proxy / 中间件下不可用**：如反向代理或 TLS termination 后，`http.ResponseWriter` 不实现 `http.Hijacker` | 设计约束已包含：Hijack 不可用时退化为原路径（仅标记，不打断当前请求），记录 WARN |
-| **5s 评估周期带来超额窗口**：客户端极限附近仍能发出 1-2 个完整请求 | §2 设计原则已明确接受此权衡；限额作为风控上限而非精确预算 |
-| **`usage_agg_hourly` range scan 在大 client 数量下变慢** | Phase 5 灰度期实测；必要时增加按 client 分 bucket 的索引 |
-| **`toUsageCostTable` 重构导致 admin 现有测试回归** | Phase 3 要求保留并跑通 admin 现有全部测试后才合并 |
-| **Manager goroutine 泄漏**：Shutdown 未正确退出定时器 / 活跃流映射未清理 | Phase 3 必须包含 context lifecycle 单测：模拟服务关闭后 goroutine 数量不增 |
-| **误判（不该超的被超）**：CostTable 价格不准 / token 累加 bug | Phase 5 灰度；Admin `/quota/{client}` API 提供审计入口；误判可通过临时调高 quota 即时解除 |
-| **漏判（应超的未超）**：定时器失效 / 聚合查询漏扫 | 同上；定时器退出必须 panic/WARN，不静默失败 |
+| **`usage_agg_hourly` range scan 在大 client 数量下变慢** | 实测观测；必要时增加按 client 分 bucket 的索引 |
+| **`toUsageCostTable` 重构导致 admin 现有测试回归** | 实施前跑通 admin 现有全部测试 |
+| **误判（不该超的被超）**：CostTable 价格不准 / token 累加 bug | Admin `/quota/{client}` API 提供审计入口；误判可通过临时调高 quota 即时解除 |
+| **漏判（应超的未超）**：定时器失效 / 聚合查询漏扫 | 定时器退出必须 panic/WARN，不静默失败 |
 
 ---
 

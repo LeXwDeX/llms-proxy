@@ -260,7 +260,7 @@ func (s *Service) SetCopilotService(svc *copilot.CopilotService) {
 	s.copilotService = svc
 }
 
-// SetQuotaManager 注入 quota manager，启用准入阶段配额检查与 SSE 流打断。
+// SetQuotaManager 注入 quota manager，启用准入阶段配额检查。
 // m 为 nil 时跳过配额检查，请求不受影响。
 func (s *Service) SetQuotaManager(m *quota.Manager) {
 	s.quotaManager = m

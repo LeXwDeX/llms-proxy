@@ -6,7 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
-	"sync/atomic"
+
 	"testing"
 	"time"
 
@@ -233,38 +233,6 @@ func TestManagerEvaluate_AutoClearOnCycle(t *testing.T) {
 	_, exceeded := m.Check("alice")
 	if exceeded {
 		t.Error("expected Check to auto-clear past ResetsAt")
-	}
-}
-
-func TestManagerEvaluate_CancelsActiveStreams(t *testing.T) {
-	db := testOpenDB(t)
-	m := newTestManager(t, db)
-
-	putClient(t, db, config.Client{Name: "alice", AccessKey: "k1", QuotaDailyUSD: 10})
-	putModelCost(t, db, nosql.ModelCost{
-		EndpointType: "openai", Model: "gpt-4o",
-		InputPer1MTokens: 10, OutputPer1MTokens: 10,
-	})
-	// $10 usage → exceeded
-	putAggCell(t, db, nowHourKey("openai", "alice", "gpt-4o"), nosql.AggCell{
-		InputTokens:  500_000,
-		OutputTokens: 500_000,
-	})
-
-	// Register a cancel function
-	var cancelCalled atomic.Bool
-	unregister := m.RegisterActiveStream("alice", func() {
-		cancelCalled.Store(true)
-	})
-	defer unregister()
-
-	m.Evaluate("alice")
-
-	// Give goroutine a moment to call cancels (spec: cancel may be in goroutine)
-	time.Sleep(50 * time.Millisecond)
-
-	if !cancelCalled.Load() {
-		t.Error("expected cancel to be called when client exceeded")
 	}
 }
 

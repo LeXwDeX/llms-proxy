@@ -134,10 +134,9 @@ func (r *responseRecorder) Flush() {
 	}
 }
 
-// Hijack implements http.Hijacker so that quota TCP RST interruption works
-// through the AccessLogger middleware wrapper. Without this, hijackForQuotaMonitor
-// in proxy/quota_hijack.go cannot assert the interface and falls back to io.Copy,
-// preventing quota-enforced SSE streams from being forcibly terminated.
+// Hijack implements http.Hijacker so that responseRecorder passes through the
+// AccessLogger middleware while still supporting Hijacker interface for scenarios
+// that require hijacking the underlying connection.
 func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hj, ok := r.ResponseWriter.(http.Hijacker); ok {
 		return hj.Hijack()
