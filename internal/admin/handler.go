@@ -485,6 +485,10 @@ func (h *Handler) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
 	}
+	// Trigger quota evaluation for this client (config may have changed).
+	if h.quotaManager != nil {
+		h.quotaManager.Evaluate(req.Name)
+	}
 	h.recordAudit(r, "client_create", req.Name, "success", maskKey(req.AccessKey))
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
@@ -518,6 +522,10 @@ func (h *Handler) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
 	}
+	// Trigger quota evaluation (config may have changed).
+	if h.quotaManager != nil {
+		h.quotaManager.Evaluate(name)
+	}
 	h.recordAudit(r, "client_update", name, "success", maskKey(req.AccessKey))
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -542,6 +550,10 @@ func (h *Handler) handleDeleteClient(w http.ResponseWriter, r *http.Request) {
 	if err := h.reloadAuthFromClientStore(); err != nil {
 		h.writeInternalError(w, "failed to apply auth store", err)
 		return
+	}
+	// Clear quota state for deleted client.
+	if h.quotaManager != nil {
+		h.quotaManager.Evaluate(name)
 	}
 	h.recordAudit(r, "client_delete", name, "success", "")
 

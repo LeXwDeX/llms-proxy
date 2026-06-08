@@ -80,7 +80,6 @@ func newTestManager(t *testing.T, db *bolt.DB) *Manager {
 		UsageStore:  nosql.NewUsageStore(db),
 		ClientStore: nosql.NewClientStore(db),
 		Logger:      logger,
-		Interval:    time.Hour, // very long: no auto-evaluate during tests
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -297,7 +296,7 @@ func TestManagerStop_Idempotent(t *testing.T) {
 	m.Stop()
 }
 
-func TestManagerStart_StopTicker(t *testing.T) {
+func TestManagerStart_StopCalibration(t *testing.T) {
 	db := testOpenDB(t)
 	m := newTestManager(t, db)
 
@@ -305,20 +304,18 @@ func TestManagerStart_StopTicker(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// stopCh should be open
-	select {
-	case <-m.stopCh:
-		t.Fatal("stopCh should be open while running")
-	default:
+	// Calibration timer should be active.
+	if m.calTimer == nil {
+		t.Fatal("calTimer should be set after Start")
 	}
 
 	m.Stop()
 
-	// stopCh should be closed
-	select {
-	case <-m.stopCh:
-	default:
-		t.Fatal("stopCh should be closed after Stop")
+	// After Stop, calibration timer should be stopped.
+	// (calTimer.Stop() called inside Stop)
+	// Verify started flag is false.
+	if m.started.Load() {
+		t.Fatal("started should be false after Stop")
 	}
 }
 

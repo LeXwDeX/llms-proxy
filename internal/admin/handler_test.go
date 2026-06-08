@@ -1140,7 +1140,6 @@ func TestHandlerQuotaStatus_ClientNotFound_ReturnsEmpty(t *testing.T) {
 		UsageStore:  stores.usageStore,
 		CostStore:   stores.modelCostStore,
 		Logger:      logger,
-		Interval:    time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("quota.New: %v", err)
@@ -1241,7 +1240,6 @@ func TestHandlerQuotaStatus_ClientExceeded(t *testing.T) {
 		UsageStore:  uStore,
 		CostStore:   mCostStore,
 		Logger:      logger,
-		Interval:    time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("quota.New: %v", err)

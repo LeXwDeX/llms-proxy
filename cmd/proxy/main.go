@@ -277,7 +277,6 @@ func main() {
 		UsageStore:  usageStore,
 		ClientStore: clientStore,
 		Logger:      appLogger,
-		Interval:    5 * time.Second,
 	})
 	if quotaMgrErr != nil {
 		appLogger.Warn("failed to initialize quota manager, quota checks disabled", "error", quotaMgrErr)

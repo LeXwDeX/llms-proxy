@@ -90,7 +90,6 @@ func buildQuotaExceededManager(t *testing.T, clientName string) *quota.Manager {
 		UsageStore:  usageStore,
 		ClientStore: clientStore,
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Interval:    time.Hour, // 不会在测试期间触发定时评估
 	})
 	if err != nil {
 		t.Fatalf("quota.New failed: %v", err)
@@ -283,7 +282,6 @@ func TestServeHTTP_QuotaNotExceeded_PassThrough(t *testing.T) {
 	mgr, err := quota.New(quota.Options{
 		Catalog:     cat,
 		Logger:      logger,
-		Interval:    time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("quota.New failed: %v", err)

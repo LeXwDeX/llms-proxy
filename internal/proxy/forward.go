@@ -938,6 +938,12 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 			"error", err,
 		)
 	}
+
+	// Quota incremental update: add cost to in-memory counters.
+	if s.quotaManager != nil && found {
+		s.quotaManager.Increment(principal.Name, endpointType, upstreamModel,
+			tokens.InputTokens, tokens.OutputTokens, tokens.CachedTokens)
+	}
 }
 
 func (s *Service) handleForwardError(r *http.Request, state *targetState, err error, status int) {

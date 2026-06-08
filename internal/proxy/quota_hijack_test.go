@@ -71,7 +71,7 @@ func TestMonitorActiveStream_NilManager_ReturnsNoop(t *testing.T) {
 func TestMonitorActiveStream_NilConn_ReturnsNoop(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cat, _ := catalog.New()
-	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger, Interval: time.Hour})
+	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger})
 	if err != nil {
 		t.Fatalf("quota.New: %v", err)
 	}
@@ -113,7 +113,7 @@ func (m *mockNetConn) Close() error {
 func TestMonitorActiveStream_RegistersToManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cat, _ := catalog.New()
-	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger, Interval: time.Hour})
+	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger})
 	if err != nil {
 		t.Fatalf("quota.New: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestMonitorActiveStream_RegistersToManager(t *testing.T) {
 func TestMonitorActiveStream_ContextCancelClosesConn(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cat, _ := catalog.New()
-	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger, Interval: time.Hour})
+	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger})
 	if err != nil {
 		t.Fatalf("quota.New: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestMonitorActiveStream_ContextCancelClosesConn(t *testing.T) {
 func TestMgrCancelBehavior_SetLingerAndClose(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cat, _ := catalog.New()
-	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger, Interval: time.Hour})
+	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger})
 	if err != nil {
 		t.Fatalf("quota.New: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestMgrCancelBehavior_SetLingerAndClose(t *testing.T) {
 func TestMonitorActiveStream_NoGoroutineLeak(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cat, _ := catalog.New()
-	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger, Interval: time.Hour})
+	mgr, err := quota.New(quota.Options{Catalog: cat, Logger: logger})
 	if err != nil {
 		t.Fatalf("quota.New: %v", err)
 	}
