@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
@@ -131,6 +132,17 @@ func (r *responseRecorder) Flush() {
 	if fl, ok := r.ResponseWriter.(http.Flusher); ok {
 		fl.Flush()
 	}
+}
+
+// Hijack implements http.Hijacker so that quota TCP RST interruption works
+// through the AccessLogger middleware wrapper. Without this, hijackForQuotaMonitor
+// in proxy/quota_hijack.go cannot assert the interface and falls back to io.Copy,
+// preventing quota-enforced SSE streams from being forcibly terminated.
+func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
 
 // Unwrap returns the underlying ResponseWriter, allowing http.NewResponseController

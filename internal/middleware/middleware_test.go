@@ -10,6 +10,71 @@ import (
 	"testing"
 )
 
+// TestResponseRecorder_ImplementsHijacker verifies that responseRecorder exposes
+// the http.Hijacker interface so that quota TCP RST interruption works through
+// the AccessLogger middleware wrapper. Without this, hijackForQuotaMonitor in
+// quota_hijack.go falls back to io.Copy and quota-enforced SSE streams cannot
+// be forcibly terminated.
+func TestResponseRecorder_ImplementsHijacker(t *testing.T) {
+	// Use httptest.NewServer to get a real HTTP connection whose underlying
+	// ResponseWriter implements http.Hijacker (as opposed to httptest.NewRecorder).
+	done := make(chan string, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Wrap with responseRecorder exactly as AccessLogger does.
+		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
+
+		// 1. The type assertion that quota_hijack.go performs must succeed.
+		// quota_hijack.go receives http.ResponseWriter (interface) and asserts
+		// w.(http.Hijacker), so we replicate that exact pattern here.
+		var wIface http.ResponseWriter = rec
+		hj, ok := wIface.(http.Hijacker)
+		if !ok {
+			done <- "FAIL: responseRecorder does not implement http.Hijacker"
+			return
+		}
+
+		// 2. Hijack must return a usable connection.
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			done <- "FAIL: Hijack returned error: " + err.Error()
+			return
+		}
+		defer conn.Close()
+
+		// 3. The hijacked connection must be writable.
+		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nHijacked"))
+		if err != nil {
+			done <- "FAIL: conn.Write failed: " + err.Error()
+			return
+		}
+
+		done <- "OK"
+	}))
+	defer server.Close()
+
+	// Send a request to trigger the handler.
+	resp, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if string(body) != "Hijacked" {
+		t.Fatalf("expected body %q, got %q", "Hijacked", string(body))
+	}
+
+	// Verify the handler-side assertion succeeded.
+	result := <-done
+	if result != "OK" {
+		t.Fatal(result)
+	}
+}
+
 type recordCollector struct {
 	mu      sync.Mutex
 	records []map[string]any
