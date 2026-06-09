@@ -2323,14 +2323,14 @@
       document.getElementById("add-custom-header").addEventListener("click", function(){ addCustomHeaderRow("",""); });
       function collectCustomHeaders() {
         var headers = {};
-        var count = 0;
         document.querySelectorAll("#custom-headers-container > div").forEach(function(row) {
           var inputs = row.querySelectorAll("input");
           var name = inputs[0].value.trim();
           var value = inputs[1].value;
-          if (name) { headers[name] = value; count++; }
+          if (name) headers[name] = value;
         });
-        return count > 0 ? headers : null;
+        // 始终返回对象（含空 {}）：update 时让 handler 真正清空字段，create 时空 map 由 omitempty 省略
+        return headers;
       }
 
       // ===== Custom Body KV editor =====
@@ -2347,7 +2347,6 @@
       document.getElementById("add-custom-body").addEventListener("click", function(){ addCustomBodyRow("",""); });
       function collectCustomBody() {
         var body = {};
-        var count = 0;
         document.querySelectorAll("#custom-body-container > div").forEach(function(row) {
           var inputs = row.querySelectorAll("input");
           var name = inputs[0].value.trim();
@@ -2355,9 +2354,9 @@
           if (!name) return;
           // Try to parse as JSON; if fails, use as string
           try { body[name] = JSON.parse(rawValue); } catch(e) { body[name] = rawValue; }
-          count++;
         });
-        return count > 0 ? body : null;
+        // 始终返回对象（含空 {}）：update 时让 handler 真正清空字段，create 时空 map 由 omitempty 省略
+        return body;
       }
 
       function openTargetModal(t) {
