@@ -294,9 +294,6 @@ func validateTarget(target config.Target) error {
 	if strings.TrimSpace(target.Endpoint) == "" {
 		return errors.New("endpoint must not be empty")
 	}
-	if epType == config.EndpointTypeAzureOpenAI && strings.TrimSpace(target.ResourcePathPrefix) == "" {
-		return errors.New("resource_path_prefix is required for azure_openai targets")
-	}
 	hasAnyKey := strings.TrimSpace(target.APIKey) != ""
 	for _, key := range target.APIKeys {
 		if strings.TrimSpace(key) != "" {
@@ -315,7 +312,6 @@ func normalizeTarget(target config.Target) config.Target {
 	target.Name = strings.TrimSpace(target.Name)
 	target.EndpointType = config.NormalizeEndpointType(target.EndpointType)
 	target.Endpoint = strings.TrimSpace(target.Endpoint)
-	target.ResourcePathPrefix = strings.TrimSpace(target.ResourcePathPrefix)
 	target.APIKey = strings.TrimSpace(target.APIKey)
 	target.KeyResetTime = strings.TrimSpace(target.KeyResetTime)
 	target.ProviderClass = strings.TrimSpace(target.ProviderClass)

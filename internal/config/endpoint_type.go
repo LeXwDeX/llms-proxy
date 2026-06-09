@@ -16,7 +16,7 @@ type EndpointTypeMeta struct {
 	ShortLabel                 string `json:"short_label"`                   // UI 缩写（客户端列表等紧凑场景）
 	BadgeBackground            string `json:"badge_background"`              // CSS 背景色
 	BadgeForeground            string `json:"badge_foreground"`              // CSS 前景色
-	RequiresResourcePathPrefix bool   `json:"requires_resource_path_prefix"` // 是否需要 resource_path_prefix（仅 azure_openai）
+	RequiresResourcePathPrefix bool   `json:"requires_resource_path_prefix"` // deprecated: 不再使用，保留避免 JSON 反序列化报错
 	SupportsBearerPassthrough  bool   `json:"supports_bearer_passthrough"`   // 是否支持 allow_bearer_passthrough（仅 azure_openai）
 }
 
@@ -28,7 +28,7 @@ var endpointTypes = []EndpointTypeMeta{
 	{
 		Code: EndpointTypeAzureOpenAI, DisplayName: "Azure OpenAI", ShortLabel: "Azure",
 		BadgeBackground: "#e0f2fe", BadgeForeground: "#0284c7",
-		RequiresResourcePathPrefix: true, SupportsBearerPassthrough: true,
+		RequiresResourcePathPrefix: false, SupportsBearerPassthrough: true,
 	},
 	{
 		Code: EndpointTypeOpenAI, DisplayName: "OpenAI", ShortLabel: "OpenAI",

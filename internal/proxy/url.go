@@ -50,10 +50,10 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 		// 准备 endpoint path
 		forward.Path = pathMapper.PrepareEndpointPath(forward.Path)
 		// 改写客户端路径
-		path = pathMapper.RewritePath(original.Path, target.ResourcePathPrefix)
+		path = pathMapper.RewritePath(original.Path, "")
 	} else {
 		// 兼容旧逻辑（不应到达，因为所有 endpoint_type 都已注册）
-		path = mergePaths(target.ResourcePathPrefix, original.Path)
+		path = mergePaths("", original.Path)
 	}
 
 	// Concatenate paths explicitly instead of using url.URL.Parse, because

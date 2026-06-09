@@ -189,7 +189,7 @@ type Target struct {
 	Name               string   `json:"name"`
 	EndpointType       string   `json:"endpoint_type,omitempty"` // azure_openai | openai | claude | gemini | openai_image | dual_protocol; default azure_openai
 	Endpoint           string   `json:"endpoint"`
-	ResourcePathPrefix string   `json:"resource_path_prefix"`
+	ResourcePathPrefix string   `json:"resource_path_prefix,omitempty"` // deprecated: 保留用于旧数据反序列化，运行时不再使用
 	APIKey             string   `json:"api_key"`
 	APIKeys            []string `json:"api_keys,omitempty"`       // 额外 key 池（与 api_key 合并为有序池）
 	KeyResetTime       string   `json:"key_reset_time,omitempty"` // 额度重置时间点（CST），格式 "23"/"monthly:23"（每月23号）或 "2006-01-02"/"2006-01-02 15:04"
@@ -465,10 +465,7 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(target.Endpoint) == "" {
 			problems = append(problems, prefix+" endpoint must not be empty")
 		}
-		// resource_path_prefix is required only for azure_openai targets.
-		if epType == EndpointTypeAzureOpenAI && strings.TrimSpace(target.ResourcePathPrefix) == "" {
-			problems = append(problems, prefix+" resource_path_prefix must not be empty for azure_openai targets")
-		}
+
 		hasAnyKey := strings.TrimSpace(target.APIKey) != ""
 		if !hasAnyKey {
 			for _, k := range target.APIKeys {

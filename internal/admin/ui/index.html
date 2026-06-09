@@ -944,7 +944,6 @@
                     <th>名称</th>
                     <th>类型</th>
                     <th>Endpoint</th>
-                    <th>路径前缀</th>
                     <th>状态</th>
                     <th>密钥状态</th>
                     <th>SSE聚合</th>
@@ -1499,10 +1498,6 @@
           <label>Endpoint URL <span style="color:#ef4444">*</span></label>
           <input class="form-control" id="tgtEndpoint" placeholder="https://api.openai.com">
           <small id="tgtEndpointHint" style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px;"></small>
-        </div>
-        <div class="form-group" id="tgtRppGroup">
-          <label>资源路径前缀 <span style="color:#ef4444">*</span></label>
-          <input class="form-control" id="tgtRpp" placeholder="/openai" value="/openai">
         </div>
         <div class="form-group" id="tgtApiKeysGroup">
           <label>API Keys <span style="color:#ef4444">*</span></label>
@@ -2136,7 +2131,6 @@
             +"<td><span class='badge' style='background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:4px;font-size:12px;'>"
             +esc(epDisplayName(t.endpoint_type))+"</span></td>"
             +"<td style='max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' title='"+esc(t.endpoint)+"'>"+esc(t.endpoint)+"</td>"
-            +"<td>"+esc(t.resource_path_prefix||"-")+"</td>"
             +"<td>"+pauseBadge+"</td>"
             +"<td>"+keyStatus+"</td>"
             +"<td>"+sseAgg+"</td>"
@@ -2204,7 +2198,6 @@
         var isClaude = (epType === "claude" || epType === "wangsu_claude");
         var isOpenAIImage = (epType === "openai_image");
         var isOpenAILike = (epType === "azure_openai" || epType === "openai");
-        document.getElementById("tgtRppGroup").style.display = "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
         document.getElementById("tgtImageOperationGroup").style.display = isOpenAIImage ? "" : "none";
@@ -2220,7 +2213,7 @@
         var ep = document.getElementById("tgtEndpoint");
         var hint = document.getElementById("tgtEndpointHint");
         var presets = {
-          azure_openai:                { ph: "https://<resource>.openai.azure.com",      tip: "Azure OpenAI 资源根 URL；具体 deployment 路径由「资源路径前缀」与请求路径拼接。" },
+          azure_openai:                { ph: "https://<resource>.openai.azure.com",      tip: "Azure OpenAI 资源根 URL。" },
           openai:                      { ph: "https://api.openai.com",                   tip: "OpenAI 官方 API 根 URL。" },
           claude:                      { ph: "https://api.anthropic.com",                tip: "Anthropic 官方 API 根 URL。" },
           gemini:                      { ph: "https://generativelanguage.googleapis.com",tip: "Google Gemini 官方 API 根 URL。" },
@@ -2369,7 +2362,6 @@
         document.getElementById("tgtType").value = t ? (t.endpoint_type || "azure_openai") : "azure_openai";
         document.getElementById("tgtEndpoint").value = t ? t.endpoint : "";
         var epType = t ? (t.endpoint_type || "azure_openai") : "azure_openai";
-        document.getElementById("tgtRpp").value = (epType === "azure_openai") ? (t ? (t.resource_path_prefix || "/openai") : "/openai") : "";
         document.getElementById("tgtAllowBearer").checked = t ? !!t.allow_bearer_passthrough : false;
         document.getElementById("tgtPaused").checked = t ? !!t.paused : false;
         document.getElementById("tgtAuthMode").value = t ? (t.auth_mode || "") : "";
@@ -2448,7 +2440,6 @@
         var name = document.getElementById("tgtName").value.trim();
         var epType = document.getElementById("tgtType").value;
         var endpoint = document.getElementById("tgtEndpoint").value.trim();
-        var rpp = (epType === "azure_openai") ? document.getElementById("tgtRpp").value.trim() : "";
         var allowBearer = document.getElementById("tgtAllowBearer").checked;
         var paused = document.getElementById("tgtPaused").checked;
         var authMode = document.getElementById("tgtAuthMode").value;
@@ -2471,7 +2462,6 @@
             var updateBody = {
               endpoint_type: epType,
               endpoint: endpoint,
-              resource_path_prefix: rpp,
               paused: paused,
               allow_bearer_passthrough: allowBearer,
               auth_mode: authMode,
@@ -2489,7 +2479,7 @@
           } else {
             await api("/admin/data/targets", { method: "POST", body: {
               name: name, endpoint_type: epType, endpoint: endpoint,
-              resource_path_prefix: rpp, api_key: apiKey,
+              api_key: apiKey,
               paused: paused,
               allow_bearer_passthrough: allowBearer, auth_mode: authMode,
               image_operation: imageOperation,

@@ -380,7 +380,7 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 		}
 	})
 
-	// azure_openai target: resource_path_prefix required
+	// azure_openai target: resource_path_prefix no longer required (deprecated)
 	t.Run("azure_openai without resource_path_prefix", func(t *testing.T) {
 		cfg := base()
 		cfg.Targets = []Target{{
@@ -389,11 +389,8 @@ func TestConfigValidateEndpointTypes(t *testing.T) {
 			APIKey:   "key",
 		}}
 		err := cfg.Validate()
-		if err == nil {
-			t.Fatal("expected validation error for missing resource_path_prefix")
-		}
-		if !contains(err.Error(), "resource_path_prefix must not be empty for azure_openai targets") {
-			t.Fatalf("unexpected error: %v", err)
+		if err != nil {
+			t.Fatalf("expected no validation error, got %v", err)
 		}
 	})
 }

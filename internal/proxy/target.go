@@ -461,7 +461,6 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			Name:              strings.TrimSpace(t.Name),
 			EndpointType:      config.NormalizeEndpointType(t.EndpointType),
 			Endpoint:          endpoint,
-			ResourcePathPrefix: normalizePrefix(t.ResourcePathPrefix),
 			APIKey:            primaryKey,
 			APIKeys:           mergedKeys,
 			KeyResetTime:      t.KeyResetTime,

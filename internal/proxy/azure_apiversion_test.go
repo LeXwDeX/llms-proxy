@@ -10,12 +10,11 @@ import (
 )
 
 func TestBuildURLAzureV1PathNoAPIVersion(t *testing.T) {
-	endpoint, _ := url.Parse("https://yc-east2-us-gpt.openai.azure.com")
+	endpoint, _ := url.Parse("https://yc-east2-us-gpt.openai.azure.com/openai")
 	target := &Target{
-		Name:               "azure",
-		EndpointType:       config.EndpointTypeAzureOpenAI,
-		Endpoint:           endpoint,
-		ResourcePathPrefix: "/openai",
+		Name:         "azure",
+		EndpointType: config.EndpointTypeAzureOpenAI,
+		Endpoint:     endpoint,
 	}
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
@@ -62,12 +61,11 @@ func TestBuildURLAzureV1PathNoAPIVersion(t *testing.T) {
 }
 
 func TestBuildURLAzureDeploymentPathInjectsAPIVersion(t *testing.T) {
-	endpoint, _ := url.Parse("https://yc-east2-us-gpt.openai.azure.com")
+	endpoint, _ := url.Parse("https://yc-east2-us-gpt.openai.azure.com/openai")
 	target := &Target{
-		Name:               "azure",
-		EndpointType:       config.EndpointTypeAzureOpenAI,
-		Endpoint:           endpoint,
-		ResourcePathPrefix: "/openai",
+		Name:         "azure",
+		EndpointType: config.EndpointTypeAzureOpenAI,
+		Endpoint:     endpoint,
 	}
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
@@ -109,12 +107,11 @@ func TestBuildURLAzureDeploymentPathInjectsAPIVersion(t *testing.T) {
 }
 
 func TestBuildURLAzureStripsClientAPIVersion(t *testing.T) {
-	endpoint, _ := url.Parse("https://yc-east2-us-gpt.openai.azure.com")
+	endpoint, _ := url.Parse("https://yc-east2-us-gpt.openai.azure.com/openai")
 	target := &Target{
-		Name:               "azure",
-		EndpointType:       config.EndpointTypeAzureOpenAI,
-		Endpoint:           endpoint,
-		ResourcePathPrefix: "/openai",
+		Name:         "azure",
+		EndpointType: config.EndpointTypeAzureOpenAI,
+		Endpoint:     endpoint,
 	}
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
 

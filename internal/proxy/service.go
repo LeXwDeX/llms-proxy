@@ -65,7 +65,6 @@ type Target struct {
 	Name               string
 	EndpointType       string // azure_openai | openai | claude | gemini | openai_image | dual_protocol
 	Endpoint           *url.URL
-	ResourcePathPrefix string
 	APIKey             string
 	APIKeys            []string // 合并后的有序 key 池 [api_key, api_keys...]
 	KeyResetTime       string   // 额度重置时间点（CST）
@@ -125,7 +124,6 @@ type TargetStatus struct {
 	Name                 string
 	EndpointType         string
 	Endpoint             string
-	ResourcePathPrefix   string
 	Paused               bool
 	Muted                bool
 	MutedUntil           time.Time
@@ -798,7 +796,6 @@ func (s *Service) TargetStatuses(now time.Time) []TargetStatus {
 			Name:                      target.Name,
 			EndpointType:              target.EndpointType,
 			Endpoint:                  endpoint,
-			ResourcePathPrefix:        target.ResourcePathPrefix,
 			Paused:                    target.Paused,
 			Muted:                     state.IsMuted(now),
 			MutedUntil:                stats.MutedUntil,

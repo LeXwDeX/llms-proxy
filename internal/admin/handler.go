@@ -771,7 +771,6 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"name":                     t.Name,
 			"endpoint_type":            epType,
 			"endpoint":                 t.Endpoint,
-			"resource_path_prefix":     t.ResourcePathPrefix,
 			"has_api_key":              t.APIKey != "",
 			"api_key":                  maskedAPIKey,
 			"api_keys":                 maskedAPIKeys,
@@ -809,7 +808,6 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		Name               string               `json:"name"`
 		EndpointType       string               `json:"endpoint_type"`
 		Endpoint           string               `json:"endpoint"`
-		ResourcePathPrefix string               `json:"resource_path_prefix"`
 		APIKey             string               `json:"api_key"`
 		APIKeys            []string             `json:"api_keys"`
 		KeyResetTime       string               `json:"key_reset_time"`
@@ -851,8 +849,6 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rpp := strings.TrimSpace(body.ResourcePathPrefix)
-
 	if err := validateModelMappings(body.ModelMappings); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
 		return
@@ -884,7 +880,6 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		Name:               name,
 		EndpointType:       epType,
 		Endpoint:           endpoint,
-		ResourcePathPrefix: rpp,
 		APIKey:             apiKey,
 		APIKeys:            body.APIKeys,
 		KeyResetTime:       body.KeyResetTime,
@@ -927,7 +922,6 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		EndpointType       string                `json:"endpoint_type"`
 		Endpoint           string                `json:"endpoint"`
-		ResourcePathPrefix string                `json:"resource_path_prefix"`
 		APIKey             *string               `json:"api_key"`
 		APIKeys            *[]string             `json:"api_keys"`
 		KeyResetTime       *string               `json:"key_reset_time"`
@@ -990,8 +984,6 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			if body.Endpoint != "" {
 				t.Endpoint = strings.TrimSpace(body.Endpoint)
 			}
-			rpp := strings.TrimSpace(body.ResourcePathPrefix)
-			t.ResourcePathPrefix = rpp
 			if body.APIKey != nil {
 				resolved, err := resolveSubmittedTargetKey(*body.APIKey, existingKeys)
 				if err != nil {
