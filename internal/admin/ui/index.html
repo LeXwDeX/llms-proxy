@@ -1551,6 +1551,18 @@
           <small style="color:var(--text-muted)">开启后，当客户端请求 non-streaming 但上游返回 SSE 时自动聚合为标准 JSON</small>
         </div>
         <div class="form-group">
+          <label>自定义请求头（Custom Headers）</label>
+          <div id="custom-headers-container"></div>
+          <button type="button" id="add-custom-header" class="btn-add-row">+ 添加 Header</button>
+          <small style="color:var(--text-muted)">每个请求自动注入的 HTTP 请求头（如 X-DashScope-DataInspection）。安全黑名单：Authorization / api-key / Host 等不可覆盖</small>
+        </div>
+        <div class="form-group">
+          <label>自定义请求体字段（Custom Body）</label>
+          <div id="custom-body-container"></div>
+          <button type="button" id="add-custom-body" class="btn-add-row">+ 添加字段</button>
+          <small style="color:var(--text-muted)">每个请求合并到 JSON body 的顶层字段（如 enable_search / result_format）。安全黑名单：model / messages / stream / n 不可覆盖</small>
+        </div>
+        <div class="form-group">
           <label>允许模型（逐行配置）</label>
           <div id="model-mappings-container"></div>
           <button type="button" id="add-model-mapping" class="btn-add-row">+ 添加模型</button>
@@ -2297,6 +2309,57 @@
         return mappings;
       }
 
+      // ===== Custom Headers KV editor =====
+      function addCustomHeaderRow(name, value) {
+        var container = document.getElementById("custom-headers-container");
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:8px;margin-bottom:4px;align-items:center;";
+        row.innerHTML = '<input class="form-control" placeholder="Header Name" style="flex:1;font-size:13px;" value="' + (name||"").replace(/"/g, "&quot;") + '">'
+          + '<input class="form-control" placeholder="Value" style="flex:2;font-size:13px;" value="' + (value||"").replace(/"/g, "&quot;") + '">'
+          + '<button type="button" class="btn btn-sm btn-danger" style="padding:2px 8px;">&times;</button>';
+        row.querySelector("button").addEventListener("click", function(){ row.remove(); });
+        container.appendChild(row);
+      }
+      document.getElementById("add-custom-header").addEventListener("click", function(){ addCustomHeaderRow("",""); });
+      function collectCustomHeaders() {
+        var headers = {};
+        var count = 0;
+        document.querySelectorAll("#custom-headers-container > div").forEach(function(row) {
+          var inputs = row.querySelectorAll("input");
+          var name = inputs[0].value.trim();
+          var value = inputs[1].value;
+          if (name) { headers[name] = value; count++; }
+        });
+        return count > 0 ? headers : null;
+      }
+
+      // ===== Custom Body KV editor =====
+      function addCustomBodyRow(name, value) {
+        var container = document.getElementById("custom-body-container");
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:8px;margin-bottom:4px;align-items:center;";
+        row.innerHTML = '<input class="form-control" placeholder="Field Name" style="flex:1;font-size:13px;" value="' + (name||"").replace(/"/g, "&quot;") + '">'
+          + '<input class="form-control" placeholder="Value (JSON)" style="flex:2;font-size:13px;font-family:monospace;" value="' + (value||"").replace(/"/g, "&quot;") + '">'
+          + '<button type="button" class="btn btn-sm btn-danger" style="padding:2px 8px;">&times;</button>';
+        row.querySelector("button").addEventListener("click", function(){ row.remove(); });
+        container.appendChild(row);
+      }
+      document.getElementById("add-custom-body").addEventListener("click", function(){ addCustomBodyRow("",""); });
+      function collectCustomBody() {
+        var body = {};
+        var count = 0;
+        document.querySelectorAll("#custom-body-container > div").forEach(function(row) {
+          var inputs = row.querySelectorAll("input");
+          var name = inputs[0].value.trim();
+          var rawValue = inputs[1].value;
+          if (!name) return;
+          // Try to parse as JSON; if fails, use as string
+          try { body[name] = JSON.parse(rawValue); } catch(e) { body[name] = rawValue; }
+          count++;
+        });
+        return count > 0 ? body : null;
+      }
+
       function openTargetModal(t) {
         state.editingTarget = t || null;
         document.getElementById("targetModalTitle").textContent = t ? "编辑目标" : "新增目标";
@@ -2321,6 +2384,25 @@
         } else {
           addModelMappingRow("", "");
         }
+        // Custom Headers：填充 KV 行
+        var headersContainer = document.getElementById("custom-headers-container");
+        headersContainer.innerHTML = "";
+        if (t && t.custom_headers) {
+          Object.keys(t.custom_headers).forEach(function(k) {
+            addCustomHeaderRow(k, t.custom_headers[k]);
+          });
+        }
+        if (headersContainer.children.length === 0) addCustomHeaderRow("", "");
+
+        // Custom Body：填充 KV 行
+        var bodyContainer = document.getElementById("custom-body-container");
+        bodyContainer.innerHTML = "";
+        if (t && t.custom_body) {
+          Object.keys(t.custom_body).forEach(function(k) {
+            addCustomBodyRow(k, JSON.stringify(t.custom_body[k]));
+          });
+        }
+        if (bodyContainer.children.length === 0) addCustomBodyRow("", "");
         // API Keys：构建卡片列表（合并 api_key + api_keys + key_statuses）
         tgtKeyList = [];
         var keyStatuses = (t && Array.isArray(t.key_statuses)) ? t.key_statuses : [];
@@ -2372,6 +2454,8 @@
         var imageOperation = document.getElementById("tgtImageOperation").value;
         var sseAutoAgg = document.getElementById("tgtSSEAutoAgg").checked;
         var modelMappings = collectModelMappings();
+        var customHeaders = collectCustomHeaders();
+        var customBody = collectCustomBody();
         // 统一 keypool：从卡片列表读取，第一个为 api_key，其余为 api_keys
         var allKeys = tgtKeyList.map(function(item){return item.ref || item.value;}).filter(Boolean);
         var apiKey = allKeys.length > 0 ? allKeys[0] : "";
@@ -2392,6 +2476,8 @@
               auth_mode: authMode,
               image_operation: imageOperation,
               model_mappings: modelMappings,
+              custom_headers: customHeaders,
+              custom_body: customBody,
               sse_auto_aggregate: sseAutoAgg,
               api_key: apiKey,
               api_keys: apiKeys,
@@ -2406,7 +2492,7 @@
               paused: paused,
               allow_bearer_passthrough: allowBearer, auth_mode: authMode,
               image_operation: imageOperation,
-              model_mappings: modelMappings, sse_auto_aggregate: sseAutoAgg,
+              model_mappings: modelMappings, custom_headers: customHeaders, custom_body: customBody, sse_auto_aggregate: sseAutoAgg,
               api_keys: apiKeys, key_reset_time: keyResetTime
             }});
             toast("目标已创建", "success");

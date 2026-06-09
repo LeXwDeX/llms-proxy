@@ -270,6 +270,11 @@ func (s *Service) forwardRequest(r *http.Request, state *targetState, body []byt
 			upstreamFullURL: upstreamFullURL,
 		}
 	}
+	// Inject target-level custom headers.
+	// Must be after InjectAuth so custom headers cannot override auth credentials.
+	if len(target.CustomHeaders) > 0 {
+		injectCustomHeaders(req, target.CustomHeaders)
+	}
 	req.Host = target.Endpoint.Host
 
 	// ─── httptrace 埋点：仅对大请求（>100KB）启用，避免每个请求分配 10 个闭包 ───

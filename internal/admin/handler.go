@@ -788,6 +788,8 @@ func (h *Handler) handleListTargets(w http.ResponseWriter, r *http.Request) {
 			"openai_prefix":            t.OpenAIPrefix,
 			"anthropic_prefix":         t.AnthropicPrefix,
 			"supports_responses":       t.SupportsResponses,
+			"custom_headers":           t.CustomHeaders,
+			"custom_body":              t.CustomBody,
 		}
 		// 附加 key 池运行时状态
 		if statuses := h.proxyService.KeyPoolStatus(t.Name); statuses != nil {
@@ -820,6 +822,8 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		OpenAIPrefix       string               `json:"openai_prefix"`
 		AnthropicPrefix    string               `json:"anthropic_prefix"`
 		SupportsResponses  bool                 `json:"supports_responses"`
+		CustomHeaders      map[string]string    `json:"custom_headers"`
+		CustomBody         map[string]any       `json:"custom_body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -858,6 +862,15 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if blocked := proxy.ValidateCustomHeaders(body.CustomHeaders); blocked != "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse(fmt.Sprintf("custom_headers contains blocked key %q", blocked)))
+		return
+	}
+	if blocked := proxy.ValidateCustomBody(body.CustomBody); blocked != "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse(fmt.Sprintf("custom_body contains blocked field %q", blocked)))
+		return
+	}
+
 	cfg, err := h.currentConfig()
 	if err != nil {
 		h.writeInternalError(w, "failed to load config", err)
@@ -888,6 +901,8 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 		OpenAIPrefix:       body.OpenAIPrefix,
 		AnthropicPrefix:    body.AnthropicPrefix,
 		SupportsResponses:  body.SupportsResponses,
+		CustomHeaders:      body.CustomHeaders,
+		CustomBody:         body.CustomBody,
 	}
 	cfg.Targets = append(cfg.Targets, newTarget)
 
@@ -929,6 +944,8 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		OpenAIPrefix       *string               `json:"openai_prefix"`
 		AnthropicPrefix    *string               `json:"anthropic_prefix"`
 		SupportsResponses  *bool                 `json:"supports_responses"`
+		CustomHeaders      *map[string]string    `json:"custom_headers"`
+		CustomBody         *map[string]any       `json:"custom_body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid request body"))
@@ -938,6 +955,19 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	if body.ModelMappings != nil {
 		if err := validateModelMappings(*body.ModelMappings); err != nil {
 			writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
+			return
+		}
+	}
+
+	if body.CustomHeaders != nil {
+		if blocked := proxy.ValidateCustomHeaders(*body.CustomHeaders); blocked != "" {
+			writeJSON(w, http.StatusBadRequest, errorResponse(fmt.Sprintf("custom_headers contains blocked key %q", blocked)))
+			return
+		}
+	}
+	if body.CustomBody != nil {
+		if blocked := proxy.ValidateCustomBody(*body.CustomBody); blocked != "" {
+			writeJSON(w, http.StatusBadRequest, errorResponse(fmt.Sprintf("custom_body contains blocked field %q", blocked)))
 			return
 		}
 	}
@@ -1021,6 +1051,12 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.SupportsResponses != nil {
 				t.SupportsResponses = *body.SupportsResponses
+			}
+			if body.CustomHeaders != nil {
+				t.CustomHeaders = *body.CustomHeaders
+			}
+			if body.CustomBody != nil {
+				t.CustomBody = *body.CustomBody
 			}
 
 			// Validate: api_key must be non-empty when allow_bearer is false.

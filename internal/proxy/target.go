@@ -474,6 +474,8 @@ func buildTargetStates(targets []config.Target, logger ...*slog.Logger) (map[str
 			OpenAIPrefix:      t.OpenAIPrefix,
 			AnthropicPrefix:   t.AnthropicPrefix,
 			SupportsResponses: t.SupportsResponses,
+			CustomHeaders:     t.CustomHeaders,
+			CustomBody:        t.CustomBody,
 			allowedModelIdx:   modelIndex,
 		}
 		if info.Name == "" {

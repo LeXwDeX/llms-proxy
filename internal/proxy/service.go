@@ -79,6 +79,8 @@ type Target struct {
 	OpenAIPrefix      string // OpenAI 路径前缀
 	AnthropicPrefix   string // Anthropic 路径前缀
 	SupportsResponses bool   // 是否支持 /v1/responses
+	CustomHeaders     map[string]string // 自定义 HTTP 请求头
+	CustomBody        map[string]any     // 自定义请求体 JSON 顶层字段
 	allowedModelIdx   map[string]string // lowercase(upstream OR fallback) → upstream (original case)
 }
 
@@ -463,10 +465,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Cache control injection: 按 provider 的 BodyPolicy.InjectCacheControl 注入。
-		// 目前仅百炼 Anthropic 路径使用（OpenAI 兼容路径不注入）。
-		if profile != nil && profile.Body.InjectCacheControl != nil {
-			forwardBody = profile.Body.InjectCacheControl(forwardBody, r.URL.Path)
+		// Custom body injection: merge target-level custom body fields.
+		// Injected after sanitize so custom_body bypasses Azure whitelist (operator intent).
+		if len(target.CustomBody) > 0 {
+			forwardBody = injectCustomBody(forwardBody, target.CustomBody)
 		}
 
 		startedAt := time.Now()

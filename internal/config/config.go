@@ -204,6 +204,12 @@ type Target struct {
 	OpenAIPrefix      string `json:"openai_prefix,omitempty"`      // OpenAI 路径前缀，如 "/compatible-mode"
 	AnthropicPrefix   string `json:"anthropic_prefix,omitempty"`   // Anthropic 路径前缀，如 "/apps/anthropic"
 	SupportsResponses bool   `json:"supports_responses,omitempty"` // 是否支持 /v1/responses
+	// CustomHeaders 自定义 HTTP 请求头，每个请求注入。
+	// 受安全黑名单保护，不可覆盖代理层认证头。
+	CustomHeaders map[string]string `json:"custom_headers,omitempty"`
+	// CustomBody 自定义请求体 JSON 顶层字段，每个请求合并到 body。
+	// 受安全黑名单保护，不可覆盖 model/messages/stream/n。
+	CustomBody map[string]any `json:"custom_body,omitempty"`
 }
 
 // Client describes a consumer and its access rights.

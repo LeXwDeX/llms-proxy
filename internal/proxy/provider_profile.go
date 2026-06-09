@@ -155,11 +155,6 @@ type BodyPolicy struct {
 	// 仅 Azure 使用：白名单过滤不兼容字段。
 	// 返回净化后的 body 和被剥离的字段名列表。
 	SanitizeFunc func(r *http.Request, body []byte) ([]byte, []string)
-
-	// InjectCacheControl 可选的 cache_control 注入函数。
-	// 仅 dual_protocol Anthropic 路径使用。
-	// path 参数为客户端原始路径，用于条件性注入。
-	InjectCacheControl func(body []byte, path string) []byte
 }
 
 // ---------------------------------------------------------------------------
@@ -270,24 +265,12 @@ func DefaultProviderRegistry() *ProviderRegistry {
 		Path:         &PassthroughPath{},
 	})
 
-	// dualProtocolCacheControlInjector 是双协议 Anthropic 路径 cache_control 注入函数。
-	// 仅当路径为 Anthropic 格式时注入，OpenAI 兼容路径不注入。
-	dualProtocolCacheControlInjector := func(body []byte, path string) []byte {
-		if isAnthropicStylePath(path) {
-			return injectBailianCacheControl(body)
-		}
-		return body
-	}
-
 	r.Register(&ProviderProfile{
 		EndpointType: config.EndpointTypeDualProtocol,
 		Provider:     "dual_protocol",
 		Protocols:    []config.ProtocolType{config.ProtocolOpenAIChat, config.ProtocolAnthropicMessages},
 		Auth:         &BearerWithConditionalAnthropicVersion{},
 		Path:         &DualProtocolPath{}, // 实际使用时从 target 动态创建
-		Body: BodyPolicy{
-			InjectCacheControl: dualProtocolCacheControlInjector,
-		},
 	})
 
 	r.Register(&ProviderProfile{
