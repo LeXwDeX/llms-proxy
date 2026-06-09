@@ -1544,11 +1544,11 @@
           <input class="form-control" id="tgtKeyResetTime" type="text" placeholder="23（每月23号）或 2026-07-01 08:00">
           <small style="color:var(--text-muted)">额度耗尽的 Key 将在此时间点自动恢复（CST/UTC+8；可填每月几号如 23，留空则使用默认冷却期）</small>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="tgtSSEGroup">
           <label style="display:flex;align-items:center;gap:8px;">
             <input type="checkbox" id="tgtSSEAutoAgg" checked> SSE 自动聚合
           </label>
-          <small style="color:var(--text-muted)">开启后，当客户端请求 non-streaming 但上游返回 SSE 时自动聚合为标准 JSON</small>
+          <small style="color:var(--text-muted)">开启后，当客户端请求 non-streaming 但上游返回 SSE 时自动聚合为标准 JSON（仅 OpenAI 类协议生效）</small>
         </div>
         <div class="form-group">
           <label>自定义请求头（Custom Headers）</label>
@@ -2203,10 +2203,12 @@
         var isAzure = (epType === "azure_openai");
         var isClaude = (epType === "claude" || epType === "wangsu_claude");
         var isOpenAIImage = (epType === "openai_image");
+        var isOpenAILike = (epType === "azure_openai" || epType === "openai");
         document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
         document.getElementById("tgtImageOperationGroup").style.display = isOpenAIImage ? "" : "none";
+        document.getElementById("tgtSSEGroup").style.display = isOpenAILike ? "" : "none";
         // API Keys 和冷却期对所有 provider 类型都显示（统一 keypool 亲和机制）
         applyEndpointPlaceholder(epType);
         renderTgtModelSuggestions(epType);

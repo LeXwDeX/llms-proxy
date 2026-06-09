@@ -90,35 +90,35 @@ func TestShouldAggregateSSE(t *testing.T) {
 	}{
 		{
 			name:    "aggregate: non-streaming request, SSE response, auto-aggregate enabled",
-			target:  &Target{SSEAutoAggregate: true},
+			target:  &Target{EndpointType: config.EndpointTypeAzureOpenAI, SSEAutoAggregate: true},
 			reqBody: []byte(`{"model":"gpt-4","stream":false}`),
 			respCT:  "text/event-stream",
 			want:    true,
 		},
 		{
 			name:    "aggregate: no stream field, SSE response",
-			target:  &Target{SSEAutoAggregate: true},
+			target:  &Target{EndpointType: config.EndpointTypeAzureOpenAI, SSEAutoAggregate: true},
 			reqBody: []byte(`{"model":"gpt-4"}`),
 			respCT:  "text/event-stream; charset=utf-8",
 			want:    true,
 		},
 		{
 			name:    "no aggregate: client requested streaming",
-			target:  &Target{SSEAutoAggregate: true},
+			target:  &Target{EndpointType: config.EndpointTypeAzureOpenAI, SSEAutoAggregate: true},
 			reqBody: []byte(`{"model":"gpt-4","stream":true}`),
 			respCT:  "text/event-stream",
 			want:    false,
 		},
 		{
 			name:    "no aggregate: SSEAutoAggregate disabled",
-			target:  &Target{SSEAutoAggregate: false},
+			target:  &Target{EndpointType: config.EndpointTypeAzureOpenAI, SSEAutoAggregate: false},
 			reqBody: []byte(`{"model":"gpt-4","stream":false}`),
 			respCT:  "text/event-stream",
 			want:    false,
 		},
 		{
 			name:    "no aggregate: response is JSON not SSE",
-			target:  &Target{SSEAutoAggregate: true},
+			target:  &Target{EndpointType: config.EndpointTypeAzureOpenAI, SSEAutoAggregate: true},
 			reqBody: []byte(`{"model":"gpt-4","stream":false}`),
 			respCT:  "application/json",
 			want:    false,
@@ -132,7 +132,7 @@ func TestShouldAggregateSSE(t *testing.T) {
 		},
 		{
 			name:    "aggregate: empty body, SSE response",
-			target:  &Target{SSEAutoAggregate: true},
+			target:  &Target{EndpointType: config.EndpointTypeAzureOpenAI, SSEAutoAggregate: true},
 			reqBody: nil,
 			respCT:  "text/event-stream",
 			want:    true,
@@ -144,6 +144,36 @@ func TestShouldAggregateSSE(t *testing.T) {
 			got := shouldAggregateSSE(tt.target, tt.reqBody, tt.respCT)
 			if got != tt.want {
 				t.Errorf("shouldAggregateSSE() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestShouldAggregateSSE_EndpointTypeWhitelist 验证仅 OpenAI 类协议触发聚合
+func TestShouldAggregateSSE_EndpointTypeWhitelist(t *testing.T) {
+	// requestBody 无 stream 字段，respCT 为 SSE → 仅 OpenAI 类应触发聚合
+	bodyNoStream := []byte(`{"model":"x","messages":[]}`)
+	sseCT := "text/event-stream; charset=utf-8"
+
+	cases := []struct {
+		name         string
+		endpointType string
+		want         bool
+	}{
+		{"azure_openai", "azure_openai", true},
+		{"openai", "openai", true},
+		{"gemini", "gemini", false},
+		{"claude", "claude", false},
+		{"dual_protocol", "dual_protocol", false},
+		{"openai_image", "openai_image", false},
+		{"empty", "", false}, // 空类型不聚合
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := &Target{EndpointType: tc.endpointType, SSEAutoAggregate: true}
+			got := shouldAggregateSSE(target, bodyNoStream, sseCT)
+			if got != tc.want {
+				t.Errorf("shouldAggregateSSE(%q) = %v, want %v", tc.endpointType, got, tc.want)
 			}
 		})
 	}
@@ -315,6 +345,57 @@ func TestAggregateSSEResponse(t *testing.T) {
 		msg := choices[0].(map[string]any)["message"].(map[string]any)
 		if msg["content"] != "ABC" {
 			t.Errorf("expected 'ABC', got %q", msg["content"])
+		}
+	})
+}
+
+// TestAggregateSSEResponse_NonOpenAIFormatFallback 验证非 OpenAI 格式触发 fallback
+func TestAggregateSSEResponse_NonOpenAIFormatFallback(t *testing.T) {
+	t.Run("gemini format (candidates array)", func(t *testing.T) {
+		geminiSSE := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: [DONE]\n\n"
+		_, _, err := aggregateSSEResponse([]byte(geminiSSE))
+		if err == nil {
+			t.Error("expected error for Gemini format (no choices), got nil")
+		}
+		if !strings.Contains(err.Error(), "no content extracted") {
+			t.Errorf("expected 'no content extracted' in error, got %v", err)
+		}
+	})
+
+	t.Run("anthropic format (content_block_delta)", func(t *testing.T) {
+		// Claude SSE 使用 event: content_block_delta / delta.text 结构
+		claudeSSE := strings.Join([]string{
+			`data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","content":[],"model":"claude-3-opus-20240229"}}`,
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`,
+			`data: {"type":"content_block_stop","index":0}`,
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`,
+			`data: {"type":"message_stop"}`,
+		}, "\n")
+		_, _, err := aggregateSSEResponse([]byte(claudeSSE))
+		if err == nil {
+			t.Error("expected error for Anthropic format (no choices), got nil")
+		}
+		if !strings.Contains(err.Error(), "no content extracted") {
+			t.Errorf("expected 'no content extracted' in error, got %v", err)
+		}
+	})
+
+	t.Run("openai responses format (response.output_text.delta)", func(t *testing.T) {
+		// OpenAI Responses API SSE 也不用 choices[].delta.content
+		responsesSSE := strings.Join([]string{
+			`data: {"type":"response.created","response":{"id":"resp_123","status":"in_progress"}}`,
+			`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant"}}`,
+			`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Hello"}`,
+			`data: {"type":"response.output_text.done","output_index":0,"content_index":0,"text":"Hello world"}`,
+			`data: {"type":"response.completed","response":{"id":"resp_123","status":"completed"}}`,
+		}, "\n")
+		_, _, err := aggregateSSEResponse([]byte(responsesSSE))
+		if err == nil {
+			t.Error("expected error for Responses API format (no choices), got nil")
+		}
+		if !strings.Contains(err.Error(), "no content extracted") {
+			t.Errorf("expected 'no content extracted' in error, got %v", err)
 		}
 	})
 }

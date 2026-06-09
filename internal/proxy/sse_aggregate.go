@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/ycgame/llms-proxy/internal/config"
 )
 
 // extractStreamField extracts the "stream" boolean field from a JSON request body
@@ -61,6 +63,19 @@ func extractStreamField(body []byte) (streamValue bool, found bool) {
 //  3. The upstream responded with text/event-stream Content-Type
 func shouldAggregateSSE(target *Target, requestBody []byte, respContentType string) bool {
 	if target == nil || !target.SSEAutoAggregate {
+		return false
+	}
+
+	// 仅对 OpenAI 类协议启用聚合（azure_openai / openai）。
+	// 其他协议（gemini / claude / dual_protocol / openai_image / deepseek / wangsu_* 等）一律跳过：
+	//   - Gemini 用路径级流式（:streamGenerateContent），请求体无 stream 字段，
+	//     强行聚合会把 Gemini SSE 误认为 OpenAI，导致内容全部丢失。
+	//   - Claude / dual_protocol Anthropic 路径使用 Anthropic 原生 SSE 格式
+	//     （event: content_block_delta 等），强行聚合会破坏协议契约。
+	//   - openai_image 为非 chat 协议，不应触发 chat completion 聚合。
+	//   - deepseek / wangsu_* 等类型同理，各有原生协议，不应盲聚合。
+	if target.EndpointType != config.EndpointTypeAzureOpenAI &&
+		target.EndpointType != config.EndpointTypeOpenAI {
 		return false
 	}
 
@@ -170,6 +185,12 @@ func aggregateSSEResponse(body []byte) ([]byte, string, error) {
 
 	if chunkCount == 0 {
 		return nil, "", fmt.Errorf("sse_aggregate: no valid SSE data chunks found")
+	}
+
+	// 兜底：如果解析到 chunks 但 content 为空，说明协议不匹配（上游非 OpenAI 格式），
+	// 返回错误以触发 fallback 到原样透传，避免输出空响应。
+	if len(contentParts) == 0 {
+		return nil, "", fmt.Errorf("sse_aggregate: parsed %d chunks but no content extracted (non-OpenAI format?)", chunkCount)
 	}
 
 	if role == "" {
