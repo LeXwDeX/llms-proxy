@@ -852,10 +852,6 @@ func (h *Handler) handleCreateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rpp := strings.TrimSpace(body.ResourcePathPrefix)
-	if epType == config.EndpointTypeAzureOpenAI && rpp == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse("resource_path_prefix is required for azure_openai targets"))
-		return
-	}
 
 	if err := validateModelMappings(body.ModelMappings); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
@@ -994,13 +990,7 @@ func (h *Handler) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 			if body.Endpoint != "" {
 				t.Endpoint = strings.TrimSpace(body.Endpoint)
 			}
-			// Validate RPP requirement for azure_openai before writing.
-			effectiveEpType := config.NormalizeEndpointType(t.EndpointType)
 			rpp := strings.TrimSpace(body.ResourcePathPrefix)
-			if effectiveEpType == config.EndpointTypeAzureOpenAI && rpp == "" {
-				writeJSON(w, http.StatusBadRequest, errorResponse("resource_path_prefix is required for azure_openai targets"))
-				return
-			}
 			t.ResourcePathPrefix = rpp
 			if body.APIKey != nil {
 				resolved, err := resolveSubmittedTargetKey(*body.APIKey, existingKeys)

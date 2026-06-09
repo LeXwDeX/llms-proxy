@@ -2204,7 +2204,7 @@
         var isClaude = (epType === "claude" || epType === "wangsu_claude");
         var isOpenAIImage = (epType === "openai_image");
         var isOpenAILike = (epType === "azure_openai" || epType === "openai");
-        document.getElementById("tgtRppGroup").style.display = isAzure ? "" : "none";
+        document.getElementById("tgtRppGroup").style.display = "none";
         document.getElementById("tgtBearerGroup").style.display = isAzure ? "" : "none";
         document.getElementById("tgtAuthModeGroup").style.display = isClaude ? "" : "none";
         document.getElementById("tgtImageOperationGroup").style.display = isOpenAIImage ? "" : "none";

@@ -69,7 +69,7 @@ func (s *Service) buildURL(target *Target, original *url.URL) (*url.URL, error) 
 	// 参考：https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle
 	// "The v1 API simplifies authentication, removes the need for dated api-version parameters"
 	if target.EndpointType == config.EndpointTypeAzureOpenAI && isDeploymentBasedPath(forward.Path) {
-		forward.RawQuery = appendAzureAPIVersion(forward.RawQuery, "2025-04-01-preview")
+		forward.RawQuery = appendAzureAPIVersion(forward.RawQuery, "2026-03-01-preview")
 	}
 
 	return &forward, nil

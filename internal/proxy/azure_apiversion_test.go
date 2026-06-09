@@ -1,5 +1,5 @@
 // azure_apiversion_test.go — Azure OpenAI api-version 注入的回归测试。
-// v1 路径（/openai/v1/...）不注入 api-version，deployment-based 路径注入 2025-04-01-preview。
+// v1 路径（/openai/v1/...）不注入 api-version，deployment-based 路径注入 2026-03-01-preview。
 package proxy
 
 import (
@@ -71,7 +71,7 @@ func TestBuildURLAzureDeploymentPathInjectsAPIVersion(t *testing.T) {
 	}
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
 
-	// deployment-based 路径应注入 api-version=2025-04-01-preview
+	// deployment-based 路径应注入 api-version=2026-03-01-preview
 	cases := []struct {
 		clientPath string
 		wantPath   string
@@ -80,17 +80,17 @@ func TestBuildURLAzureDeploymentPathInjectsAPIVersion(t *testing.T) {
 		{
 			"/deployments/gpt-4o/chat/completions",
 			"/openai/deployments/gpt-4o/chat/completions",
-			"api-version=2025-04-01-preview",
+			"api-version=2026-03-01-preview",
 		},
 		{
 			"/deployments/gpt-image-2/images/edits",
 			"/openai/deployments/gpt-image-2/images/edits",
-			"api-version=2025-04-01-preview",
+			"api-version=2026-03-01-preview",
 		},
 		{
 			"/deployments/text-embedding-3-large/embeddings",
 			"/openai/deployments/text-embedding-3-large/embeddings",
-			"api-version=2025-04-01-preview",
+			"api-version=2026-03-01-preview",
 		},
 	}
 	for _, tc := range cases {
@@ -147,8 +147,8 @@ func TestBuildURLAzureStripsClientAPIVersion(t *testing.T) {
 	}
 
 	q2 := got2.Query()
-	if q2.Get("api-version") != "2025-04-01-preview" {
-		t.Errorf("expected api-version=2025-04-01-preview for deployment path, got %q", q2.Get("api-version"))
+	if q2.Get("api-version") != "2026-03-01-preview" {
+		t.Errorf("expected api-version=2026-03-01-preview for deployment path, got %q", q2.Get("api-version"))
 	}
 	if q2.Get("other") != "keep" {
 		t.Errorf("expected other=keep preserved, got %q", q2.Get("other"))
@@ -182,9 +182,9 @@ func TestAppendAzureAPIVersion(t *testing.T) {
 		version  string
 		want     string
 	}{
-		{"", "2025-04-01-preview", "api-version=2025-04-01-preview"},
-		{"other=yes", "2025-04-01-preview", "other=yes&api-version=2025-04-01-preview"},
-		{"foo=bar&baz=1", "2025-04-01-preview", "foo=bar&baz=1&api-version=2025-04-01-preview"},
+		{"", "2026-03-01-preview", "api-version=2026-03-01-preview"},
+		{"other=yes", "2026-03-01-preview", "other=yes&api-version=2026-03-01-preview"},
+		{"foo=bar&baz=1", "2026-03-01-preview", "foo=bar&baz=1&api-version=2026-03-01-preview"},
 	}
 	for _, tc := range cases {
 		got := appendAzureAPIVersion(tc.rawQuery, tc.version)

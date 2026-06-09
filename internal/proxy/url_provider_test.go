@@ -43,7 +43,7 @@ func TestBuildURLWithProviderProfile(t *testing.T) {
 
 		// azure deployment path
 		{"azure deployment", config.EndpointTypeAzureOpenAI, "https://example.openai.azure.com", "/openai/deployments/gpt-4o/chat/completions",
-			"https://example.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-04-01-preview", "", ""},
+			"https://example.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2026-03-01-preview", "", ""},
 	}
 
 	s := &Service{providerRegistry: DefaultProviderRegistry()}
