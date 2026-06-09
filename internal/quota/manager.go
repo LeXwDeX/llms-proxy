@@ -181,29 +181,39 @@ func (m *Manager) Increment(clientName string, epType string, model string, inpu
 	m.mu.Lock()
 	cc := m.counters[clientName]
 	if cc == nil {
-		// No counters yet — try to load from client config.
-		// This handles the case where Increment is called before Evaluate.
-		cc = m.loadCountersFromConfigLocked(clientName)
+		// No counters yet — release lock and evaluate from DB to get accurate usage.
+		// If Evaluate fails (DB unavailable etc.), fallback to loadCountersFromConfigLocked (used=0, best effort).
+		m.mu.Unlock()
+		m.Evaluate(clientName)
+		m.mu.Lock()
+		cc = m.counters[clientName]
 		if cc == nil {
-			m.mu.Unlock()
-			return // client not found or no quota configured
+			cc = m.loadCountersFromConfigLocked(clientName)
+			if cc == nil {
+				m.mu.Unlock()
+				return // client not found or no quota configured
+			}
 		}
 	}
 
 	// Increment each dimension, applying lazy period flip.
 	prevExceeded := m.exceeded[clientName].Dimension != ""
 	allUnderLimit := true
-	for dimName, dc := range cc.dims {
+	for _, dimOrder := range []string{DimensionDaily, DimensionWeekly, DimensionMonthly} {
+		dc := cc.dims[dimOrder]
+		if dc == nil {
+			continue
+		}
 		// Lazy period flip: if ResetsAt has passed, reset counter.
 		if !dc.resetsAt.After(now) {
-			newResetsAt, err := NextResetAt(dimName, now)
+			newResetsAt, err := NextResetAt(dimOrder, now)
 			if err != nil {
 				continue
 			}
 			dc.used = 0
 			dc.resetsAt = newResetsAt
 			// Also refresh limit from DB config (may have changed).
-			m.refreshLimitLocked(clientName, dimName, dc)
+			m.refreshLimitLocked(clientName, dimOrder, dc)
 		}
 		dc.used += costUSD
 		if dc.used >= dc.limit && dc.limit > 0 {
@@ -215,11 +225,15 @@ func (m *Manager) Increment(clientName string, epType string, model string, inpu
 	if allUnderLimit {
 		delete(m.exceeded, clientName)
 	} else {
-		// Find the first exceeded dimension.
-		for dimName, dc := range cc.dims {
+		// Find the first exceeded dimension (deterministic order: daily→weekly→monthly).
+		for _, dimOrder := range []string{DimensionDaily, DimensionWeekly, DimensionMonthly} {
+			dc := cc.dims[dimOrder]
+			if dc == nil {
+				continue
+			}
 			if dc.limit > 0 && dc.used >= dc.limit {
 				newInfo := ExceededInfo{
-					Dimension: dimName,
+					Dimension: dimOrder,
 					Limit:     dc.limit,
 					Used:      dc.used,
 					ResetsAt:  dc.resetsAt,
@@ -229,7 +243,7 @@ func (m *Manager) Increment(clientName string, epType string, model string, inpu
 				// Log only on state transition (first exceed).
 				if !prevExceeded {
 					m.logger.Info("quota.Manager: client quota exceeded",
-						"client", clientName, "dimension", dimName,
+						"client", clientName, "dimension", dimOrder,
 						"limit_usd", dc.limit, "used_usd", dc.used,
 						"resets_at", dc.resetsAt)
 				}
@@ -473,13 +487,18 @@ func (m *Manager) Check(clientName string) (ExceededInfo, bool) {
 		delete(m.exceeded, clientName)
 		// Also reset in-memory counters if they exist.
 		if cc, ok := m.counters[clientName]; ok {
-			for dimName, dc := range cc.dims {
+			for _, dimOrder := range []string{DimensionDaily, DimensionWeekly, DimensionMonthly} {
+				dc := cc.dims[dimOrder]
+				if dc == nil {
+					continue
+				}
 				if dc.resetsAt.Equal(info.ResetsAt) || !dc.resetsAt.After(time.Now().UTC()) {
 					dc.used = 0
-					newResetsAt, err := NextResetAt(dimName, time.Now().UTC())
+					newResetsAt, err := NextResetAt(dimOrder, time.Now().UTC())
 					if err == nil {
 						dc.resetsAt = newResetsAt
 					}
+					m.refreshLimitLocked(clientName, dimOrder, dc)
 				}
 			}
 		}

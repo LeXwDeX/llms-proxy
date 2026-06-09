@@ -712,7 +712,7 @@ func writeQuotaExceededResponse(w http.ResponseWriter, info quota.ExceededInfo) 
 			"message": fmt.Sprintf("Quota exceeded (%s). Limit: $%.2f, used: $%.2f. Resets at %s",
 				info.Dimension, info.Limit, info.Used, info.ResetsAt.UTC().Format(time.RFC3339)),
 			"type": "quota_exceeded",
-			"code": "429",
+			"code": "quota_exceeded",
 			"quota": map[string]any{
 				"dimension": info.Dimension,
 				"limit_usd": info.Limit,

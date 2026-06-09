@@ -207,8 +207,8 @@ func TestServeHTTP_QuotaExceeded_429(t *testing.T) {
 	if body.Error.Type != "quota_exceeded" {
 		t.Errorf("expected error.type 'quota_exceeded', got %q", body.Error.Type)
 	}
-	if body.Error.Code != "429" {
-		t.Errorf("expected error.code '429', got %q", body.Error.Code)
+	if body.Error.Code != "quota_exceeded" {
+		t.Errorf("expected error.code 'quota_exceeded', got %q", body.Error.Code)
 	}
 	if body.Error.Quota.Dimension == "" {
 		t.Error("expected error.quota.dimension populated")
