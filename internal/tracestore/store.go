@@ -394,52 +394,70 @@ func (s *Store) searchInFile(filePath, traceID string, matchPattern []byte) *Tra
 	return nil
 }
 
-// List 列出最近 N 条记录（按时间倒序）。内存不足时回退到磁盘文件。
-func (s *Store) List(limit int) []*TraceRecord {
+// List 列出最近 N 条记录（按时间倒序），支持 offset 分页。
+// offset=0, limit=50 → 最新 50 条
+// offset=50, limit=50 → 第 51-100 条（更早的记录）
+// 内存不足时回退到磁盘文件。
+func (s *Store) List(offset, limit int) []*TraceRecord {
 	if !s.cfg.Enabled || limit <= 0 {
 		return nil
 	}
+	if offset < 0 {
+		offset = 0
+	}
 
-	// 第一步：在锁内收集内存记录
+	// 第一步：在锁内收集内存记录（倒序，从最新开始）
 	s.mu.Lock()
-	var memResults []*TraceRecord
+	var memKeys []string
 	n := len(s.keys)
 	start := (s.head - 1 + n) % n
-	for i := 0; i < limit && i < n; i++ {
+	totalNeeded := offset + limit
+	for i := 0; i < totalNeeded && i < n; i++ {
 		idx := (start - i + n) % n
 		key := s.keys[idx]
 		if key == "" {
 			break
 		}
+		memKeys = append(memKeys, key)
+	}
+	s.mu.Unlock()
+
+	// 从内存中获取所有 key 对应的记录
+	var memResults []*TraceRecord
+	for _, key := range memKeys {
 		if v, ok := s.ring.Load(key); ok {
 			memResults = append(memResults, v.(*TraceRecord))
 		}
 	}
-	s.mu.Unlock()
 
-	// 内存记录足够，直接返回
-	if len(memResults) >= limit {
-		return memResults
+	// 如果 offset >= len(memResults)，全部数据需要从磁盘获取
+	if offset >= len(memResults) {
+		diskRecords := s.listFromDisk(offset, limit)
+		return diskRecords
 	}
 
-	// 第二步：释放锁后执行磁盘 I/O（不阻塞 Record）
-	remaining := limit - len(memResults)
-	diskRecords := s.listFromDisk(remaining)
-
-	// 第三步：合并去重
-	existing := make(map[string]bool, len(memResults))
-	for _, r := range memResults {
-		existing[r.TraceID] = true
+	// 取 offset 开始的 limit 条
+	var results []*TraceRecord
+	for i := offset; i < len(memResults) && len(results) < limit; i++ {
+		results = append(results, memResults[i])
 	}
 
-	results := make([]*TraceRecord, len(memResults), limit)
-	copy(results, memResults)
+	// 内存不够，从磁盘补充
+	if len(results) < limit {
+		remaining := limit - len(results)
+		diskRecords := s.listFromDisk(offset+len(memResults), remaining)
 
-	for _, r := range diskRecords {
-		if !existing[r.TraceID] {
-			results = append(results, r)
-			if len(results) >= limit {
-				break
+		// 合并去重
+		existing := make(map[string]bool, len(results))
+		for _, r := range results {
+			existing[r.TraceID] = true
+		}
+		for _, r := range diskRecords {
+			if !existing[r.TraceID] {
+				results = append(results, r)
+				if len(results) >= limit {
+					break
+				}
 			}
 		}
 	}
@@ -447,8 +465,8 @@ func (s *Store) List(limit int) []*TraceRecord {
 	return results
 }
 
-// listFromDisk 从磁盘文件读取最近 N 条记录。
-func (s *Store) listFromDisk(limit int) []*TraceRecord {
+// listFromDisk 从磁盘文件读取记录，支持 offset 分页。
+func (s *Store) listFromDisk(offset, limit int) []*TraceRecord {
 	if s.cfg.DiskPath == "" {
 		return nil
 	}
@@ -456,26 +474,30 @@ func (s *Store) listFromDisk(limit int) []*TraceRecord {
 	s.diskReads.Add(1)
 
 	files := s.getTraceFiles()
+	// 从每个文件读取最后 offset+limit 条（因为磁盘文件是追加写入的，
+	// 最新记录在文件末尾）
+	totalNeeded := offset + limit
 	var allRecords []*TraceRecord
 
-	// 从最新的文件开始读（当前文件最先，备份文件按编号升序）
 	for _, file := range files {
-		records := s.readLastNFromFile(file, limit)
+		records := s.readLastNFromFile(file, totalNeeded)
 		allRecords = append(allRecords, records...)
-		if len(allRecords) >= limit {
-			break
-		}
 	}
 
-	// 按时间倒序排序（使用 sort.Slice，O(n log n)）
+	// 按时间倒序排序
 	sort.Slice(allRecords, func(i, j int) bool {
 		return allRecords[i].Timestamp.After(allRecords[j].Timestamp)
 	})
 
-	if len(allRecords) > limit {
-		allRecords = allRecords[:limit]
+	// 跳过前 offset 条，返回后续 limit 条
+	if offset >= len(allRecords) {
+		return nil
 	}
-	return allRecords
+	end := offset + limit
+	if end > len(allRecords) {
+		end = len(allRecords)
+	}
+	return allRecords[offset:end]
 }
 
 // readLastNFromFile 从文件末尾读取最近 N 条记录。

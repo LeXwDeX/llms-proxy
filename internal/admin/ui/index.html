@@ -1125,7 +1125,7 @@
                   <option value="4xx">4xx 客户端错误</option>
                   <option value="5xx">5xx 服务端错误</option>
                 </select>
-                <input type="number" class="form-control" id="traceLimit" value="50" min="1" max="200" style="width:80px;" title="显示条数">
+                <input type="number" class="form-control" id="traceLimit" value="50" min="1" max="5000" style="width:80px;" title="显示条数">
                 <button class="btn" id="searchTraceBtn">🔍 查询</button>
                 <button class="btn" id="refreshTraceBtn">🔄 刷新</button>
               </div>
@@ -1150,6 +1150,9 @@
                   <tr class="empty-row"><td colspan="9">加载中...</td></tr>
                 </tbody>
               </table>
+              <div style="text-align:center;padding:10px;">
+                <button class="btn" id="traceLoadMore" onclick="loadTraceMore()" style="display:none;">加载更早的记录</button>
+              </div>
             </div>
           </div>
 
@@ -3518,6 +3521,7 @@
 
       /* ===== Trace (DEBUG) ===== */
       var traceEnabled = false;
+      var traceOffset = 0;
 
       async function checkTraceEnabled() {
         try {
@@ -3531,12 +3535,13 @@
         }
       }
 
-      async function loadTrace() {
+async function loadTrace() {
         if (!traceEnabled) {
           document.getElementById("traceTableBody").innerHTML = "<tr class='empty-row'><td colspan='9'>Trace Store 未启用</td></tr>";
           return;
         }
 
+        traceOffset = 0; // 重置偏移量
         var limit = parseInt(document.getElementById("traceLimit").value) || 50;
         var searchId = document.getElementById("traceSearchId").value.trim();
         var clientFilter = document.getElementById("traceClientFilter").value;
@@ -3555,7 +3560,7 @@
             return;
           }
 
-          var data = await api("/admin/data/trace?limit=" + limit);
+          var data = await api("/admin/data/trace?limit=" + limit + "&offset=" + traceOffset);
           var records = data.records || [];
 
           // Client-side filtering
@@ -3577,9 +3582,68 @@
 
           renderTraceTable(records, data.stats || {});
           populateTraceFilters(data.records || []);
+
+          // Check if there are more records to load
+          var loadMoreBtn = document.getElementById("traceLoadMore");
+          if (data.records && data.records.length >= limit) {
+            loadMoreBtn.style.display = "";
+          } else {
+            loadMoreBtn.style.display = "none";
+          }
         } catch(e) {
           toast("加载请求记录失败: " + e.message, "error");
           document.getElementById("traceTableBody").innerHTML = "<tr class='empty-row'><td colspan='9'>加载失败</td></tr>";
+        }
+      }
+
+      async function loadTraceMore() {
+        traceOffset += parseInt(document.getElementById("traceLimit").value) || 50;
+        var limit = parseInt(document.getElementById("traceLimit").value) || 50;
+        try {
+          var data = await api("/admin/data/trace?limit=" + limit + "&offset=" + traceOffset);
+          if (data && data.records && data.records.length > 0) {
+            appendTraceRecords(data.records);
+            var loadMoreBtn = document.getElementById("traceLoadMore");
+            if (data.records.length >= limit) {
+              loadMoreBtn.style.display = "";
+            } else {
+              loadMoreBtn.style.display = "none";
+            }
+          } else {
+            document.getElementById("traceLoadMore").style.display = "none";
+          }
+        } catch(e) {
+          toast("加载更多记录失败: " + e.message, "error");
+        }
+      }
+
+      function appendTraceRecords(records) {
+        var tb = document.getElementById("traceTableBody");
+        for (var i = 0; i < records.length; i++) {
+          var r = records[i];
+          var statusClass = "";
+          var code = r.status_code || 0;
+          if (code >= 200 && code < 300) statusClass = "color:var(--success)";
+          else if (code >= 400 && code < 500) statusClass = "color:var(--warning)";
+          else if (code >= 500) statusClass = "color:var(--danger)";
+
+          var tokens = "";
+          if (r.input_tokens || r.output_tokens) {
+            tokens = (r.input_tokens || 0) + " / " + (r.output_tokens || 0);
+          }
+
+          var row = "<tr>"
+            + "<td>" + esc(fmtTime(r.timestamp)) + "</td>"
+            + "<td style='font-family:monospace;font-size:12px;'>" + esc((r.trace_id || "").substring(0, 8)) + "...</td>"
+            + "<td>" + esc(r.client_name || "-") + "</td>"
+            + "<td>" + esc(r.target || "-") + "</td>"
+            + "<td>" + esc(r.model || "-") + "</td>"
+            + "<td style='" + statusClass + ";font-weight:600;'>" + code + "</td>"
+            + "<td>" + (r.duration_ms || 0) + "ms</td>"
+            + "<td style='font-size:12px;'>" + tokens + "</td>"
+            + "<td><button class='btn btn-sm' onclick='showTraceDetail(\"" + esc(r.trace_id) + "\")'>详情</button></td>"
+            + "</tr>";
+          tb.innerHTML += row;
         }
       }
 

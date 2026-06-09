@@ -923,12 +923,12 @@ func (s *Service) GetTrace(requestID string) *tracestore.TraceRecord {
 	return s.traceStore.Get(requestID)
 }
 
-// ListTrace 列出最近的 trace 记录（DEBUG 模式）。
-func (s *Service) ListTrace(limit int) []*tracestore.TraceRecord {
+// ListTrace 列出最近的 trace 记录（DEBUG 模式），支持 offset 分页。
+func (s *Service) ListTrace(offset, limit int) []*tracestore.TraceRecord {
 	if s.traceStore == nil {
 		return nil
 	}
-	return s.traceStore.List(limit)
+	return s.traceStore.List(offset, limit)
 }
 
 // TraceStats 返回 trace store 的统计信息（DEBUG 模式）。

@@ -3755,7 +3755,7 @@ func TestServiceTraceMethods(t *testing.T) {
 		t.Error("expected nil when trace store disabled")
 	}
 
-	records := service.ListTrace(10)
+	records := service.ListTrace(0, 10)
 	if len(records) != 0 {
 		t.Errorf("expected empty list when trace store disabled, got %d records", len(records))
 	}

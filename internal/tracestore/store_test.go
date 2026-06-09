@@ -24,7 +24,7 @@ func TestStoreDisabled(t *testing.T) {
 	}
 
 	// List should return nil
-	if records := store.List(10); records != nil {
+	if records := store.List(0, 10); records != nil {
 		t.Errorf("expected nil from disabled store, got %d records", len(records))
 	}
 
@@ -101,7 +101,7 @@ func TestStoreList(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// List should return entries in reverse order (newest first)
-	records := store.List(3)
+	records := store.List(0, 3)
 	if len(records) != 3 {
 		t.Errorf("expected 3 records, got %d", len(records))
 	}
@@ -290,7 +290,7 @@ func TestStoreConcurrent(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numRecordsPerGoroutine; j++ {
 				store.Get("concurrent-0-0")
-				store.List(10)
+store.List(0, 10)
 				store.Stats()
 			}
 		}()
@@ -362,21 +362,21 @@ func TestStoreListEmpty(t *testing.T) {
 	defer store.Close()
 
 	// List on empty store
-	records := store.List(10)
+	records := store.List(0, 10)
 	if len(records) != 0 {
 		t.Errorf("expected 0 records from empty store, got %d", len(records))
 	}
 
 	// List with limit 0
-	records = store.List(0)
+	records = store.List(0, 0)
 	if records != nil {
-		t.Errorf("expected nil from List(0), got %v", records)
+		t.Errorf("expected nil from List(0, 0), got %v", records)
 	}
 
 	// List with negative limit
-	records = store.List(-1)
+	records = store.List(0, -1)
 	if records != nil {
-		t.Errorf("expected nil from List(-1), got %v", records)
+		t.Errorf("expected nil from List(0, -1), got %v", records)
 	}
 }
 
@@ -504,7 +504,7 @@ func TestStoreListFromDisk(t *testing.T) {
 	defer store2.Close()
 
 	// List 应该能从磁盘读取记录
-	records := store2.List(5)
+	records := store2.List(0, 5)
 	if len(records) != 5 {
 		t.Errorf("expected 5 records from List, got %d", len(records))
 	}
@@ -517,7 +517,7 @@ func TestStoreListFromDisk(t *testing.T) {
 	}
 
 	// List 更多记录
-	records = store2.List(10)
+	records = store2.List(0, 10)
 	if len(records) != 10 {
 		t.Errorf("expected 10 records from List, got %d", len(records))
 	}
@@ -815,7 +815,7 @@ func TestListConcurrentAccess(t *testing.T) {
 	listDone := make(chan bool)
 	go func() {
 		for i := 0; i < 10; i++ {
-			records := store.List(50)
+			records := store.List(0, 50)
 			if len(records) == 0 {
 				t.Error("List() returned empty results")
 			}
@@ -846,5 +846,137 @@ func TestListConcurrentAccess(t *testing.T) {
 	stats := store.Stats()
 	if stats["total_records"] < 100 {
 		t.Errorf("expected at least 100 records, got %d", stats["total_records"])
+	}
+}
+
+// TestStoreListOffset 验证 List 的 offset 分页功能。
+func TestStoreListOffset(t *testing.T) {
+	cfg := Config{
+		Enabled:        true,
+		RingBufferSize: 10,
+		MaxBodySize:    1024,
+		ChannelBuffer:  10,
+	}
+	store := New(cfg, nil)
+	defer store.Close()
+
+	// Record 5 entries with distinct timestamps
+	for i := 0; i < 5; i++ {
+		store.Record(&TraceRecord{
+			TraceID:   "offset-test-" + string(rune('0'+i)),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Second),
+		})
+	}
+
+	// Wait for async processing
+	time.Sleep(100 * time.Millisecond)
+
+	// offset=0, limit=5 → should return all 5 records (newest first: 4, 3, 2, 1, 0)
+	records := store.List(0, 5)
+	if len(records) != 5 {
+		t.Fatalf("expected 5 records with offset=0, got %d", len(records))
+	}
+
+	// offset=2, limit=3 → should skip newest 2, return records 2, 1, 0 (older)
+	records = store.List(2, 3)
+	if len(records) != 3 {
+		t.Fatalf("expected 3 records with offset=2, got %d", len(records))
+	}
+	// The first record should be the 3rd newest (offset-test-2)
+	if records[0].TraceID != "offset-test-2" {
+		t.Errorf("expected first record to be offset-test-2 (3rd newest), got %s", records[0].TraceID)
+	}
+
+	// offset=4, limit=1 → should return only the oldest (offset-test-0)
+	records = store.List(4, 1)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record with offset=4, got %d", len(records))
+	}
+	if records[0].TraceID != "offset-test-0" {
+		t.Errorf("expected record to be offset-test-0 (oldest), got %s", records[0].TraceID)
+	}
+
+	// offset=5, limit=1 → beyond available, should return nil/empty
+	records = store.List(5, 1)
+	if len(records) != 0 {
+		t.Errorf("expected 0 records when offset exceeds data, got %d", len(records))
+	}
+
+	// offset=10, limit=5 → way beyond, should return nil/empty
+	records = store.List(10, 5)
+	if len(records) != 0 {
+		t.Errorf("expected 0 records when offset way exceeds data, got %d", len(records))
+	}
+
+	// negative offset → should be treated as 0
+	records = store.List(-1, 2)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records with offset=-1 (treated as 0), got %d", len(records))
+	}
+	if records[0].TraceID != "offset-test-4" {
+		t.Errorf("expected first record to be offset-test-4 (newest), got %s", records[0].TraceID)
+	}
+}
+
+// TestStoreListOffsetFromDisk 验证 offset 分页在磁盘回退模式下正常工作。
+func TestStoreListOffsetFromDisk(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "tracestore-offset-disk-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	diskPath := filepath.Join(tmpDir, "trace.log")
+
+	cfg := Config{
+		Enabled:        true,
+		RingBufferSize: 3, // 小 ring buffer，记录会溢出到磁盘
+		MaxBodySize:    1024,
+		DiskPath:       diskPath,
+		DiskMaxSizeMB:  10,
+		DiskMaxBackups: 3,
+		DiskTTLHours:   24,
+		ChannelBuffer:  10,
+	}
+	store := New(cfg, nil)
+
+	// 写入 10 条记录（ring buffer 只存 3 条，其余在磁盘）
+	for i := 0; i < 10; i++ {
+		store.Record(&TraceRecord{
+			TraceID:   "offset-disk-" + string(rune('0'+i)),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Second),
+			Model:     "test-model",
+		})
+	}
+
+	// 等待异步落盘
+	store.Close()
+
+	// 重新创建 store（模拟重启，ring buffer 为空）
+	store2 := New(cfg, nil)
+	defer store2.Close()
+
+	// offset=0, limit=5 → 最新的 5 条（offset-disk-9, 8, 7, 6, 5）
+	records := store2.List(0, 5)
+	if len(records) != 5 {
+		t.Fatalf("expected 5 records with offset=0 from disk, got %d", len(records))
+	}
+	if records[0].TraceID != "offset-disk-9" {
+		t.Errorf("expected first record to be offset-disk-9, got %s", records[0].TraceID)
+	}
+
+	// offset=5, limit=5 → 更早的 5 条（offset-disk-4, 3, 2, 1, 0）
+	records = store2.List(5, 5)
+	if len(records) != 5 {
+		t.Fatalf("expected 5 records with offset=5 from disk, got %d", len(records))
+	}
+	if records[0].TraceID != "offset-disk-4" {
+		t.Errorf("expected first record to be offset-disk-4, got %s", records[0].TraceID)
+	}
+
+	// offset=10, limit=5 → beyond data, empty
+	records = store2.List(10, 5)
+	if len(records) != 0 {
+		t.Errorf("expected 0 records with offset=10 from disk, got %d", len(records))
 	}
 }
