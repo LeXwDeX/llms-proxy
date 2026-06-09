@@ -626,6 +626,55 @@
       vertical-align: middle;
     }
 
+    /* ===== Braille Spinner ===== */
+    .braille-spinner {
+      font-family: monospace;
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: 4px;
+      color: var(--primary);
+      animation: braille-cycle 1.2s steps(10) infinite;
+    }
+    @keyframes braille-cycle {
+      0%  { content: '⠋'; }
+      10% { content: '⠙'; }
+      20% { content: '⠹'; }
+      30% { content: '⠸'; }
+      40% { content: '⠼'; }
+      50% { content: '⠴'; }
+      60% { content: '⠦'; }
+      70% { content: '⠧'; }
+      80% { content: '⠇'; }
+      90% { content: '⠏'; }
+    }
+    /* Braille spinner via JS (CSS content animation not widely supported) */
+    .braille-spinner-live::after {
+      content: '⠋';
+    }
+
+    /* ===== Trace Loading Overlay ===== */
+    .trace-loading-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.35);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .trace-loading-overlay .braille-spinner {
+      font-size: 48px;
+      color: #fff;
+      letter-spacing: 8px;
+    }
+    .trace-loading-overlay .loading-text {
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
     /* ===== Trace Stats ===== */
     .trace-stats {
       display: flex;
@@ -1154,6 +1203,12 @@
                 <button class="btn" id="traceLoadMore" onclick="loadTraceMore()" style="display:none;">加载更早的记录</button>
               </div>
             </div>
+          </div>
+
+          <!-- Trace Loading Overlay (braille spinner) -->
+          <div class="trace-loading-overlay" id="traceLoadingOverlay" style="display:none;">
+            <span class="braille-spinner" id="brailleSpinnerEl">⠋</span>
+            <div class="loading-text" id="traceLoadingText">扫描历史记录...</div>
           </div>
 
           <!-- Trace Detail Modal -->
@@ -3523,6 +3578,26 @@
       var traceEnabled = false;
       var traceOffset = 0;
 
+      // Braille spinner animation
+      var brailleFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+      var brailleIndex = 0;
+      var brailleTimer = null;
+
+      function startBrailleSpinner(text) {
+        brailleIndex = 0;
+        document.getElementById('traceLoadingText').textContent = text || '扫描历史记录...';
+        document.getElementById('traceLoadingOverlay').style.display = 'flex';
+        brailleTimer = setInterval(function() {
+          brailleIndex = (brailleIndex + 1) % brailleFrames.length;
+          document.getElementById('brailleSpinnerEl').textContent = brailleFrames[brailleIndex];
+        }, 120);
+      }
+
+      function stopBrailleSpinner() {
+        if (brailleTimer) { clearInterval(brailleTimer); brailleTimer = null; }
+        document.getElementById('traceLoadingOverlay').style.display = 'none';
+      }
+
       async function checkTraceEnabled() {
         try {
           var data = await api("/admin/data/trace?limit=1");
@@ -3548,10 +3623,12 @@ async function loadTrace() {
         var targetFilter = document.getElementById("traceTargetFilter").value;
         var statusFilter = document.getElementById("traceStatusFilter").value;
 
+        startBrailleSpinner("加载请求记录...");
         try {
           // If searching by ID, use the single-record endpoint
           if (searchId) {
             var record = await api("/admin/data/trace/" + encodeURIComponent(searchId));
+            stopBrailleSpinner();
             if (record && record.trace_id) {
               renderTraceTable([record], {});
             } else {
@@ -3594,13 +3671,16 @@ async function loadTrace() {
           toast("加载请求记录失败: " + e.message, "error");
           document.getElementById("traceTableBody").innerHTML = "<tr class='empty-row'><td colspan='9'>加载失败</td></tr>";
         }
+        stopBrailleSpinner();
       }
 
       async function loadTraceMore() {
         traceOffset += parseInt(document.getElementById("traceLimit").value) || 50;
         var limit = parseInt(document.getElementById("traceLimit").value) || 50;
+        startBrailleSpinner("扫描历史记录...");
         try {
           var data = await api("/admin/data/trace?limit=" + limit + "&offset=" + traceOffset);
+          stopBrailleSpinner();
           if (data && data.records && data.records.length > 0) {
             appendTraceRecords(data.records);
             var loadMoreBtn = document.getElementById("traceLoadMore");
@@ -3613,6 +3693,7 @@ async function loadTrace() {
             document.getElementById("traceLoadMore").style.display = "none";
           }
         } catch(e) {
+          stopBrailleSpinner();
           toast("加载更多记录失败: " + e.message, "error");
         }
       }
