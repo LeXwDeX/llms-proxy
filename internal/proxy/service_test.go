@@ -2293,7 +2293,7 @@ func TestExtractUsageFromClaudeSSETailOnly(t *testing.T) {
 func TestExtractUsageFromClaudeSSEWithCaching(t *testing.T) {
 	// Claude prompt caching: message_start has cache_read_input_tokens,
 	// message_delta has only input_tokens (non-cached portion).
-	// We should merge: total input = input_tokens + cache_read + cache_creation.
+	// New behavior: input_tokens stays as raw value (3), cache_read and cache_creation are separate.
 	sseBody := []byte(
 		"event: message_start\n" +
 			`data: {"type":"message_start","message":{"model":"claude-opus-4-6","usage":{"input_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":50000,"output_tokens":1}}}` + "\n\n" +
@@ -2312,16 +2312,18 @@ func TestExtractUsageFromClaudeSSEWithCaching(t *testing.T) {
 	if model != "claude-opus-4-6" {
 		t.Fatalf("expected model claude-opus-4-6, got %q", model)
 	}
-	// Total input = 3 (non-cached) + 50000 (cache_read) from message_start
-	// message_delta has input_tokens=3 (no cache fields) → merged max = 50003
-	if tokens.InputTokens != 50003 {
-		t.Fatalf("expected input_tokens=50003 (3 + 50000 cache_read), got %d", tokens.InputTokens)
+	// Raw input_tokens = 3 (cache_read is tracked separately, not added to input)
+	if tokens.InputTokens != 3 {
+		t.Fatalf("expected input_tokens=3, got %d", tokens.InputTokens)
 	}
 	if tokens.OutputTokens != 200 {
 		t.Fatalf("expected output_tokens=200, got %d", tokens.OutputTokens)
 	}
 	if tokens.CachedTokens != 50000 {
 		t.Fatalf("expected cached_tokens=50000, got %d", tokens.CachedTokens)
+	}
+	if tokens.CacheCreationTokens != 0 {
+		t.Fatalf("expected cache_creation_tokens=0, got %d", tokens.CacheCreationTokens)
 	}
 }
 

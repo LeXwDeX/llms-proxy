@@ -40,6 +40,7 @@ type Cost struct {
 	InputPer1MTokens      float64 `json:"input_per_1m_tokens"`
 	OutputPer1MTokens     float64 `json:"output_per_1m_tokens"`
 	CachedInputPer1MToken float64 `json:"cached_input_per_1m_tokens"`
+	CacheReadPer1MToken   float64 `json:"cache_read_per_1m_tokens"`
 }
 
 // Catalog 是内存中的模型目录，支持按 endpoint_type + model 精确查找和别名查找。

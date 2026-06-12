@@ -597,24 +597,11 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 		InputPer1MTokens      float64 `json:"input_per_1m_tokens"`
 		OutputPer1MTokens     float64 `json:"output_per_1m_tokens"`
 		CachedInputPer1MToken float64 `json:"cached_input_per_1m_tokens"`
+		CacheReadPer1MToken   float64 `json:"cache_read_per_1m_tokens"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse("invalid json body"))
 		return
-	}
-
-	// When the UI edits an existing record and the user changed the endpoint_type
-	// dropdown, the original endpoint_type is passed as a query param so we can
-	// delete the old (model, original_ep) record before writing the new one —
-	// preventing orphaned duplicate entries.
-	originalEpType := strings.TrimSpace(r.URL.Query().Get("endpoint_type"))
-	newEpType := strings.ToLower(strings.TrimSpace(req.EndpointType))
-	if newEpType == "" {
-		newEpType = "azure_openai"
-	}
-	if originalEpType != "" && !strings.EqualFold(originalEpType, newEpType) {
-		// Ignore deletion errors (record may not exist under original key).
-		_ = h.modelCostStore.DeleteByKey(originalEpType, model)
 	}
 
 	cost := nosql.ModelCost{
@@ -623,6 +610,7 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 		InputPer1MTokens:      req.InputPer1MTokens,
 		OutputPer1MTokens:     req.OutputPer1MTokens,
 		CachedInputPer1MToken: req.CachedInputPer1MToken,
+		CacheReadPer1MToken:   req.CacheReadPer1MToken,
 	}
 	if err := h.modelCostStore.Upsert(cost); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err.Error()))
@@ -631,9 +619,8 @@ func (h *Handler) handleUpsertModelCost(w http.ResponseWriter, r *http.Request) 
 	h.recordAudit(r, "model_cost_upsert", model, "success", "")
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":            true,
-		"model":         model,
-		"endpoint_type": cost.EndpointType,
+		"ok":    true,
+		"model": model,
 	})
 }
 
@@ -648,13 +635,7 @@ func (h *Handler) handleDeleteModelCost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	endpointType := r.URL.Query().Get("endpoint_type")
-	var deleteErr error
-	if endpointType != "" {
-		deleteErr = h.modelCostStore.DeleteByKey(endpointType, model)
-	} else {
-		deleteErr = h.modelCostStore.Delete(model)
-	}
+	deleteErr := h.modelCostStore.Delete(model)
 	if deleteErr != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(deleteErr.Error(), "not found") {

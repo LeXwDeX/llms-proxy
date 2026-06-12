@@ -8,9 +8,10 @@ import (
 )
 
 type usageTokens struct {
-	InputTokens  int64
-	OutputTokens int64
-	CachedTokens int64
+	InputTokens         int64
+	OutputTokens        int64
+	CachedTokens        int64
+	CacheCreationTokens int64
 }
 
 func extractUsageTokens(contentType string, body []byte) (usageTokens, string, bool) {
@@ -77,6 +78,9 @@ func extractUsageFromSSE(body []byte) (usageTokens, string, bool) {
 		}
 		if tokens.CachedTokens > merged.CachedTokens {
 			merged.CachedTokens = tokens.CachedTokens
+		}
+		if tokens.CacheCreationTokens > merged.CacheCreationTokens {
+			merged.CacheCreationTokens = tokens.CacheCreationTokens
 		}
 		if m != "" {
 			model = m
@@ -185,15 +189,16 @@ func parseUsageMap(usageMap map[string]any) (usageTokens, bool) {
 		}
 	}
 
-	// Claude prompt caching: cache_read_input_tokens is the cached portion,
-	// cache_creation_input_tokens is tokens used to build the cache entry.
-	// Claude's "input_tokens" only counts non-cached tokens, so we add the
-	// cache fields to get the true total and map them to our cached_tokens.
+	// Claude prompt caching: cache_read_input_tokens and cache_creation_input_tokens.
+	// Claude's "input_tokens" already excludes cache tokens — they are separate fields.
+	// We track them independently for accurate cost calculation.
+	var cacheCreation int64
 	cacheRead := readInt64(usageMap["cache_read_input_tokens"])
-	cacheCreation := readInt64(usageMap["cache_creation_input_tokens"])
-	if cacheRead > 0 || cacheCreation > 0 {
+	cacheCreationRaw := readInt64(usageMap["cache_creation_input_tokens"])
+	if cacheRead > 0 || cacheCreationRaw > 0 {
 		hasAny = true
-		input += cacheRead + cacheCreation
+		cacheCreation = cacheCreationRaw
+		// cache_read maps to CachedTokens (cache read hits)
 		if cacheRead > cached {
 			cached = cacheRead
 		}
@@ -204,9 +209,10 @@ func parseUsageMap(usageMap map[string]any) (usageTokens, bool) {
 	}
 
 	return usageTokens{
-		InputTokens:  input,
-		OutputTokens: output,
-		CachedTokens: cached,
+		InputTokens:         input,
+		OutputTokens:        output,
+		CachedTokens:        cached,
+		CacheCreationTokens: cacheCreation,
 	}, true
 }
 

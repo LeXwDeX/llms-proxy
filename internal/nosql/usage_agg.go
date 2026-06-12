@@ -36,11 +36,12 @@ const (
 
 // AggCell is the persisted value of one hourly aggregation cell.
 type AggCell struct {
-	Requests     int64 `json:"requests"`
-	Success      int64 `json:"success"`
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-	CachedTokens int64 `json:"cached_tokens"`
+	Requests            int64 `json:"requests"`
+	Success             int64 `json:"success"`
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	CachedTokens        int64 `json:"cached_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
 }
 
 // aggKey builds the composite key for an aggregation cell.
@@ -107,6 +108,7 @@ func bumpAgg(tx *bolt.Tx, evt usage.Event) error {
 	cell.InputTokens += evt.InputTokens
 	cell.OutputTokens += evt.OutputTokens
 	cell.CachedTokens += evt.CachedTokens
+	cell.CacheCreationTokens += evt.CacheCreationTokens
 
 	data, err := json.Marshal(cell)
 	if err != nil {

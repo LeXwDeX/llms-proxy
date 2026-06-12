@@ -128,6 +128,11 @@ func main() {
 	auditStore := nosql.NewAuditStore(db)
 	copilotPoolStore := nosql.NewCopilotPoolStore(db)
 
+	// Migrate old "endpoint_type:model" keys to model-only keys (idempotent).
+	if err := modelCostStore.MigrateKeys(); err != nil {
+		appLogger.Warn("failed to migrate model cost keys", "error", err)
+	}
+
 	sessionManager := admin.NewSessionManager(cfg.AdminSession, appLogger)
 
 	clients, err := clientStore.List()

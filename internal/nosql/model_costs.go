@@ -11,11 +11,12 @@ import (
 
 // ModelCost defines token pricing (per 1M tokens).
 type ModelCost struct {
-	EndpointType          string  `json:"endpoint_type,omitempty"`
+	EndpointType          string  `json:"endpoint_type,omitempty"` // deprecated, not used as key
 	Model                 string  `json:"model"`
 	InputPer1MTokens      float64 `json:"input_per_1m_tokens"`
 	OutputPer1MTokens     float64 `json:"output_per_1m_tokens"`
 	CachedInputPer1MToken float64 `json:"cached_input_per_1m_tokens"`
+	CacheReadPer1MToken   float64 `json:"cache_read_per_1m_tokens"`
 }
 
 // ModelCostStore manages model costs backed by bbolt.
@@ -28,10 +29,9 @@ func NewModelCostStore(db *bolt.DB) *ModelCostStore {
 	return &ModelCostStore{db: db}
 }
 
-// costKey builds the composite key "endpoint_type:model".
+// costKey builds the key from model name only.
 func costKey(cost ModelCost) string {
-	c := normalizeCost(cost)
-	return c.EndpointType + ":" + c.Model
+	return strings.ToLower(strings.TrimSpace(cost.Model))
 }
 
 // List returns all model costs.
@@ -75,62 +75,70 @@ func (s *ModelCostStore) Upsert(cost ModelCost) error {
 	})
 }
 
-// Delete removes all model costs matching the given model name (any endpoint_type).
-// Deprecated: use DeleteByKey for endpoint_type-aware deletion.
+// Delete removes one model cost by model name.
 func (s *ModelCostStore) Delete(model string) error {
 	model = strings.ToLower(strings.TrimSpace(model))
 	if model == "" {
 		return errors.New("model must not be empty")
 	}
-	suffix := ":" + model
-
 	return s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(BucketModelCosts))
-		removed := false
+		if b.Get([]byte(model)) == nil {
+			return fmt.Errorf("model %q not found", model)
+		}
+		return b.Delete([]byte(model))
+	})
+}
 
-		// Collect keys to delete (cannot delete during ForEach).
-		var toDelete [][]byte
+// DeleteByKey is deprecated; kept for backward compatibility. Delegates to Delete.
+func (s *ModelCostStore) DeleteByKey(endpointType, model string) error {
+	return s.Delete(model)
+}
+
+// MigrateKeys migrates old "endpoint_type:model" keys to model-only keys.
+// Safe to call multiple times; idempotent.
+func (s *ModelCostStore) MigrateKeys() error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketModelCosts))
+		if b == nil {
+			return nil
+		}
+		var toMigrate []struct {
+			oldKey []byte
+			cost   ModelCost
+		}
 		err := b.ForEach(func(k, v []byte) error {
-			if strings.HasSuffix(string(k), suffix) {
-				toDelete = append(toDelete, append([]byte(nil), k...))
+			key := string(k)
+			if !strings.Contains(key, ":") {
+				return nil // already model-only key
 			}
+			var c ModelCost
+			if err := json.Unmarshal(v, &c); err != nil {
+				return nil // skip corrupt entries
+			}
+			toMigrate = append(toMigrate, struct {
+				oldKey []byte
+				cost   ModelCost
+			}{append([]byte(nil), k...), c})
 			return nil
 		})
 		if err != nil {
 			return err
 		}
-
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
-				return err
+		for _, m := range toMigrate {
+			newKey := strings.ToLower(strings.TrimSpace(m.cost.Model))
+			if newKey == "" {
+				continue
 			}
-			removed = true
-		}
-		if !removed {
-			return fmt.Errorf("model %q not found", model)
+			// Write under new key (last-writer-wins if conflict)
+			data, err := json.Marshal(m.cost)
+			if err != nil {
+				continue
+			}
+			_ = b.Put([]byte(newKey), data)
+			_ = b.Delete(m.oldKey)
 		}
 		return nil
-	})
-}
-
-// DeleteByKey removes one model cost by endpoint_type + model.
-func (s *ModelCostStore) DeleteByKey(endpointType, model string) error {
-	model = strings.ToLower(strings.TrimSpace(model))
-	endpointType = strings.ToLower(strings.TrimSpace(endpointType))
-	if endpointType == "" {
-		endpointType = "azure_openai"
-	}
-	if model == "" {
-		return errors.New("model must not be empty")
-	}
-	key := endpointType + ":" + model
-
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(BucketModelCosts))
-		if b.Get([]byte(key)) == nil {
-			return fmt.Errorf("model %q (endpoint_type=%q) not found", model, endpointType)
-		}
-		return b.Delete([]byte(key))
 	})
 }
 
@@ -138,7 +146,7 @@ func validateCost(cost ModelCost) error {
 	if strings.TrimSpace(cost.Model) == "" {
 		return errors.New("model must not be empty")
 	}
-	if cost.InputPer1MTokens < 0 || cost.OutputPer1MTokens < 0 || cost.CachedInputPer1MToken < 0 {
+	if cost.InputPer1MTokens < 0 || cost.OutputPer1MTokens < 0 || cost.CachedInputPer1MToken < 0 || cost.CacheReadPer1MToken < 0 {
 		return errors.New("token costs must be non-negative")
 	}
 	return nil
@@ -147,9 +155,6 @@ func validateCost(cost ModelCost) error {
 func normalizeCost(cost ModelCost) ModelCost {
 	cost.Model = strings.ToLower(strings.TrimSpace(cost.Model))
 	cost.EndpointType = strings.ToLower(strings.TrimSpace(cost.EndpointType))
-	if cost.EndpointType == "" {
-		cost.EndpointType = "azure_openai"
-	}
 	return cost
 }
 

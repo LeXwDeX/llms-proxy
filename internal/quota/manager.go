@@ -170,9 +170,9 @@ func (m *Manager) Stop() {
 // Increment adds cost to a client's in-memory counters and updates exceeded state.
 // Called after request completion. Accepts raw token counts; computes USD cost internally.
 // If a period boundary (ResetsAt) has been crossed, the counter resets first (lazy flip).
-func (m *Manager) Increment(clientName string, epType string, model string, inputTokens, outputTokens, cachedTokens int64) {
+func (m *Manager) Increment(clientName string, epType string, model string, inputTokens, outputTokens, cachedTokens, cacheCreationTokens int64) {
 	// Compute USD cost from token counts using cost table.
-	costUSD := m.computeCost(epType, model, inputTokens, outputTokens, cachedTokens)
+	costUSD := m.computeCost(epType, model, inputTokens, outputTokens, cachedTokens, cacheCreationTokens)
 	if costUSD <= 0 {
 		return
 	}
@@ -413,11 +413,11 @@ func (m *Manager) Evaluate(clientName string) {
 		used := 0.0
 		for groupKey, t := range totals {
 			parts := strings.SplitN(groupKey, ":", 2)
-			epType, model := "", groupKey
+			model := groupKey
 			if len(parts) == 2 {
-				epType, model = parts[0], parts[1]
+				model = parts[1]
 			}
-			rates, ok := costTable.LookupCost(epType, model)
+			rates, ok := costTable.LookupCost(model)
 			if !ok {
 				continue
 			}
@@ -576,11 +576,11 @@ func (m *Manager) Status(clientName string) QuotaStatus {
 				if err == nil {
 					for groupKey, t := range totals {
 						parts := strings.SplitN(groupKey, ":", 2)
-						epType, model := "", groupKey
+						model := groupKey
 						if len(parts) == 2 {
-							epType, model = parts[0], parts[1]
+							model = parts[1]
 						}
-						rates, ok := costTable.LookupCost(epType, model)
+						rates, ok := costTable.LookupCost(model)
 						if !ok {
 							continue
 						}
@@ -607,7 +607,7 @@ func (m *Manager) Status(clientName string) QuotaStatus {
 }
 
 // computeCost calculates USD cost from token counts using the cost table.
-func (m *Manager) computeCost(epType, model string, inputTokens, outputTokens, cachedTokens int64) float64 {
+func (m *Manager) computeCost(epType, model string, inputTokens, outputTokens, cachedTokens, cacheCreationTokens int64) float64 {
 	model = strings.ToLower(strings.TrimSpace(model))
 	if model == "" {
 		return 0
@@ -617,11 +617,12 @@ func (m *Manager) computeCost(epType, model string, inputTokens, outputTokens, c
 		costs, _ = m.costStore.List()
 	}
 	costTable := costutil.ToCostTable(costs, m.catalog)
-	rates, ok := costTable.LookupCost(epType, model)
+	rates, ok := costTable.LookupCost(model)
 	if !ok {
 		return 0 // unknown model: no charge
 	}
 	return float64(inputTokens)/1e6*rates.InputPer1MTokens +
 		float64(outputTokens)/1e6*rates.OutputPer1MTokens +
-		float64(cachedTokens)/1e6*rates.CachedInputPer1MToken
+		float64(cacheCreationTokens)/1e6*rates.CachedInputPer1MToken +
+		float64(cachedTokens)/1e6*rates.CacheReadPer1MToken
 }

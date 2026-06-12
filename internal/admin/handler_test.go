@@ -968,9 +968,9 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 
 	// Scenario 1: catalog only (no custom costs) — should use catalog default_cost
 	table := costutil.ToCostTable(nil, cat)
-	rate, ok := table.LookupCost("openai", "gpt-4o")
+	rate, ok := table.LookupCost("gpt-4o")
 	if !ok {
-		t.Fatal("expected catalog default cost for openai:gpt-4o, got not found")
+		t.Fatal("expected catalog default cost for gpt-4o, got not found")
 	}
 	if rate.InputPer1MTokens <= 0 || rate.OutputPer1MTokens <= 0 {
 		t.Fatalf("expected positive catalog default rates, got %+v", rate)
@@ -979,21 +979,21 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 
 	// Scenario 2: custom override — should override catalog defaults
 	customCosts := []nosql.ModelCost{
-		{EndpointType: "openai", Model: "gpt-4o", InputPer1MTokens: 999, OutputPer1MTokens: 888},
+		{Model: "gpt-4o", InputPer1MTokens: 999, OutputPer1MTokens: 888},
 	}
 	table = costutil.ToCostTable(customCosts, cat)
-	rate, ok = table.LookupCost("openai", "gpt-4o")
+	rate, ok = table.LookupCost("gpt-4o")
 	if !ok {
-		t.Fatal("expected cost for openai:gpt-4o after custom override")
+		t.Fatal("expected cost for gpt-4o after custom override")
 	}
 	if rate.InputPer1MTokens != 999 || rate.OutputPer1MTokens != 888 {
 		t.Fatalf("expected custom rates (999, 888), got %+v", rate)
 	}
 
 	// Scenario 3: catalog without custom — other models still use catalog defaults
-	rate2, ok := table.LookupCost("openai", "gpt-4o-mini")
+	rate2, ok := table.LookupCost("gpt-4o-mini")
 	if !ok {
-		t.Fatal("expected catalog default cost for openai:gpt-4o-mini (not overridden)")
+		t.Fatal("expected catalog default cost for gpt-4o-mini (not overridden)")
 	}
 	if rate2.InputPer1MTokens <= 0 {
 		t.Fatalf("expected positive catalog default for gpt-4o-mini, got %+v", rate2)
@@ -1001,11 +1001,11 @@ func TestToUsageCostTableCatalogFallback(t *testing.T) {
 
 	// Scenario 4: nil catalog — only custom costs
 	table = costutil.ToCostTable(customCosts, nil)
-	rate, ok = table.LookupCost("openai", "gpt-4o")
+	rate, ok = table.LookupCost("gpt-4o")
 	if !ok || rate.InputPer1MTokens != 999 {
 		t.Fatalf("expected custom rate with nil catalog, got ok=%v rate=%+v", ok, rate)
 	}
-	_, ok = table.LookupCost("openai", "gpt-4o-mini")
+	_, ok = table.LookupCost("gpt-4o-mini")
 	if ok {
 		t.Fatal("expected no cost for gpt-4o-mini with nil catalog and no custom entry")
 	}

@@ -874,16 +874,17 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 	}
 
 	evt := usage.Event{
-		Timestamp:    time.Now().UTC(),
-		ClientName:   principal.Name,
-		EndpointType: endpointType,
-		Model:        upstreamModel,
-		InputTokens:  tokens.InputTokens,
-		OutputTokens: tokens.OutputTokens,
-		CachedTokens: tokens.CachedTokens,
-		RequestID:    appmiddleware.RequestIDFromContext(r.Context()),
-		StatusCode:   statusCode,
-		Path:         r.URL.Path,
+		Timestamp:           time.Now().UTC(),
+		ClientName:          principal.Name,
+		EndpointType:        endpointType,
+		Model:               upstreamModel,
+		InputTokens:         tokens.InputTokens,
+		OutputTokens:        tokens.OutputTokens,
+		CachedTokens:        tokens.CachedTokens,
+		CacheCreationTokens: tokens.CacheCreationTokens,
+		RequestID:           appmiddleware.RequestIDFromContext(r.Context()),
+		StatusCode:          statusCode,
+		Path:                r.URL.Path,
 	}
 	if target != nil {
 		evt.Target = target.Name
@@ -900,7 +901,7 @@ func (s *Service) recordUsageEvent(r *http.Request, target *Target, statusCode i
 	// Quota incremental update: add cost to in-memory counters.
 	if s.quotaManager != nil && found {
 		s.quotaManager.Increment(principal.Name, endpointType, upstreamModel,
-			tokens.InputTokens, tokens.OutputTokens, tokens.CachedTokens)
+			tokens.InputTokens, tokens.OutputTokens, tokens.CachedTokens, tokens.CacheCreationTokens)
 	}
 }
 

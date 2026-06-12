@@ -341,6 +341,7 @@ func addEventToTotals(target *usage.Totals, evt usage.Event, cost float64) {
 	target.InputTokens += evt.InputTokens
 	target.OutputTokens += evt.OutputTokens
 	target.CachedTokens += evt.CachedTokens
+	target.CacheCreationTokens += evt.CacheCreationTokens
 	target.EstimatedCost += cost
 }
 
@@ -349,13 +350,14 @@ func usageEstimateEventCost(evt usage.Event, costs usage.CostTable) float64 {
 	if costs == nil {
 		return 0
 	}
-	rate, ok := costs.LookupCost(evt.EndpointType, evt.Model)
+	rate, ok := costs.LookupCost(evt.Model)
 	if !ok {
 		return 0
 	}
 	return float64(evt.InputTokens)/1_000_000*rate.InputPer1MTokens +
 		float64(evt.OutputTokens)/1_000_000*rate.OutputPer1MTokens +
-		float64(evt.CachedTokens)/1_000_000*rate.CachedInputPer1MToken
+		float64(evt.CacheCreationTokens)/1_000_000*rate.CachedInputPer1MToken +
+		float64(evt.CachedTokens)/1_000_000*rate.CacheReadPer1MToken
 }
 
 // --- Internal helpers ---
@@ -411,21 +413,23 @@ func addCellToTotals(target *usage.Totals, cell AggCell, cost float64) {
 	target.InputTokens += cell.InputTokens
 	target.OutputTokens += cell.OutputTokens
 	target.CachedTokens += cell.CachedTokens
+	target.CacheCreationTokens += cell.CacheCreationTokens
 	target.EstimatedCost += cost
 }
 
-// aggCellCost computes estimated cost for one agg cell given its (endpoint_type, model).
+// aggCellCost computes estimated cost for one agg cell given its model.
 func aggCellCost(cell AggCell, endpointType, model string, costs usage.CostTable) float64 {
 	if costs == nil {
 		return 0
 	}
-	rate, ok := costs.LookupCost(endpointType, model)
+	rate, ok := costs.LookupCost(model)
 	if !ok {
 		return 0
 	}
 	return float64(cell.InputTokens)/1_000_000*rate.InputPer1MTokens +
 		float64(cell.OutputTokens)/1_000_000*rate.OutputPer1MTokens +
-		float64(cell.CachedTokens)/1_000_000*rate.CachedInputPer1MToken
+		float64(cell.CacheCreationTokens)/1_000_000*rate.CachedInputPer1MToken +
+		float64(cell.CachedTokens)/1_000_000*rate.CacheReadPer1MToken
 }
 
 func usageSortedDimensions(input map[string]*usage.DimensionTotals) []usage.DimensionTotals {

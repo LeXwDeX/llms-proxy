@@ -36,11 +36,12 @@ func TestModelCostStoreUpsertAndDelete(t *testing.T) {
 	}
 }
 
-func TestModelCostStoreEndpointTypeDimension(t *testing.T) {
+func TestModelCostStoreEndpointTypeOverwrites(t *testing.T) {
 	db := testDB(t)
 	store := NewModelCostStore(db)
 
-	// Upsert same model with different endpoint types.
+	// The key is model-only; upserting the same model with different
+	// endpoint_types overwrites (last-writer-wins).
 	if err := store.Upsert(ModelCost{EndpointType: "azure_openai", Model: "gpt-4o", InputPer1MTokens: 0.1}); err != nil {
 		t.Fatalf("upsert azure: %v", err)
 	}
@@ -52,28 +53,14 @@ func TestModelCostStoreEndpointTypeDimension(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("expected 2 costs (different endpoint_types), got %d: %+v", len(items), items)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 cost (model-only key, last writer wins), got %d: %+v", len(items), items)
+	}
+	if items[0].InputPer1MTokens != 0.5 {
+		t.Fatalf("expected overwritten rate 0.5, got %f", items[0].InputPer1MTokens)
 	}
 
-	// Upsert should replace only the matching endpoint_type + model.
-	if err := store.Upsert(ModelCost{EndpointType: "openai", Model: "gpt-4o", InputPer1MTokens: 0.9}); err != nil {
-		t.Fatalf("upsert replace openai: %v", err)
-	}
-	items, err = store.List()
-	if err != nil {
-		t.Fatalf("list after replace: %v", err)
-	}
-	if len(items) != 2 {
-		t.Fatalf("expected 2 costs after replace, got %d", len(items))
-	}
-	for _, item := range items {
-		if item.EndpointType == "openai" && item.InputPer1MTokens != 0.9 {
-			t.Fatalf("expected openai cost to be updated to 0.9, got %f", item.InputPer1MTokens)
-		}
-	}
-
-	// DeleteByKey should remove only the specific endpoint_type + model.
+	// DeleteByKey delegates to Delete.
 	if err := store.DeleteByKey("openai", "gpt-4o"); err != nil {
 		t.Fatalf("delete by key: %v", err)
 	}
@@ -81,19 +68,16 @@ func TestModelCostStoreEndpointTypeDimension(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list after delete by key: %v", err)
 	}
-	if len(items) != 1 {
-		t.Fatalf("expected 1 cost after delete by key, got %d", len(items))
-	}
-	if items[0].EndpointType != "azure_openai" {
-		t.Fatalf("expected remaining cost to be azure_openai, got %q", items[0].EndpointType)
+	if len(items) != 0 {
+		t.Fatalf("expected 0 costs after delete by key, got %d", len(items))
 	}
 }
 
-func TestModelCostStoreEmptyEndpointTypeDefaultsToAzureOpenAI(t *testing.T) {
+func TestModelCostStoreEmptyEndpointTypeNotDefaulted(t *testing.T) {
 	db := testDB(t)
 	store := NewModelCostStore(db)
 
-	// Empty endpoint_type should default to azure_openai.
+	// Empty endpoint_type is kept as-is (no longer defaulted to azure_openai).
 	if err := store.Upsert(ModelCost{Model: "gpt-4o", InputPer1MTokens: 0.1}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -105,11 +89,11 @@ func TestModelCostStoreEmptyEndpointTypeDefaultsToAzureOpenAI(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 cost, got %d", len(items))
 	}
-	if items[0].EndpointType != "azure_openai" {
-		t.Fatalf("expected default endpoint_type azure_openai, got %q", items[0].EndpointType)
+	if items[0].EndpointType != "" {
+		t.Fatalf("expected empty endpoint_type, got %q", items[0].EndpointType)
 	}
 
-	// DeleteByKey with empty endpoint_type should default to azure_openai and match.
+	// DeleteByKey with empty endpoint_type delegates to Delete by model.
 	if err := store.DeleteByKey("", "gpt-4o"); err != nil {
 		t.Fatalf("delete by key with empty endpoint_type: %v", err)
 	}

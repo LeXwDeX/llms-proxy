@@ -1005,11 +1005,11 @@
               <table>
                 <thead>
                   <tr>
-                    <th>类型</th>
                     <th>模型名</th>
                     <th>输入单价 /1M tokens</th>
                     <th>输出单价 /1M tokens</th>
-                    <th>缓存输入单价 /1M tokens</th>
+                    <th>缓存写入单价 /1M tokens</th>
+                    <th>缓存读取单价 /1M tokens</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -1418,24 +1418,6 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>类型</label>
-          <select class="form-control endpoint-type-select" id="mcEndpointType">
-          </select>
-        </div>
-        <div class="form-group">
-          <label>models.dev 匹配模式</label>
-          <select class="form-control" id="mcCatalogMatchMode">
-            <option value="auto">自动：按当前类型匹配</option>
-            <option value="manual">手动：选择参考 Provider</option>
-          </select>
-          <small style="color:var(--text-muted)">自动沿用当前类型；手动可从其他 Provider 的模型目录检索并带入参考价格。</small>
-        </div>
-        <div class="form-group" id="mcCatalogProviderGroup" style="display:none;">
-          <label>参考 Provider</label>
-          <select class="form-control endpoint-type-select" id="mcCatalogProvider">
-          </select>
-        </div>
-        <div class="form-group">
           <label>模型名称</label>
           <input class="form-control" id="mcModel" placeholder="例如：gpt-4o" required>
           <div id="mcModelSuggestions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;max-height:120px;overflow-y:auto;"></div>
@@ -1449,8 +1431,12 @@
           <input class="form-control" id="mcOutputPrice" type="number" step="any" min="0" placeholder="10.00">
         </div>
         <div class="form-group">
-          <label>缓存输入单价 /1M tokens <span id="mcCachedHint" style="color:var(--text-muted);font-weight:normal;font-size:12px;"></span></label>
-          <input class="form-control" id="mcCachedPrice" type="number" step="any" min="0" placeholder="1.25">
+          <label>缓存写入单价 /1M tokens <span id="mcCachedHint" style="color:var(--text-muted);font-weight:normal;font-size:12px;"></span></label>
+          <input class="form-control" id="mcCachedPrice" type="number" step="any" min="0" placeholder="3.75">
+        </div>
+        <div class="form-group">
+          <label>缓存读取单价 /1M tokens <span id="mcCacheReadHint" style="color:var(--text-muted);font-weight:normal;font-size:12px;"></span></label>
+          <input class="form-control" id="mcCacheReadPrice" type="number" step="any" min="0" placeholder="0.30">
         </div>
       </div>
       <div class="modal-footer">
@@ -1695,7 +1681,7 @@
       function fmtNum(v) { return Number(v||0).toLocaleString("zh-CN"); }
       function fmtMoney(v) { return "$" + Number(v||0).toFixed(2); }
       function fmtPct(v) { return Number(v||0).toFixed(1) + "%"; }
-      function totalTok(r) { return Number(r.input_tokens||0) + Number(r.output_tokens||0) + Number(r.cached_tokens||0); }
+      function totalTok(r) { return Number(r.input_tokens||0) + Number(r.output_tokens||0) + Number(r.cached_tokens||0) + Number(r.cache_creation_tokens||0); }
       function maskKey(k) {
         if (!k) return "-";
         if (k.length <= 8) return k.substring(0,2) + "****" + k.substring(k.length-2);
@@ -2666,33 +2652,30 @@
           return;
         }
         tb.innerHTML = models.slice().sort(function(a,b){
-          var cmp = String(a.endpoint_type||"").localeCompare(String(b.endpoint_type||""));
-          return cmp !== 0 ? cmp : String(a.model||"").localeCompare(String(b.model||""));
+          return String(a.model||"").localeCompare(String(b.model||""));
         }).map(function(m) {
-          var epLabel = epDisplayName(m.endpoint_type) || "-";
-          return "<tr><td><span class='badge' style='background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:4px;font-size:12px;'>"+esc(epLabel)+"</span></td>"
+          return "<tr>"
             +"<td>"+esc(m.model)+"</td>"
             +"<td>"+fmtMoney(m.input_per_1m_tokens)+"</td>"
             +"<td>"+fmtMoney(m.output_per_1m_tokens)+"</td>"
             +"<td>"+fmtMoney(m.cached_input_per_1m_tokens)+"</td>"
+            +"<td>"+fmtMoney(m.cache_read_per_1m_tokens)+"</td>"
             +"<td><div class='btn-group'>"
-            +"<button class='btn btn-sm' data-edit-mc='"+esc(m.model)+"' data-edit-mc-ep='"+esc(m.endpoint_type||"")+"'>编辑</button>"
-            +"<button class='btn btn-danger btn-sm' data-del-mc='"+esc(m.model)+"' data-del-mc-ep='"+esc(m.endpoint_type||"")+"'>删除</button>"
+            +"<button class='btn btn-sm' data-edit-mc='"+esc(m.model)+"'>编辑</button>"
+            +"<button class='btn btn-danger btn-sm' data-del-mc='"+esc(m.model)+"'>删除</button>"
             +"</div></td></tr>";
         }).join("");
       }
       document.getElementById("modelCostsTableBody").addEventListener("click", function(e) {
         var t = e.target;
         if (t.dataset.editMc) {
-          openModelCostModal(t.dataset.editMc, t.dataset.editMcEp || "");
+          openModelCostModal(t.dataset.editMc);
         }
         if (t.dataset.delMc) {
           var model = t.dataset.delMc;
-          var ep = t.dataset.delMcEp || "";
           showConfirm("确认删除模型费用配置「"+model+"」？", async function() {
             try {
               var delUrl = "/admin/data/model-costs/"+encodeURIComponent(model);
-              if (ep) delUrl += "?endpoint_type="+encodeURIComponent(ep);
               await api(delUrl, {method:"DELETE"});
               toast("已删除: "+model, "success");
               await loadModelCosts();
@@ -2700,57 +2683,53 @@
           });
         }
       });
-      function findCatalogCost(models, modelName) {
-        if (!modelName || !models.length) return null;
+      function findCatalogCost(modelName) {
+        if (!modelName || !state.catalogAll || !state.catalogAll.length) return null;
         var lower = modelName.toLowerCase();
-        for (var i = 0; i < models.length; i++) {
-          if ((models[i].model || "").toLowerCase() === lower) return models[i].default_cost;
-          var aliases = models[i].aliases || [];
+        for (var i = 0; i < state.catalogAll.length; i++) {
+          if ((state.catalogAll[i].model || "").toLowerCase() === lower) return state.catalogAll[i].default_cost;
+          var aliases = state.catalogAll[i].aliases || [];
           for (var j = 0; j < aliases.length; j++) {
-            if (aliases[j].toLowerCase() === lower) return models[i].default_cost;
+            if (aliases[j].toLowerCase() === lower) return state.catalogAll[i].default_cost;
           }
         }
         return null;
       }
-      function mcCatalogEpType() {
-        var modeEl = document.getElementById("mcCatalogMatchMode");
-        var mode = modeEl ? modeEl.value : "auto";
-        if (mode === "manual") {
-          return document.getElementById("mcCatalogProvider").value || document.getElementById("mcEndpointType").value;
-        }
-        return document.getElementById("mcEndpointType").value;
-      }
-      function updateMcCatalogMatchMode() {
-        var mode = document.getElementById("mcCatalogMatchMode").value;
-        var group = document.getElementById("mcCatalogProviderGroup");
-        group.style.display = mode === "manual" ? "" : "none";
-        var provider = document.getElementById("mcCatalogProvider");
-        if (!provider.value) provider.value = document.getElementById("mcEndpointType").value;
-      }
+      // (endpoint_type removed from model cost — model name is now the unique key)
       function applyMcCatalogCost(cost) {
         if (!cost) {
           document.getElementById("mcInputHint").textContent = "";
           document.getElementById("mcOutputHint").textContent = "";
           document.getElementById("mcCachedHint").textContent = "";
+          document.getElementById("mcCacheReadHint").textContent = "";
           return;
         }
         var inp = document.getElementById("mcInputPrice");
         var out = document.getElementById("mcOutputPrice");
         var cch = document.getElementById("mcCachedPrice");
+        var ccr = document.getElementById("mcCacheReadPrice");
         if (!inp.value && cost.input_per_1m_tokens != null) inp.value = cost.input_per_1m_tokens;
         if (!out.value && cost.output_per_1m_tokens != null) out.value = cost.output_per_1m_tokens;
         if (!cch.value && cost.cached_input_per_1m_tokens != null) cch.value = cost.cached_input_per_1m_tokens;
+        if (!ccr.value && cost.cache_read_per_1m_tokens != null) ccr.value = cost.cache_read_per_1m_tokens;
         document.getElementById("mcInputHint").textContent = cost.input_per_1m_tokens != null ? "(参考: "+cost.input_per_1m_tokens+")" : "";
         document.getElementById("mcOutputHint").textContent = cost.output_per_1m_tokens != null ? "(参考: "+cost.output_per_1m_tokens+")" : "";
         document.getElementById("mcCachedHint").textContent = cost.cached_input_per_1m_tokens != null ? "(参考: "+cost.cached_input_per_1m_tokens+")" : "";
+        document.getElementById("mcCacheReadHint").textContent = cost.cache_read_per_1m_tokens != null ? "(参考: "+cost.cache_read_per_1m_tokens+")" : "";
       }
-      async function renderMcModelSuggestions(epType, filterText) {
+      async function renderMcModelSuggestions(filterText) {
         var container = document.getElementById("mcModelSuggestions");
         container.innerHTML = "";
-        // 打开建议面板时强制刷新一次 catalog，避免 deploy 后前端缓存陈旧
-        // 导致新增模型（如 deepseek-chat）搜不到
-        var models = await loadCatalog(epType, { force: true });
-        var filtered = catalogFilterModels(models, filterText);
+        // Ensure catalog is loaded (model-only, no endpoint_type filter)
+        if (!state.catalogAll) {
+          try { state.catalogAll = (await api("/admin/data/catalog")).models || []; } catch(e) {}
+        }
+        var all = state.catalogAll || [];
+        var lower = (filterText || "").toLowerCase();
+        var filtered = lower ? all.filter(function(m) {
+          return (m.model || "").toLowerCase().indexOf(lower) >= 0 ||
+                 (m.display_name || "").toLowerCase().indexOf(lower) >= 0;
+        }) : all;
         filtered.slice(0, 50).forEach(function(m) {
           var tag = document.createElement("span");
           tag.style.cssText = "display:inline-block;padding:2px 8px;border-radius:4px;background:var(--primary-light);color:var(--primary);font-size:12px;cursor:pointer;";
@@ -2759,7 +2738,7 @@
           tag.addEventListener("click", function() {
             document.getElementById("mcModel").value = m.model;
             applyMcCatalogCost(m.default_cost);
-            renderMcModelSuggestions(epType, m.model);
+            renderMcModelSuggestions(m.model);
           });
           container.appendChild(tag);
         });
@@ -2768,73 +2747,41 @@
         }
       }
       async function mcTryFillCost() {
-        var epType = mcCatalogEpType();
         var modelName = document.getElementById("mcModel").value.trim();
         if (!modelName) { applyMcCatalogCost(null); return; }
-        var models = await loadCatalog(epType);
-        var cost = findCatalogCost(models, modelName);
+        var cost = findCatalogCost(modelName);
         applyMcCatalogCost(cost);
       }
-      function openModelCostModal(modelName, endpointType) {
+      function openModelCostModal(modelName) {
         state.editingModelCost = modelName || null;
-        state.editingModelCostEp = endpointType || "azure_openai";
         document.getElementById("modelCostModalTitle").textContent = modelName ? "编辑模型费用" : "新增模型费用";
-        document.getElementById("mcEndpointType").value = endpointType || "azure_openai";
-        document.getElementById("mcCatalogMatchMode").value = "auto";
-        document.getElementById("mcCatalogProvider").value = endpointType || "azure_openai";
-        updateMcCatalogMatchMode();
         document.getElementById("mcModel").value = modelName || "";
         document.getElementById("mcModel").readOnly = !!modelName;
         document.getElementById("mcInputHint").textContent = "";
         document.getElementById("mcOutputHint").textContent = "";
         document.getElementById("mcCachedHint").textContent = "";
-        var epType = endpointType || "azure_openai";
+        document.getElementById("mcCacheReadHint").textContent = "";
         if (modelName) {
-          // 编辑模式：从已加载的 state 预填现有价格，catalog 仅作为旁注参考
+          // 编辑模式：从已加载的 state 预填现有价格
           var existing = (state.modelCosts || []).find(function(m) {
-            return m.model === modelName && (m.endpoint_type || "azure_openai") === epType;
+            return m.model === modelName;
           });
           document.getElementById("mcInputPrice").value = existing ? (existing.input_per_1m_tokens != null ? existing.input_per_1m_tokens : "") : "";
           document.getElementById("mcOutputPrice").value = existing ? (existing.output_per_1m_tokens != null ? existing.output_per_1m_tokens : "") : "";
           document.getElementById("mcCachedPrice").value = existing ? (existing.cached_input_per_1m_tokens != null ? existing.cached_input_per_1m_tokens : "") : "";
+          document.getElementById("mcCacheReadPrice").value = existing ? (existing.cache_read_per_1m_tokens != null ? existing.cache_read_per_1m_tokens : "") : "";
           // 异步加载 catalog 参考值（仅更新 hint，不覆盖输入框）
-          loadCatalog(mcCatalogEpType()).then(function(models) {
-            var cost = findCatalogCost(models, modelName);
-            if (cost) {
-              document.getElementById("mcInputHint").textContent = cost.input_per_1m_tokens != null ? "(参考: "+cost.input_per_1m_tokens+")" : "";
-              document.getElementById("mcOutputHint").textContent = cost.output_per_1m_tokens != null ? "(参考: "+cost.output_per_1m_tokens+")" : "";
-              document.getElementById("mcCachedHint").textContent = cost.cached_input_per_1m_tokens != null ? "(参考: "+cost.cached_input_per_1m_tokens+")" : "";
-            }
-          });
+          mcTryFillCost();
         } else {
-          // 新增模式：清空输入框，等用户输入模型名或点击建议后自动填充
+          // 新增模式：清空输入框
           document.getElementById("mcInputPrice").value = "";
           document.getElementById("mcOutputPrice").value = "";
           document.getElementById("mcCachedPrice").value = "";
+          document.getElementById("mcCacheReadPrice").value = "";
         }
-        renderMcModelSuggestions(epType);
+        renderMcModelSuggestions(modelName || "");
         openModal("modelCostModal");
       }
-      document.getElementById("mcEndpointType").addEventListener("change", function() {
-        if (document.getElementById("mcCatalogMatchMode").value === "auto") {
-          document.getElementById("mcCatalogProvider").value = this.value;
-        }
-        var epType = mcCatalogEpType();
-        var filterText = document.getElementById("mcModel").value;
-        renderMcModelSuggestions(epType, filterText);
-        mcTryFillCost();
-      });
-      document.getElementById("mcCatalogMatchMode").addEventListener("change", function() {
-        updateMcCatalogMatchMode();
-        var filterText = document.getElementById("mcModel").value;
-        renderMcModelSuggestions(mcCatalogEpType(), filterText);
-        mcTryFillCost();
-      });
-      document.getElementById("mcCatalogProvider").addEventListener("change", function() {
-        var filterText = document.getElementById("mcModel").value;
-        renderMcModelSuggestions(mcCatalogEpType(), filterText);
-        mcTryFillCost();
-      });
       var mcModelDebounce = null;
       document.getElementById("mcModel").addEventListener("input", function() {
         clearTimeout(mcModelDebounce);
@@ -2842,27 +2789,23 @@
         mcModelDebounce = setTimeout(function() {
           mcTryFillCost();
           if (!self.readOnly) {
-            var epType = mcCatalogEpType();
-            renderMcModelSuggestions(epType, self.value);
+            renderMcModelSuggestions(self.value);
           }
         }, 300);
       });
-      document.getElementById("newModelCostBtn").addEventListener("click", function() { openModelCostModal(null, ""); });
-      document.getElementById("refreshModelCostsBtn").addEventListener("click", function() { loadModelCosts(); });
+      document.getElementById("newModelCostBtn").addEventListener("click", function() { openModelCostModal(null); });
+      document.getElementById("refreshModelCostBtn").addEventListener("click", function() { loadModelCosts(); });
       document.getElementById("saveModelCostBtn").addEventListener("click", async function() {
         var model = document.getElementById("mcModel").value.trim();
         if (!model) { toast("请填写模型名称", "error"); return; }
         var payload = {
-          endpoint_type: document.getElementById("mcEndpointType").value,
           input_per_1m_tokens: parseFloat(document.getElementById("mcInputPrice").value) || 0,
           output_per_1m_tokens: parseFloat(document.getElementById("mcOutputPrice").value) || 0,
-          cached_input_per_1m_tokens: parseFloat(document.getElementById("mcCachedPrice").value) || 0
+          cached_input_per_1m_tokens: parseFloat(document.getElementById("mcCachedPrice").value) || 0,
+          cache_read_per_1m_tokens: parseFloat(document.getElementById("mcCacheReadPrice").value) || 0
         };
         try {
           var putUrl = "/admin/data/model-costs/"+encodeURIComponent(model);
-          // 编辑模式：用打开弹窗时记录的原始 endpoint_type 定位记录，避免改了下拉框后错位
-          var originalEp = state.editingModelCostEp || payload.endpoint_type;
-          if (state.editingModelCost && originalEp) putUrl += "?endpoint_type="+encodeURIComponent(originalEp);
           await api(putUrl, { method: "PUT", body: payload });
           toast("模型费用已保存", "success");
           closeModal("modelCostModal");
@@ -3914,7 +3857,8 @@ async function loadTrace() {
           html += detailItem("耗时", (r.duration_ms || 0) + "ms");
           html += detailItem("Input Tokens", r.input_tokens);
           html += detailItem("Output Tokens", r.output_tokens);
-          html += detailItem("Cached Tokens", r.cached_tokens);
+          html += detailItem("Cached Tokens (Read)", r.cached_tokens);
+          if (r.cache_creation_tokens) html += detailItem("Cache Creation Tokens", r.cache_creation_tokens);
           html += "</div></div>";
 
           // Request Body
