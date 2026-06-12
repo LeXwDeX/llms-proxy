@@ -2794,7 +2794,7 @@
         }, 300);
       });
       document.getElementById("newModelCostBtn").addEventListener("click", function() { openModelCostModal(null); });
-      document.getElementById("refreshModelCostBtn").addEventListener("click", function() { loadModelCosts(); });
+      document.getElementById("refreshModelCostsBtn").addEventListener("click", function() { loadModelCosts(); });
       document.getElementById("saveModelCostBtn").addEventListener("click", async function() {
         var model = document.getElementById("mcModel").value.trim();
         if (!model) { toast("请填写模型名称", "error"); return; }
