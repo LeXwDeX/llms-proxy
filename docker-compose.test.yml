@@ -14,6 +14,6 @@ services:
     ports:
       - 8001:8001
     volumes:
-      - ./config:/etc/llms-proxy
-      - ./data:/var/lib/llms-proxy
-      - ./logs:/var/log/llms-proxy
+      - ./config_test:/etc/llms-proxy
+      - ./data_test:/var/lib/llms-proxy
+      - ./logs_test:/var/log/llms-proxy

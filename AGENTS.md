@@ -35,7 +35,55 @@
 6. **重要**：若脚本退出非 0 或健康检查失败，**立即停止**，按脚本输出的回滚命令恢复，不要自作主张继续。
 7. **最重要**：当前的模型对话代理服务在 33.110，任何失误操作都会导致当前对话的AGENTS出现故障，切记未经同意就暂停或更改服务。
 
-**红线（绝对禁止）**：
+**🚫 8001 → 8000 部署门槛（硬约束，禁止跳过）**：
+
+每次发布必须严格经历两个独立阶段，**8001 测试通过且用户明确批准后**才能执行 8000 生产部署。Agent **绝对禁止**在一次会话中连续跑完两个阶段而不调头等用户反馈。
+
+| 阶段 | 命令 | 前置条件 | Agent 行为 |
+|---|---|---|---|
+| ① 8001 测试 | `ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh --test"`<br>或独立卷方案（见下表说明） | 用户说出「发布到 8001」 / 「发到 33.110」 / 任意通用发布指令 | 执行完 8001 健康检查后**汇报结果并停下，等用户指令** |
+| ② 用户验收 | 用户在 8001 上做回归（admin UI、真实请求、目标/费用页） | 8001 `/healthz` = ok | Agent 只观察，**不主动推进** |
+| ③ 8000 生产 | `ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh"` | 用户**明确说出**「上线到 8000」/「提升到生产」/「发布到生产」 | 执行；禁止用「继续」「下一步」等模糊词推断 |
+
+**8001 回归测试清单（阶段 ② 用户验收前，Agent 先跑一遍并汇报）**：
+
+1. `curl http://192.168.33.110:8001/healthz` → `{"status":"ok"}`
+2. 容器日志最后 20 行无 panic / 无 repeated restart / 无 DB 锁报错。
+3. `docker inspect` 镜像构建时间 ≤ 本次发布启动时间（避免跑旧镜像）。
+4. 若本次提交触及 `internal/nosql`、`internal/proxy`、`internal/quota`、`scripts/update-model-catalog.py` —— **必跑**：`go test ./internal/nosql/ ./internal/proxy/ ./internal/quota/ ./internal/costutil/ ./internal/catalog/` 确认对应回归用例 PASS（尤其 `TestTargetStoreListMigratesResourcePathPrefixIntoEndpoint`、`TestManagerEvaluate_CacheTokensUseSeparatePrices`、`TestManagerIncrementConsistentWithEvaluate`、`TestCatalogCacheReadPricePopulated`）。
+5. Admin UI `http://192.168.33.110:8001/admin/` 登录 `admin/suntao341` 能进去；目标页/费用页能加载出 11 个 targets、11 个 clients、多条模型费用记录。
+6. 用户提到的具体模型或功能，发一次真实请求确认。
+
+**红线补充**：
+
+| # | 禁止动作 | 理由 |
+|---|---|---|
+| ❌ | 8001 未跑回归就部署 8000 | 事故教训：未经充分验证直接上线（2026-06-13） |
+| ❌ | 8001 跑通后用「继续」「那上线吧」等模糊推断自动部署 8000 | 必须由用户明确说「上线到 8000」 |
+| ❌ | 8001 / 8000 容器用同一个 BoltDB 文件（`./data` 共享卷） | 两容器不能同时运行；必须为 8001 准备独立 `data_test/` `config_test/` 卷 |
+| ❌ | 在生产目录 `/DATA/AppData/llms_proxy/` 内执行 `git init`、`git reset --hard`、`docker compose stop llms-proxy` | 任一动作都直接影响 8000 生产，未经用户授权绝对禁止 |
+| ❌ | 8001 部署失败时尝试「停生产给测试让锁」 | 直接让生产断服，必须改用独立卷方案 |
+
+**8001 独立卷方案（避免与 8000 锁 DB 冲突，2026-06-13 确立）**：
+
+1. 服务器已创建：`/DATA/AppData/llms_proxy/{data_test,config_test,logs_test}`。
+2. `docker-compose.test.yml` 卷改为：
+   ```yaml
+   volumes:
+     - ./config_test:/etc/llms-proxy
+     - ./data_test:/var/lib/llms-proxy
+     - ./logs_test:/var/log/llms-proxy
+   ```
+3. 每次 8001 部署前从最新生产备份还原 `data_test/llms-proxy.db` 与 `config_test/config.json`：
+   ```bash
+   BACKUP=$(ls -td /DATA/Backups/llms-proxy/*/ | head -1)
+   cp "$BACKUP/data/llms-proxy.db"   data_test/llms-proxy.db
+   cp "$BACKUP/config/config.json"   config_test/config.json
+   chmod 666 data_test/llms-proxy.db
+   ```
+4. `docker compose -f docker-compose.test.yml up -d` 启动，与 8000 互不干扰。
+5. 8001 跑回归；用户确认后再走阶段 ③。
+
 
 | # | 禁止动作 | 理由 |
 |---|---|---|

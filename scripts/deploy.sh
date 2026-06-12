@@ -10,8 +10,12 @@
 #   6. 发布锁：/var/run/llms-proxy-deploy.lock 防止并发
 #
 # 用法:
-#   cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh           # 生产（8000）
-#   cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh --test    # 测试（8001）
+#   cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh             # 默认 → 测试（8001）
+#   cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh --prod      # 经审核后发布到生产（8000）
+#
+# ⚠️ 8001 与 8000 使用独立数据目录（config_test/data_test/logs_test），
+#    8001 不会碰 8000 的 BoltDB，因此可以并行运行、零服务中断地做回归测试。
+#    8000 生产必须经 8001 回归 + 用户明确批准后才可用 --prod 发布。
 #
 # 部署文档: docs/部署要求.md
 #
@@ -20,33 +24,59 @@ set -euo pipefail
 # ============================================================
 # 解析参数
 # ============================================================
-DEPLOY_MODE="prod"
+DEPLOY_MODE="test"
 for arg in "$@"; do
   case "$arg" in
     --test) DEPLOY_MODE="test" ;;
     --prod) DEPLOY_MODE="prod" ;;
-    *) die "未知参数: $arg（支持 --test / --prod）" ;;
+    *) echo "未知参数: $arg（支持 --test / --prod，缺省为 --test）" >&2; exit 1 ;;
   esac
 done
+
+# ============================================================
+# 生产部署二次确认（人为失误是 2026-06-13 事故的元凶之一）
+# ============================================================
+if [ "$DEPLOY_MODE" = "prod" ]; then
+  echo "============================================================"
+  echo "⚠️  警告：即将部署到 8000 生产实例！"
+  echo "============================================================"
+  echo ""
+  echo "请确认："
+  echo "  1. 已通过 'bash scripts/deploy.sh' 在 8001 部署并回归验证;"
+  echo "  2. 用户明确授权部署到 8000 生产;"
+  echo "  3. 已经准备好承担线上影响的责任。"
+  echo ""
+  printf "输入生产部署密钥 'DEPLOY-8000' 继续，或 Ctrl+C 取消 > "
+  read -r confirm
+  if [ "$confirm" != "DEPLOY-8000" ]; then
+    echo "已取消生产部署。"
+    exit 0
+  fi
+fi
 
 # ============================================================
 # 常量（按部署模式自动切换）
 # ============================================================
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG_DIR="$APP_DIR/config"
-DATA_DIR="$APP_DIR/data"
-LOGS_DIR="$APP_DIR/logs"
 
 if [ "$DEPLOY_MODE" = "test" ]; then
   COMPOSE_FILE="docker-compose.test.yml"
   HEALTH_URL="http://localhost:8001/healthz"
   CONTAINER_NAME="llms-proxy-test"
   PORT_LABEL="8001"
+  # 8001 完全独立环境，与生产物理隔离
+  CONFIG_DIR="$APP_DIR/config_test"
+  DATA_DIR="$APP_DIR/data_test"
+  LOGS_DIR="$APP_DIR/logs_test"
 else
   COMPOSE_FILE="docker-compose.yml"
   HEALTH_URL="http://localhost:8000/healthz"
   CONTAINER_NAME="llms-proxy"
   PORT_LABEL="8000"
+  # 8000 生产目录，与 8001 完全隔离
+  CONFIG_DIR="$APP_DIR/config"
+  DATA_DIR="$APP_DIR/data"
+  LOGS_DIR="$APP_DIR/logs"
 fi
 
 # 持久备份路径（避开 /tmp，/tmp 会被系统清理）
@@ -93,17 +123,17 @@ info "预检（检查 DB/目录/git 状态）..."
 
 # 1.2 data/ 必须存在，且 DB 文件必须存在（首次部署除外）
 if [ ! -d "$DATA_DIR" ]; then
-  warn "data/ 目录不存在，将创建（确认这是首次部署？按 Ctrl+C 取消，10 秒后继续）"
+  warn "$DATA_DIR 不存在，将创建（首次部署该环境？按 Ctrl+C 取消，10 秒后继续）"
   sleep 10
   mkdir -p "$DATA_DIR"
 elif [ ! -f "$DATA_DIR/llms-proxy.db" ]; then
-  warn "data/llms-proxy.db 不存在，将创建新 DB（确认这是首次部署或已手动清空？按 Ctrl+C 取消，10 秒后继续）"
+  warn "$DATA_DIR/llms-proxy.db 不存在，将创建新 DB（首次部署该环境或已手动清空？按 Ctrl+C 取消，10 秒后继续）"
   sleep 10
 fi
 
 # 1.3 config/config.json 必须存在（首次除外）
 if [ ! -f "$CONFIG_DIR/config.json" ]; then
-  warn "config/config.json 不存在（首次部署？按 Ctrl+C 取消，10 秒后继续）"
+  warn "$CONFIG_DIR/config.json 不存在（首次部署该环境？按 Ctrl+C 取消，10 秒后继续）"
   sleep 10
 fi
 
@@ -116,19 +146,19 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 # ============================================================
-# 2. 备份（持久路径）
+# 2. 备份当前环境（8001 或 8000，完全隔离）
 # ============================================================
-info "备份到 $BACKUP_DIR"
+info "备份 $DEPLOY_MODE 环境到 $BACKUP_DIR"
 mkdir -p "$BACKUP_DIR"
 
 if [ -d "$CONFIG_DIR" ] && [ -n "$(ls -A "$CONFIG_DIR" 2>/dev/null)" ]; then
   cp -a "$CONFIG_DIR" "$BACKUP_DIR/config"
-  info "  config/ 已备份"
+  info "  config/ 已备份 (from $CONFIG_DIR)"
 fi
 
 if [ -d "$DATA_DIR" ] && [ -n "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
   cp -a "$DATA_DIR" "$BACKUP_DIR/data"
-  info "  data/ 已备份"
+  info "  data/ 已备份 (from $DATA_DIR)"
 fi
 
 # 记录当前 commit，用于回滚
@@ -173,18 +203,18 @@ info "  新 commit: $NEW_COMMIT"
 # 如需清理 build artifact 请手工处理
 
 # ============================================================
-# 4. 恢复数据（git reset 不删 untracked，但保险起见）
+# 4. 恢复数据（无论 8001 还是 8000，都从自己的备份恢复）
 # ============================================================
 if [ -d "$BACKUP_DIR/config" ]; then
-  mkdir -p "$CONFIG_DIR"
-  cp -a "$BACKUP_DIR/config"/. "$CONFIG_DIR"/
-  info "已从备份恢复 config/"
+  rm -rf "$CONFIG_DIR"
+  cp -a "$BACKUP_DIR/config" "$CONFIG_DIR"
+  info "  config/ 已恢复到 $CONFIG_DIR"
 fi
 
 if [ -d "$BACKUP_DIR/data" ]; then
-  mkdir -p "$DATA_DIR"
-  cp -a "$BACKUP_DIR/data"/. "$DATA_DIR"/
-  info "已从备份恢复 data/"
+  rm -rf "$DATA_DIR"
+  cp -a "$BACKUP_DIR/data" "$DATA_DIR"
+  info "  data/ 已恢复到 $DATA_DIR"
 fi
 
 # ============================================================
