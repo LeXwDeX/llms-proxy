@@ -17,16 +17,18 @@
    - `go build ./... && go test ./...` 必须通过才能继续。
    - `git status` 必须干净或用户已确认要提交。
    - 若有改动，先 `git commit` 并 `git push origin main`。
-3. **部署唯一命令**（不要自创任何其他命令组合）：
-   - **测试实例（默认）**：
-     ```bash
-     ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy_test && bash scripts/deploy.sh"
-     ```
-   - **生产实例（仅用户明确要求时）**：
+3. **部署唯一命令**（不要自创任何其他命令组合）—— 都在 **同一个目录** `/DATA/AppData/llms_proxy`，由 `deploy.sh` 内部按模式选择挂载卷：
+   - **8001 测试实例（默认，无参数）**：
      ```bash
      ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh"
      ```
-4. **脚本会自动**：发布锁 → 预检 → 备份到 `/DATA/Backups/llms-proxy/` → `git reset --hard` 目标分支 → 恢复 config/data → 重建容器 → 30 秒健康检查 → 失败时打印回滚命令。
+   - **8000 生产实例（仅用户明确要求 + 人工密钥确认）**：
+     ```bash
+     ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh --prod"
+     ```
+     脚本会提示输入密钥 `DEPLOY-8000`，输错即退出，禁止 Agent 自填、禁止用 `yes`/`echo` 跳过。
+   - `--test` 参数与缺省等价，仅为显式表达。
+4. **脚本会自动**：识别部署模式 → 选择对应挂载卷（8001 用 `config_test/data_test/logs_test`，8000 用 `config/data/logs`）→ 发布锁 → 预检 → 备份到 `/DATA/Backups/llms-proxy/` → `git reset --hard` 到最新 main → 从备份恢复配置和数据 → 重建容器 → 30 秒健康检查 → 失败时打印回滚命令。
 5. **部署后验证**（必做）：
    - 测试：`curl http://192.168.33.110:8001/healthz` → 应返回 `{"status":"ok"}`
    - 生产：`curl http://192.168.33.110:8000/healthz` → 应返回 `{"status":"ok"}`
@@ -41,9 +43,9 @@
 
 | 阶段 | 命令 | 前置条件 | Agent 行为 |
 |---|---|---|---|
-| ① 8001 测试 | `ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh --test"`<br>或独立卷方案（见下表说明） | 用户说出「发布到 8001」 / 「发到 33.110」 / 任意通用发布指令 | 执行完 8001 健康检查后**汇报结果并停下，等用户指令** |
+| ① 8001 测试 | `ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh"` （缺省 = test） | 用户说出「发布到 8001」 / 「发到 33.110」 / 任意通用发布指令 | 执行完 8001 健康检查后**汇报结果并停下，等用户指令** |
 | ② 用户验收 | 用户在 8001 上做回归（admin UI、真实请求、目标/费用页） | 8001 `/healthz` = ok | Agent 只观察，**不主动推进** |
-| ③ 8000 生产 | `ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh"` | 用户**明确说出**「上线到 8000」/「提升到生产」/「发布到生产」 | 执行；禁止用「继续」「下一步」等模糊词推断 |
+| ③ 8000 生产 | `ssh root@192.168.33.110 "cd /DATA/AppData/llms_proxy && bash scripts/deploy.sh --prod"` | 用户**明确说出**「上线到 8000」/「提升到生产」/「发布到生产」 | 执行；禁止用「继续」「下一步」等模糊词推断 |
 
 **8001 回归测试清单（阶段 ② 用户验收前，Agent 先跑一遍并汇报）**：
 
@@ -63,35 +65,27 @@
 | ❌ | 8001 / 8000 容器用同一个 BoltDB 文件（`./data` 共享卷） | 两容器不能同时运行；必须为 8001 准备独立 `data_test/` `config_test/` 卷 |
 | ❌ | 在生产目录 `/DATA/AppData/llms_proxy/` 内执行 `git init`、`git reset --hard`、`docker compose stop llms-proxy` | 任一动作都直接影响 8000 生产，未经用户授权绝对禁止 |
 | ❌ | 8001 部署失败时尝试「停生产给测试让锁」 | 直接让生产断服，必须改用独立卷方案 |
-
-**8001 独立卷方案（避免与 8000 锁 DB 冲突，2026-06-13 确立）**：
-
-1. 服务器已创建：`/DATA/AppData/llms_proxy/{data_test,config_test,logs_test}`。
-2. `docker-compose.test.yml` 卷改为：
-   ```yaml
-   volumes:
-     - ./config_test:/etc/llms-proxy
-     - ./data_test:/var/lib/llms-proxy
-     - ./logs_test:/var/log/llms-proxy
-   ```
-3. 每次 8001 部署前从最新生产备份还原 `data_test/llms-proxy.db` 与 `config_test/config.json`：
-   ```bash
-   BACKUP=$(ls -td /DATA/Backups/llms-proxy/*/ | head -1)
-   cp "$BACKUP/data/llms-proxy.db"   data_test/llms-proxy.db
-   cp "$BACKUP/config/config.json"   config_test/config.json
-   chmod 666 data_test/llms-proxy.db
-   ```
-4. `docker compose -f docker-compose.test.yml up -d` 启动，与 8000 互不干扰。
-5. 8001 跑回归；用户确认后再走阶段 ③。
-
-
-| # | 禁止动作 | 理由 |
-|---|---|---|
 | ❌ | 在 33.110 上执行 `git clean -fdx` / `git clean -fd` | 会删除 `data/llms-proxy.db`、`config/config.json`、`logs/*`（2026-04-17 事故元凶） |
 | ❌ | 绕过 `scripts/deploy.sh` 直接跑 `git reset --hard` + `docker compose up` | 缺少备份和健康检查链路 |
 | ❌ | `rm -rf data/`、`rm -rf config/`、`docker compose down -v` | 数据丢失 |
 | ❌ | 在 admin UI 里"重置"或"删除"默认 admin 账号 | 会导致下次启动触发 seed 流程 |
 | ❌ | 修改 `scripts/deploy.sh` 中备份/恢复/预检环节但不做同步测试 | 任何一处失效都会引发事故 |
+
+**双环境隔离架构（deploy.sh 内置，无需手动准备）**：
+
+8001 和 8000 在**同一个 `/DATA/AppData/llms_proxy` 目录**共享代码（git），但**挂载卷完全隔离**：
+
+| 实例 | 配置 | 数据 (BoltDB) | 日志 | Docker 镜像 |
+|---|---|---|---|---|
+| 8000 生产 | `./config/` | `./data/llms-proxy.db` | `./logs/` | `llms-proxy:latest` |
+| 8001 测试 | `./config_test/` | `./data_test/llms-proxy.db` | `./logs_test/` | `llms-proxy-test:latest` |
+
+- **完全无锁冲突**：两套 BoltDB 永远不打开同一个文件，可以并行运行。
+- **数据互不干扰**：8001 不会碰 8000 的任何数据，反过来也是。生产出问题绝不会回滚回测试环境的数据。
+- **deploy.sh 自动判断**：根据参数选对应的 compose 文件和卷，不需要手动 cp DB。
+- **备份策略一致**：每次 deploy 都会先备份当前模式对应目录到 `/DATA/Backups/llms-proxy/<时间戳>/`。
+- **服务器卷目录已创建**：`/DATA/AppData/llms_proxy/{data_test,config_test,logs_test}`（2026-06-13 创建）。
+- **首次 8001 启动**：需要从生产备份复制 `config.json` 和 `llms-proxy.db` 到 `config_test/` `data_test/`（一次性操作，脚本不会自动做）。
 
 **应急（admin 密码忘记）**：
 
