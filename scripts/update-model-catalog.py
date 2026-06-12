@@ -44,14 +44,17 @@ def convert_cost(cost_obj: dict) -> Optional[dict]:
 
     input_price = cost_obj.get("input")
     output_price = cost_obj.get("output")
-    cached_price = cost_obj.get("cache_read")
+    cache_read_price = cost_obj.get("cache_read")
+    cache_write_price = cost_obj.get("cache_write", 0)
 
     if isinstance(input_price, (int, float)) and input_price > 0:
         result["input_per_1m_tokens"] = round(input_price, 10)
     if isinstance(output_price, (int, float)) and output_price > 0:
         result["output_per_1m_tokens"] = round(output_price, 10)
-    if isinstance(cached_price, (int, float)) and cached_price > 0:
-        result["cached_input_per_1m_tokens"] = round(cached_price, 10)
+    if isinstance(cache_write_price, (int, float)) and cache_write_price > 0:
+        result["cached_input_per_1m_tokens"] = round(cache_write_price, 10)
+    if isinstance(cache_read_price, (int, float)) and cache_read_price > 0:
+        result["cache_read_per_1m_tokens"] = round(cache_read_price, 10)
 
     return result if result else None
 

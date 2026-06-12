@@ -122,6 +122,56 @@ func TestSumByClientRangeSingleRecord(t *testing.T) {
 	}
 }
 
+// TestSumByClientRangeIncludesCacheCreationTokens guards the UsageTotals
+// regression from commit 90780b1: the quota Manager consumes SumByClientRange
+// to compute USD, and cache-creation vs cache-read tokens carry different unit
+// prices. If only CachedTokens (read) is returned while CacheCreationTokens is
+// dropped, the manager's cost calculation falls back to using CachedTokens at
+// the CachedInput (write) price and silently over-charges clients.
+func TestSumByClientRangeIncludesCacheCreationTokens(t *testing.T) {
+	db := testDB(t)
+	store := NewUsageStore(db)
+
+	putAgg(t, db, "2026-06-08T10|claude|alice|claude-opus-4-1", AggCell{
+		InputTokens:         1000,
+		OutputTokens:        500,
+		CachedTokens:        200,  // cache read hits
+		CacheCreationTokens: 3000, // cache write
+		Requests:            1,
+		Success:             1,
+	})
+	putAgg(t, db, "2026-06-08T11|claude|alice|claude-opus-4-1", AggCell{
+		InputTokens:         2000,
+		OutputTokens:        800,
+		CachedTokens:        1000,
+		CacheCreationTokens: 4000,
+		Requests:            2,
+		Success:             2,
+	})
+
+	from := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	result, err := store.SumByClientRange("alice", from, to)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	totals, ok := result["claude:claude-opus-4-1"]
+	if !ok {
+		t.Fatalf("missing groupKey, got %v", result)
+	}
+
+	if totals.CachedTokens != 1200 {
+		// 200 + 1000 = cache read totals
+		t.Errorf("CachedTokens (cache read): got %d, want 1200", totals.CachedTokens)
+	}
+	if totals.CacheCreationTokens != 7000 {
+		// 3000 + 4000 = cache creation totals; quota cost formula multiplies this
+		// by CachedInputPer1MToken, distinct from CacheReadPer1MToken applied to
+		// CachedTokens. Losing this field silently mis-bills the customer.
+		t.Errorf("CacheCreationTokens (cache write): got %d, want 7000", totals.CacheCreationTokens)
+	}
+}
+
 func TestSumByClientRangeCrossHours(t *testing.T) {
 	db := testDB(t)
 	store := NewUsageStore(db)

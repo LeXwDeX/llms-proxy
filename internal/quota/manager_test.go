@@ -182,6 +182,120 @@ func TestManagerEvaluate_ExceedsLimit(t *testing.T) {
 	}
 }
 
+// TestManagerEvaluate_CacheTokensUseSeparatePrices guards the quota pricing
+// regression from commit 90780b1: Evaluate() and Status() read DB aggregates
+// and must multiply CachedTokens at CacheReadPer1MToken and
+// CacheCreationTokens at CachedInputPer1MToken — not reuse CachedInput for
+// both. If the formula collapses to old single-price behaviour, the per-
+// request Increment path and the per-hour Evaluate path diverge, and clients
+// are either over-charged or under-charged depending on which path ran last.
+func TestManagerEvaluate_CacheTokensUseSeparatePrices(t *testing.T) {
+	db := testOpenDB(t)
+	m := newTestManager(t, db)
+
+	// Client with a daily ceiling just above what the CORRECT formula yields,
+	// but below what the WRONG formula would yield.
+	putClient(t, db, config.Client{Name: "alice", AccessKey: "k1", QuotaDailyUSD: 19})
+	putModelCost(t, db, nosql.ModelCost{
+		EndpointType:          "claude",
+		Model:                 "claude-opus-4-1",
+		InputPer1MTokens:      15,
+		OutputPer1MTokens:     75,
+		CachedInputPer1MToken: 18.75, // cache WRITE price
+		CacheReadPer1MToken:   1.50,  // cache READ price — 12.5× cheaper than write
+	})
+
+	// Agg cell that exercises BOTH cache dimensions.
+	//   1M input tokens  × $15    /1M = $15.00
+	//   0  output tokens × $75    /1M =  $0.00
+	//   1M cache-read    × $1.50  /1M =  $1.50   (correct price)
+	//   1M cache-creation× $18.75 /1M = $18.75
+	//   Total CORRECT = $35.25 ; total WRONG (read priced as write) = $52.50
+	putAggCell(t, db, nowHourKey("claude", "alice", "claude-opus-4-1"), nosql.AggCell{
+		InputTokens:         1_000_000,
+		CachedTokens:        1_000_000,
+		CacheCreationTokens: 1_000_000,
+	})
+
+	m.Evaluate("alice")
+
+	m.mu.RLock()
+	info, exceeded := m.exceeded["alice"]
+	cc := m.counters["alice"]
+	var used float64
+	if cc != nil {
+		if dc := cc.dims[DimensionDaily]; dc != nil {
+			used = dc.used
+		}
+	}
+	m.mu.RUnlock()
+
+	const wantUsed = 35.25
+	if used < wantUsed-1e-9 || used > wantUsed+1e-9 {
+		t.Fatalf("Evaluate used = %f, want exactly %f (wrong formula likely applies CachedInput to CachedTokens)", used, wantUsed)
+	}
+	if !exceeded {
+		t.Fatalf("expected exceeded at limit=$19 with used=$%.2f", used)
+	}
+	if info.Dimension != DimensionDaily {
+		t.Errorf("expected dimension=daily, got %q", info.Dimension)
+	}
+}
+
+// TestManagerIncrementConsistentWithEvaluate asserts that the in-memory
+// Increment path (post-request) and the authoritative Evaluate/Status path
+// (DB back-read) produce the same USD total for identical token counts —
+// otherwise a process restart or hourly calibration would silently rewrite
+// the client's quota consumption.
+func TestManagerIncrementConsistentWithEvaluate(t *testing.T) {
+	db := testOpenDB(t)
+	m := newTestManager(t, db)
+
+	putClient(t, db, config.Client{Name: "alice", AccessKey: "k1", QuotaDailyUSD: 100})
+	putModelCost(t, db, nosql.ModelCost{
+		EndpointType:          "claude",
+		Model:                 "claude-opus-4-1",
+		InputPer1MTokens:      15,
+		OutputPer1MTokens:     75,
+		CachedInputPer1MToken: 18.75,
+		CacheReadPer1MToken:   1.50,
+	})
+
+	// First, record via Increment.
+	m.Increment("alice", "claude", "claude-opus-4-1",
+		/*input*/ 1_000_000, /*output*/ 2_000_000, /*cacheRead*/ 500_000, /*cacheCreation*/ 3_000_000)
+
+	m.mu.RLock()
+	incrementUsed := m.counters["alice"].dims[DimensionDaily].used
+	m.mu.RUnlock()
+
+	// Now simulate the post-restart / calibration path: write the same usage
+	// into the agg bucket and run Evaluate; it must match Increment exactly.
+	// (SumByClientRange truncates to the current hour, so use the current hour key.)
+	putAggCell(t, db, nowHourKey("claude", "alice", "claude-opus-4-1"), nosql.AggCell{
+		InputTokens:         1_000_000,
+		OutputTokens:        2_000_000,
+		CachedTokens:        500_000,
+		CacheCreationTokens: 3_000_000,
+	})
+
+	m.Evaluate("alice")
+
+	m.mu.RLock()
+	evaluateUsed := m.counters["alice"].dims[DimensionDaily].used
+	m.mu.RUnlock()
+
+	const eps = 1e-9
+	if incrementUsed < eps {
+		t.Fatalf("Increment produced zero used — sanity check failed")
+	}
+	diff := incrementUsed - evaluateUsed
+	if diff > eps || diff < -eps {
+		t.Fatalf("Increment used=$%.9f vs Evaluate used=$%.9f diverge by $%.9f — cache token pricing is inconsistent between paths",
+			incrementUsed, evaluateUsed, diff)
+	}
+}
+
 func TestManagerEvaluate_DailyAndWeeklyBothExceeded(t *testing.T) {
 	db := testOpenDB(t)
 	m := newTestManager(t, db)

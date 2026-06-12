@@ -265,9 +265,10 @@ func BackfillUsageAgg(db *bolt.DB) error {
 
 // UsageTotals 单模型 token 累计。
 type UsageTotals struct {
-	InputTokens  int64
-	OutputTokens int64
-	CachedTokens int64
+	InputTokens         int64
+	OutputTokens        int64
+	CachedTokens        int64
+	CacheCreationTokens int64
 }
 
 // SumByClientRange 按 endpoint_type:model 分组聚合指定 client + 时间范围的小时格。
@@ -324,6 +325,7 @@ func (s *UsageStore) SumByClientRange(client string, from, to time.Time) (map[st
 			totals.InputTokens += cell.InputTokens
 			totals.OutputTokens += cell.OutputTokens
 			totals.CachedTokens += cell.CachedTokens
+			totals.CacheCreationTokens += cell.CacheCreationTokens
 			result[groupKey] = totals
 		}
 		return nil

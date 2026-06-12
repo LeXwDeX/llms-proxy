@@ -423,7 +423,8 @@ func (m *Manager) Evaluate(clientName string) {
 			}
 			used += float64(t.InputTokens)/1e6*rates.InputPer1MTokens +
 				float64(t.OutputTokens)/1e6*rates.OutputPer1MTokens +
-				float64(t.CachedTokens)/1e6*rates.CachedInputPer1MToken
+				float64(t.CacheCreationTokens)/1e6*rates.CachedInputPer1MToken +
+				float64(t.CachedTokens)/1e6*rates.CacheReadPer1MToken
 		}
 		cc.dims[dim.name] = &dimCounter{
 			limit:    dim.limit,
@@ -586,7 +587,8 @@ func (m *Manager) Status(clientName string) QuotaStatus {
 						}
 						used += float64(t.InputTokens)/1e6*rates.InputPer1MTokens +
 							float64(t.OutputTokens)/1e6*rates.OutputPer1MTokens +
-							float64(t.CachedTokens)/1e6*rates.CachedInputPer1MToken
+							float64(t.CacheCreationTokens)/1e6*rates.CachedInputPer1MToken +
+							float64(t.CachedTokens)/1e6*rates.CacheReadPer1MToken
 					}
 				}
 			}

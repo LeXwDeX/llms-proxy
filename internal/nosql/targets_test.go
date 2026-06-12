@@ -3,6 +3,8 @@ package nosql
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ycgame/llms-proxy/internal/config"
@@ -80,6 +82,116 @@ func TestMigrateTargetsFromConfig(t *testing.T) {
 	}
 	if migrated {
 		t.Fatalf("expected second migration to skip non-empty target store")
+	}
+}
+
+func TestTargetStoreListMigratesResourcePathPrefixIntoEndpoint(t *testing.T) {
+	// Regression: the runtime URL builder no longer consults ResourcePathPrefix
+	// (commit 3073bc1). Old persisted targets kept the prefix in a separate
+	// field, so normalizeTarget/List() must fold it into Endpoint on read
+	// and strip the stale field — otherwise buildURL produces a path-less
+	// upstream URL like https://host/deployments/... instead of
+	// https://host/openai/deployments/...
+	db := testDB(t)
+	cases := []struct {
+		name              string
+		endpoint          string
+		rpp               string
+		wantEndpoint      string
+		wantRPP           string
+	}{
+		{
+			name:         "azure prefix folded once",
+			endpoint:     "https://azure.example.com",
+			rpp:          "/openai",
+			wantEndpoint: "https://azure.example.com/openai",
+			wantRPP:      "",
+		},
+		{
+			name:         "prefix already present is not duplicated",
+			endpoint:     "https://azure.example.com/openai",
+			rpp:          "/openai",
+			wantEndpoint: "https://azure.example.com/openai",
+			wantRPP:      "",
+		},
+		{
+			name:         "trailing slash in endpoint is tolerated",
+			endpoint:     "https://azure.example.com/",
+			rpp:          "/openai",
+			wantEndpoint: "https://azure.example.com/openai",
+			wantRPP:      "",
+		},
+		{
+			name:         "root prefix is ignored (no-op)",
+			endpoint:     "https://other.example.com",
+			rpp:          "/",
+			wantEndpoint: "https://other.example.com",
+			wantRPP:      "",
+		},
+		{
+			name:         "empty prefix leaves endpoint alone",
+			endpoint:     "https://other.example.com/v1",
+			rpp:          "",
+			wantEndpoint: "https://other.example.com/v1",
+			wantRPP:      "",
+		},
+	}
+
+	for i, tc := range cases {
+		key := strings.ToLower(fmt.Sprintf("t%d-%s", i, tc.name))
+		legacy := config.Target{
+			Name:               key,
+			EndpointType:       config.EndpointTypeAzureOpenAI,
+			Endpoint:           tc.endpoint,
+			ResourcePathPrefix: tc.rpp,
+			APIKey:             "k",
+		}
+		if err := db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte(BucketTargets))
+			data, err := json.Marshal(legacy)
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(key), data)
+		}); err != nil {
+			t.Fatalf("seed %q: %v", tc.name, err)
+		}
+	}
+
+	store := NewTargetStore(db)
+	targets, err := store.List()
+	if err != nil {
+		t.Fatalf("list targets: %v", err)
+	}
+
+	byName := make(map[string]config.Target, len(targets))
+	for _, tgt := range targets {
+		byName[strings.ToLower(tgt.Name)] = tgt
+	}
+	for i, tc := range cases {
+		key := strings.ToLower(fmt.Sprintf("t%d-%s", i, tc.name))
+		got, ok := byName[key]
+		if !ok {
+			t.Errorf("[%s] missing from list", tc.name)
+			continue
+		}
+		if got.Endpoint != tc.wantEndpoint {
+			t.Errorf("[%s] Endpoint = %q, want %q", tc.name, got.Endpoint, tc.wantEndpoint)
+		}
+		if got.ResourcePathPrefix != tc.wantRPP {
+			t.Errorf("[%s] ResourcePathPrefix = %q, want %q", tc.name, got.ResourcePathPrefix, tc.wantRPP)
+		}
+	}
+
+	// Second List() must not re-append the prefix (idempotency after migration persisted).
+	targets2, err := store.List()
+	if err != nil {
+		t.Fatalf("second list: %v", err)
+	}
+	for _, tgt := range targets2 {
+		if tgt.ResourcePathPrefix != "" {
+			t.Errorf("%s: ResourcePathPrefix should be cleared after migration, got %q", tgt.Name, tgt.ResourcePathPrefix)
+		}
 	}
 }
 

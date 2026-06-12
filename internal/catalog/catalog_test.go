@@ -105,6 +105,53 @@ func TestLookupDefaultCost(t *testing.T) {
 	}
 }
 
+// TestCatalogCacheReadPricePopulated guards the pricing-field rename
+// introduced in commit 90780b1: quota + usage code now reads
+// CacheReadPer1MToken separately from CachedInputPer1MToken (cache write
+// price). If the catalog generator still emits only cached_input_per_1m_tokens
+// for every cache-related model, cache reads are silently billed at $0.
+func TestCatalogCacheReadPricePopulated(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	// Any well-known cache-using model should carry both write and read prices.
+	// If the upstream models.dev feed only carries cache_read, the generator
+	// must still populate cache_read_per_1m_tokens — the regression path where
+	// it wrote cache_read into cached_input_per_1m_tokens leaves CacheRead=0.
+	probes := []struct {
+		endpointType string
+		model        string
+	}{
+		{"azure_openai", "gpt-4o"},
+		{"azure_openai", "claude-haiku-4-5"},
+		{"claude", "claude-sonnet-4-20250514"},
+		{"openai", "gpt-4o"},
+	}
+
+	anyHaveReadPrice := false
+	for _, p := range probes {
+		entry := c.Lookup(p.endpointType, p.model)
+		if entry == nil || entry.DefaultCost == nil {
+			continue
+		}
+		cost := entry.DefaultCost
+		hasWrite := cost.CachedInputPer1MToken > 0
+		hasRead := cost.CacheReadPer1MToken > 0
+		if hasWrite && !hasRead {
+			t.Errorf("%s/%s: CachedInputPer1MToken=%v but CacheReadPer1MToken=0 — catalog generator likely mis-mapped cache_read",
+				p.endpointType, p.model, cost.CachedInputPer1MToken)
+		}
+		if hasRead {
+			anyHaveReadPrice = true
+		}
+	}
+	if !anyHaveReadPrice {
+		t.Error("no probed model has CacheReadPer1MToken > 0; catalog generator appears to drop cache_read pricing entirely")
+	}
+}
+
 func TestListByEndpointType(t *testing.T) {
 	c, err := New()
 	if err != nil {

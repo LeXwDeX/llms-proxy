@@ -324,6 +324,14 @@ func normalizeTarget(target config.Target) config.Target {
 		target.ModelMappings[i].Upstream = strings.TrimSpace(target.ModelMappings[i].Upstream)
 		target.ModelMappings[i].Fallback = strings.TrimSpace(target.ModelMappings[i].Fallback)
 	}
+	rpp := strings.TrimSpace(target.ResourcePathPrefix)
+	if rpp != "" && rpp != "/" {
+		endpoint := strings.TrimRight(target.Endpoint, "/")
+		if !strings.HasSuffix(endpoint, rpp) {
+			target.Endpoint = endpoint + rpp
+		}
+	}
+	target.ResourcePathPrefix = ""
 	return target
 }
 
